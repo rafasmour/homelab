@@ -1,0 +1,25 @@
+services:
+  excalidraw:
+    container_name: excalidraw
+    image: excalidraw/excalidraw:latest
+    restart: unless-stopped
+    networks:
+      - webgateway
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.excalidraw.rule: "Host(`excalidraw.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.excalidraw.entrypoints: websecure
+      traefik.http.routers.excalidraw.tls.certresolver: myresolver
+      traefik.http.services.excalidraw.loadbalancer.server.port: "80"
+      homepage.group: Knowledge
+      homepage.name: Excalidraw
+      homepage.icon: excalidraw
+      homepage.href: "https://excalidraw.${DOMAIN}"
+      homepage.description: Virtual whiteboard for sketching diagrams.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway
+

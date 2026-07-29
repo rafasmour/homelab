@@ -1,0 +1,36 @@
+services:
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:2025.11.1@sha256:91dc91ddd413bf461c283204558f8f21839851e9824799075a7ceff7c77eea40
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+    environment:
+      TZ: 'Europe/Athens'
+      PIHOLE_UID: 1000
+      PIHOLE_GID: 1000
+      FTLCONF_webserver_domain: "pihole.tomandjerry.mourou.dev"
+      FTLCONF_webserver_port: "8080,8443s"
+      FTLCONF_dns_listeningMode: 'all'
+      FTLCONF_webserver_api_password: ${WEBPASSWORD}
+      FTLCONF_dhcp_active: 'false'
+      FTLCONF_ntp_ipv4_active: 'false'
+      FTLCONF_ntp_ipv6_active: 'false'
+      FTLCONF_ntp_sync_active: 'false'
+      FTLCONF_debug_api: 'false'
+    volumes:
+      - './etc-pihole:/etc/pihole'
+    cap_add:
+      - SYS_NICE
+    restart: unless-stopped
+    network_mode: host
+    labels:
+      homepage.group: Management
+      homepage.name: Pi-hole
+      homepage.icon: pi-hole
+      homepage.href: https://pihole.tomandjerry.mourou.dev
+      homepage.description: DNS sinkhole that protects your devices from unwanted content.
+      homepage.widget.type: pihole
+      homepage.widget.url: https://pihole.tomandjerry.mourou.dev
+      homepage.widget.version: 6
+      homepage.widget.key: ${API_TOKEN_FOR_HOMEPAGE}

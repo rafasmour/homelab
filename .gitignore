@@ -1,0 +1,15 @@
+# Per-stack configuration can contain passwords.
+**/.env
+
+# Runtime data is persisted on the host but not committed.
+pi-hole/etc-pihole/*
+
+silverbullet/space/*
+!silverbullet/space/.gitkeep
+
+nextcloud/database/*
+!nextcloud/database/.gitkeep
+nextcloud/html/*
+!nextcloud/html/.gitkeep
+nextcloud/redis/*
+!nextcloud/redis/.gitkeep

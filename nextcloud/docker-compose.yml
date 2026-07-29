@@ -1,0 +1,100 @@
+services:
+  database:
+    container_name: nextcloud-database
+    image: mariadb:lts
+    restart: unless-stopped
+    command:
+      - --transaction-isolation=READ-COMMITTED
+      - --binlog-format=ROW
+    environment:
+      MARIADB_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}"
+      MARIADB_DATABASE: nextcloud
+      MARIADB_USER: nextcloud
+      MARIADB_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}"
+    volumes:
+      - ./database:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    container_name: nextcloud-redis
+    image: redis:alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - ./redis:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  nextcloud:
+    container_name: nextcloud
+    image: nextcloud:apache
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: database
+      MYSQL_DATABASE: nextcloud
+      MYSQL_USER: nextcloud
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}"
+      REDIS_HOST: redis
+      NEXTCLOUD_TRUSTED_DOMAINS: "nextcloud.${DOMAIN:?Set DOMAIN in .env}"
+      TRUSTED_PROXIES: 172.17.1.0/24
+      APACHE_DISABLE_REWRITE_IP: "1"
+      OVERWRITEHOST: "nextcloud.${DOMAIN}"
+      OVERWRITEPROTOCOL: https
+      OVERWRITECLIURL: "https://nextcloud.${DOMAIN}"
+    volumes:
+      - ./html:/var/www/html
+    networks:
+      - backend
+      - webgateway
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.nextcloud.rule: "Host(`nextcloud.${DOMAIN}`)"
+      traefik.http.routers.nextcloud.entrypoints: websecure
+      traefik.http.routers.nextcloud.tls.certresolver: myresolver
+      traefik.http.routers.nextcloud.middlewares: nextcloud-dav
+      traefik.http.services.nextcloud.loadbalancer.server.port: "80"
+      traefik.http.middlewares.nextcloud-dav.redirectregex.permanent: "true"
+      traefik.http.middlewares.nextcloud-dav.redirectregex.regex: '^https://([^/]+)/\.well-known/(?:card|cal)dav$'
+      traefik.http.middlewares.nextcloud-dav.redirectregex.replacement: "https://$${1}/remote.php/dav"
+      homepage.group: Cloud
+      homepage.name: Nextcloud
+      homepage.icon: nextcloud
+      homepage.href: "https://nextcloud.${DOMAIN}"
+      homepage.description: Private file sync, sharing, and collaboration.
+
+  cron:
+    container_name: nextcloud-cron
+    image: nextcloud:apache
+    restart: unless-stopped
+    entrypoint: /cron.sh
+    depends_on:
+      - nextcloud
+    volumes:
+      - ./html:/var/www/html
+    networks:
+      - backend
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway
