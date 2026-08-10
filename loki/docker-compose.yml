@@ -1,0 +1,32 @@
+services:
+  loki:
+    container_name: loki
+    image: grafana/loki:${LOKI_VERSION:-latest}
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/config.yml
+    volumes:
+      - ./loki-config.yml:/etc/loki/config.yml:ro
+      - ./data:/loki
+    networks:
+      - webgateway
+    labels:
+      kuma.loki.docker.name: "loki"
+      kuma.loki.docker.docker_host_name: local-docker-host
+      kuma.loki.docker.docker_container: loki
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.loki.rule: "Host(`loki.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.loki.entrypoints: websecure
+      traefik.http.routers.loki.tls.certresolver: myresolver
+      traefik.http.services.loki.loadbalancer.server.port: "3100"
+      homepage.group: Monitoring
+      homepage.name: Loki
+      homepage.icon: loki
+      homepage.href: "https://loki.${DOMAIN}/ready"
+      homepage.description: Log aggregation and LogQL query backend.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

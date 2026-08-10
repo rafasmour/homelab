@@ -1,0 +1,33 @@
+services:
+  vaultwarden:
+    container_name: vaultwarden
+    image: vaultwarden/server:${VAULTWARDEN_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      DOMAIN: "https://vaultwarden.${DOMAIN:?Set DOMAIN in .env}"
+      SIGNUPS_ALLOWED: "${SIGNUPS_ALLOWED:-true}"
+      ADMIN_TOKEN: "${ADMIN_TOKEN:?Set ADMIN_TOKEN in .env}"
+    volumes:
+      - ./data:/data
+    networks:
+      - webgateway
+    labels:
+      kuma.vaultwarden.docker.name: "vaultwarden"
+      kuma.vaultwarden.docker.docker_host_name: local-docker-host
+      kuma.vaultwarden.docker.docker_container: vaultwarden
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.vaultwarden.rule: "Host(`vaultwarden.${DOMAIN}`)"
+      traefik.http.routers.vaultwarden.entrypoints: websecure
+      traefik.http.routers.vaultwarden.tls.certresolver: myresolver
+      traefik.http.services.vaultwarden.loadbalancer.server.port: "80"
+      homepage.group: Security
+      homepage.name: Vaultwarden
+      homepage.icon: vaultwarden
+      homepage.href: "https://vaultwarden.${DOMAIN}"
+      homepage.description: Private password manager compatible with Bitwarden clients.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

@@ -1,15 +1,103 @@
-# Per-stack configuration can contain passwords.
+# Deny by default. Repository files must be explicitly allowlisted below.
+*
+
+# Repository-level files.
+!.gitignore
+!AGENTS.md
+!README.md
+!update-domain.sh
+
+# Supported service folders. Add a matching `!service-name/` entry when a new
+# stack is created. Files inside remain ignored unless allowlisted separately.
+!affine/
+!chartdb/
+!excalidraw/
+!firefly-iii/
+!gitlab/
+!grafana/
+!homepage/
+!immich/
+!invidious/
+!loki/
+!mealie/
+!memos/
+!n8n/
+!nextcloud/
+!node-exporter/
+!open-telemetry/
+!pi-hole/
+!prometheus/
+!reactive-resume/
+!searxng/
+!tandoor-recipes/
+!unsloth-studio/
+!uptime-kuma/
+!vaultwarden/
+
+# Standard files allowed in every explicitly allowlisted service folder.
+!*/docker-compose.yml
+!*/.env.example
+!*/README.md
+
+# Local configuration and bind-mounted container state. These paths are
+# intentionally explicit even though the deny-by-default rule above already
+# ignores them.
 **/.env
+affine/config/
+affine/postgres/
+affine/redis/
+affine/storage/
+firefly-iii/database/
+firefly-iii/uploads/
+gitlab/config/
+gitlab/data/
+gitlab/logs/
+grafana/data/
+homepage/config/
+immich/library/
+immich/model-cache/
+immich/postgres/
+immich/valkey/
+invidious/postgres/
+loki/data/
+mealie/data/
+memos/data/
+n8n/data/
+n8n/postgres/
+nextcloud/database/
+nextcloud/html/
+nextcloud/redis/
+open-telemetry/data/
+pi-hole/etc-pihole/
+prometheus/data/
+reactive-resume/data/
+reactive-resume/postgres/
+searxng/config/
+searxng/data/
+searxng/valkey/
+silverbullet/space/
+tandoor-recipes/mediafiles/
+tandoor-recipes/postgres/
+tandoor-recipes/staticfiles/
+unsloth-studio/work/
+uptime-kuma/autokuma-data/
+uptime-kuma/data/
+vaultwarden/data/
 
-# Runtime data is persisted on the host but not committed.
-pi-hole/etc-pihole/*
+# Additional tracked configuration and initialization files.
+!prometheus/prometheus.yml
+!loki/loki-config.yml
+!grafana/provisioning/
+!grafana/provisioning/datasources/
+!grafana/provisioning/datasources/observability.yml
+!open-telemetry/otel-collector-config.yml
+!homepage/config/
+!homepage/config/docker.yaml
+!invidious/config/
+!invidious/config/sql/
+!invidious/config/sql/*.sql
+!invidious/docker/
+!invidious/docker/init-invidious-db.sh
 
-silverbullet/space/*
-!silverbullet/space/.gitkeep
-
-nextcloud/database/*
-!nextcloud/database/.gitkeep
-nextcloud/html/*
-!nextcloud/html/.gitkeep
-nextcloud/redis/*
-!nextcloud/redis/.gitkeep
+# Existing tracked `.gitkeep` files remain tracked automatically. Their runtime
+# parent directories are deliberately not unignored so Git never scans data.

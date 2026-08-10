@@ -1,0 +1,61 @@
+services:
+  dockerproxy:
+    container_name: homepage-docker-proxy
+    labels:
+      kuma.homepage-docker-proxy.docker.name: "homepage-docker-proxy"
+      kuma.homepage-docker-proxy.docker.docker_host_name: local-docker-host
+      kuma.homepage-docker-proxy.docker.docker_container: homepage-docker-proxy
+    image: "ghcr.io/tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_VERSION:-v0.4.2}"
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      POST: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  homepage:
+    container_name: homepage
+    image: "ghcr.io/gethomepage/homepage:${HOMEPAGE_VERSION:-v1.13.1}"
+    restart: unless-stopped
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: "${DOMAIN:?Set DOMAIN in .env}"
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+    volumes:
+      - ./config:/app/config
+    networks:
+      - backend
+      - webgateway
+    depends_on:
+      dockerproxy:
+        condition: service_healthy
+    labels:
+      kuma.homepage.docker.name: "homepage"
+      kuma.homepage.docker.docker_host_name: local-docker-host
+      kuma.homepage.docker.docker_container: homepage
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.homepage.rule: "Host(`${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.homepage.entrypoints: websecure
+      traefik.http.routers.homepage.tls.certresolver: myresolver
+      traefik.http.services.homepage.loadbalancer.server.port: "3000"
+      homepage.group: Monitoring
+      homepage.name: Homepage
+      homepage.icon: homepage
+      homepage.href: "https://${DOMAIN}"
+      homepage.description: Dashboard for self-hosted services.
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway

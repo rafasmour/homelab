@@ -1,0 +1,35 @@
+services:
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:${PROMETHEUS_VERSION:-latest}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./data:/prometheus
+    networks:
+      - webgateway
+    labels:
+      kuma.prometheus.docker.name: "prometheus"
+      kuma.prometheus.docker.docker_host_name: local-docker-host
+      kuma.prometheus.docker.docker_container: prometheus
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.prometheus.rule: "Host(`prometheus.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.prometheus.entrypoints: websecure
+      traefik.http.routers.prometheus.tls.certresolver: myresolver
+      traefik.http.services.prometheus.loadbalancer.server.port: "9090"
+      homepage.group: Monitoring
+      homepage.name: Prometheus
+      homepage.icon: prometheus
+      homepage.href: "https://prometheus.${DOMAIN}"
+      homepage.description: Metrics collection, querying, and alerting.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

@@ -1,0 +1,42 @@
+services:
+  gitlab:
+    container_name: gitlab
+    image: "gitlab/gitlab-ce:${GITLAB_VERSION:-latest}"
+    restart: unless-stopped
+    hostname: "gitlab.${DOMAIN:?Set DOMAIN in .env}"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://gitlab.${DOMAIN}'
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-2222}
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD:?Set GITLAB_ROOT_PASSWORD in .env}'
+    ports:
+      - "${GITLAB_SSH_PORT:-2222}:22"
+    volumes:
+      - ./config:/etc/gitlab
+      - ./logs:/var/log/gitlab
+      - ./data:/var/opt/gitlab
+    shm_size: 256m
+    networks:
+      - webgateway
+    labels:
+      kuma.gitlab.docker.name: "gitlab"
+      kuma.gitlab.docker.docker_host_name: local-docker-host
+      kuma.gitlab.docker.docker_container: gitlab
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.gitlab.rule: "Host(`gitlab.${DOMAIN}`)"
+      traefik.http.routers.gitlab.entrypoints: websecure
+      traefik.http.routers.gitlab.tls.certresolver: myresolver
+      traefik.http.services.gitlab.loadbalancer.server.port: "80"
+      homepage.group: Development
+      homepage.name: GitLab
+      homepage.icon: gitlab
+      homepage.href: "https://gitlab.${DOMAIN}"
+      homepage.description: Git hosting, CI/CD, and software development platform.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

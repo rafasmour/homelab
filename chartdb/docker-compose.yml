@@ -1,0 +1,30 @@
+services:
+  chartdb:
+    container_name: chartdb
+    image: ghcr.io/chartdb/chartdb:${CHARTDB_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      DISABLE_ANALYTICS: "${DISABLE_ANALYTICS:-true}"
+    networks:
+      - webgateway
+    labels:
+      kuma.chartdb.docker.name: "chartdb"
+      kuma.chartdb.docker.docker_host_name: local-docker-host
+      kuma.chartdb.docker.docker_container: chartdb
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.chartdb.rule: "Host(`chartdb.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.chartdb.entrypoints: websecure
+      traefik.http.routers.chartdb.tls.certresolver: myresolver
+      traefik.http.services.chartdb.loadbalancer.server.port: "80"
+      homepage.group: Development
+      homepage.name: ChartDB
+      homepage.icon: chart-db
+      homepage.href: "https://chartdb.${DOMAIN}"
+      homepage.description: Visual database schema editor and diagramming tool.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

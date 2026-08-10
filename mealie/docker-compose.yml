@@ -1,0 +1,40 @@
+services:
+  mealie:
+    container_name: mealie
+    image: ghcr.io/mealie-recipes/mealie:v3.21.0
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1000M
+    environment:
+      ALLOW_SIGNUP: "${ALLOW_SIGNUP:-true}"
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      TZ: "${TZ:-Etc/UTC}"
+      BASE_URL: "https://mealie.${DOMAIN:?Set DOMAIN in .env}"
+      DEFAULT_EMAIL: "${ADMIN_EMAIL:-admin@example.com}"
+    volumes:
+      - ./data:/app/data
+    networks:
+      - webgateway
+    labels:
+      kuma.mealie.docker.name: "mealie"
+      kuma.mealie.docker.docker_host_name: local-docker-host
+      kuma.mealie.docker.docker_container: mealie
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.mealie.rule: "Host(`mealie.${DOMAIN}`)"
+      traefik.http.routers.mealie.entrypoints: websecure
+      traefik.http.routers.mealie.tls.certresolver: myresolver
+      traefik.http.services.mealie.loadbalancer.server.port: "9000"
+      homepage.group: Food
+      homepage.name: Mealie
+      homepage.icon: mealie
+      homepage.href: "https://mealie.${DOMAIN}"
+      homepage.description: Recipe manager and meal planner.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

@@ -1,0 +1,29 @@
+services:
+  memos:
+    container_name: memos
+    image: neosmemo/memos:${MEMOS_VERSION:-stable}
+    restart: unless-stopped
+    volumes:
+      - ./data:/var/opt/memos
+    networks:
+      - webgateway
+    labels:
+      kuma.memos.docker.name: "memos"
+      kuma.memos.docker.docker_host_name: local-docker-host
+      kuma.memos.docker.docker_container: memos
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.memos.rule: "Host(`memos.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.memos.entrypoints: websecure
+      traefik.http.routers.memos.tls.certresolver: myresolver
+      traefik.http.services.memos.loadbalancer.server.port: "5230"
+      homepage.group: Knowledge
+      homepage.name: Memos
+      homepage.icon: memos
+      homepage.href: "https://memos.${DOMAIN}"
+      homepage.description: Lightweight self-hosted notes and knowledge capture.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

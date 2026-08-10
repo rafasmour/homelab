@@ -1,0 +1,112 @@
+services:
+  database:
+    container_name: invidious-database
+    labels:
+      kuma.invidious-database.docker.name: "invidious-database"
+      kuma.invidious-database.docker.docker_host_name: local-docker-host
+      kuma.invidious-database.docker.docker_container: invidious-database
+    image: postgres:${POSTGRES_VERSION:-14}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-invidious}"
+      POSTGRES_USER: "${POSTGRES_USER:-invidious}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+      - ./config/sql:/config/sql:ro
+      - ./docker/init-invidious-db.sh:/docker-entrypoint-initdb.d/init-invidious-db.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "pg_isready -U ${POSTGRES_USER:-invidious} -d ${POSTGRES_DB:-invidious}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  companion:
+    container_name: invidious-companion
+    labels:
+      kuma.invidious-companion.docker.name: "invidious-companion"
+      kuma.invidious-companion.docker.docker_host_name: local-docker-host
+      kuma.invidious-companion.docker.docker_container: invidious-companion
+    image: quay.io/invidious/invidious-companion:${INVIDIOUS_COMPANION_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      SERVER_SECRET_KEY: "${INVIDIOUS_COMPANION_KEY:?Set INVIDIOUS_COMPANION_KEY in .env}"
+    cap_drop:
+      - ALL
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - companion-cache:/var/tmp/youtubei.js
+    networks:
+      - backend
+
+  invidious:
+    container_name: invidious
+    image: quay.io/invidious/invidious:${INVIDIOUS_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+      companion:
+        condition: service_started
+    environment:
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: ${POSTGRES_DB:-invidious}
+          user: ${POSTGRES_USER:-invidious}
+          password: ${POSTGRES_PASSWORD}
+          host: database
+          port: 5432
+        check_tables: true
+        domain: invidious.${DOMAIN:?Set DOMAIN in .env}
+        external_port: 443
+        https_only: true
+        invidious_companion:
+          - private_url: http://companion:8282/companion
+        invidious_companion_key: ${INVIDIOUS_COMPANION_KEY}
+        hmac_key: ${INVIDIOUS_HMAC_KEY:?Set INVIDIOUS_HMAC_KEY in .env}
+        admins:
+          - ${INVIDIOUS_ADMIN_USER:-admin}
+    healthcheck:
+      test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/stats || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      options:
+        max-size: 1G
+        max-file: "4"
+    networks:
+      - backend
+      - webgateway
+    labels:
+      kuma.invidious.docker.name: "invidious"
+      kuma.invidious.docker.docker_host_name: local-docker-host
+      kuma.invidious.docker.docker_container: invidious
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.invidious.rule: "Host(`invidious.${DOMAIN}`)"
+      traefik.http.routers.invidious.entrypoints: websecure
+      traefik.http.routers.invidious.tls.certresolver: myresolver
+      traefik.http.services.invidious.loadbalancer.server.port: "3000"
+      homepage.group: Media
+      homepage.name: Invidious
+      homepage.icon: invidious
+      homepage.href: "https://invidious.${DOMAIN}"
+      homepage.description: Privacy-focused alternative front end for YouTube.
+
+volumes:
+  companion-cache:
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway

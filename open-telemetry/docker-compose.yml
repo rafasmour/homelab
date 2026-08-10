@@ -1,0 +1,53 @@
+services:
+  dockerproxy:
+    container_name: otel-docker-proxy
+    labels:
+      kuma.otel-docker-proxy.docker.name: "otel-docker-proxy"
+      kuma.otel-docker-proxy.docker.docker_host_name: local-docker-host
+      kuma.otel-docker-proxy.docker.docker_container: otel-docker-proxy
+    image: "ghcr.io/tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_VERSION:-v0.4.2}"
+    restart: unless-stopped
+    environment:
+      CONTAINERS: "1"
+      POST: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  collector:
+    container_name: otel-collector
+    labels:
+      kuma.otel-collector.docker.name: "otel-collector"
+      kuma.otel-collector.docker.docker_host_name: local-docker-host
+      kuma.otel-collector.docker.docker_container: otel-collector
+    image: "otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.157.0}"
+    restart: unless-stopped
+    user: "0:0"
+    command:
+      - --config=/etc/otelcol-contrib/config.yml
+    environment:
+      HOST_NAME: "${HOST_NAME:-docker-host}"
+    volumes:
+      - ./otel-collector-config.yml:/etc/otelcol-contrib/config.yml:ro
+      - ./data:/var/lib/otelcol
+      - "${DOCKER_LOG_ROOT:-/data/docker/containers}:/var/lib/docker/containers:ro"
+    networks:
+      - backend
+      - webgateway
+    depends_on:
+      dockerproxy:
+        condition: service_healthy
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway

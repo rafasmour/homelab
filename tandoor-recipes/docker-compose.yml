@@ -1,0 +1,70 @@
+services:
+  database:
+    container_name: tandoor-database
+    labels:
+      kuma.tandoor-database.docker.name: "tandoor-database"
+      kuma.tandoor-database.docker.docker_host_name: local-docker-host
+      kuma.tandoor-database.docker.docker_container: tandoor-database
+    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-djangodb}"
+      POSTGRES_USER: "${POSTGRES_USER:-djangouser}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "pg_isready -U ${POSTGRES_USER:-djangouser} -d ${POSTGRES_DB:-djangodb}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  tandoor:
+    container_name: tandoor-recipes
+    image: vabene1111/recipes:${TANDOOR_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      SECRET_KEY: "${SECRET_KEY:?Set SECRET_KEY in .env}"
+      TZ: "${TZ:-Etc/UTC}"
+      ALLOWED_HOSTS: "tandoor.${DOMAIN:?Set DOMAIN in .env}"
+      DB_ENGINE: django.db.backends.postgresql
+      POSTGRES_HOST: database
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-djangodb}"
+      POSTGRES_USER: "${POSTGRES_USER:-djangouser}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - ./staticfiles:/opt/recipes/staticfiles
+      - ./mediafiles:/opt/recipes/mediafiles
+    networks:
+      - backend
+      - webgateway
+    labels:
+      kuma.tandoor-recipes.docker.name: "tandoor-recipes"
+      kuma.tandoor-recipes.docker.docker_host_name: local-docker-host
+      kuma.tandoor-recipes.docker.docker_container: tandoor-recipes
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.tandoor.rule: "Host(`tandoor.${DOMAIN}`)"
+      traefik.http.routers.tandoor.entrypoints: websecure
+      traefik.http.routers.tandoor.tls.certresolver: myresolver
+      traefik.http.services.tandoor.loadbalancer.server.port: "80"
+      homepage.group: Food
+      homepage.name: Tandoor Recipes
+      homepage.icon: tandoor-recipes
+      homepage.href: "https://tandoor.${DOMAIN}"
+      homepage.description: Recipe collection, meal planning, and shopping lists.
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway

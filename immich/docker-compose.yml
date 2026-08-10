@@ -1,0 +1,104 @@
+services:
+  server:
+    container_name: immich-server
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
+    restart: unless-stopped
+    environment:
+      DB_HOSTNAME: database
+      DB_USERNAME: "${DB_USERNAME:-postgres}"
+      DB_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
+      DB_DATABASE_NAME: "${DB_DATABASE_NAME:-immich}"
+      REDIS_HOSTNAME: valkey
+      TZ: "${TZ:-Etc/UTC}"
+      IMMICH_ALLOW_SETUP: "${IMMICH_ALLOW_SETUP:-true}"
+    volumes:
+      - ./library:/data
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      database:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend
+      - webgateway
+    healthcheck:
+      disable: false
+    labels:
+      kuma.immich-server.docker.name: "immich-server"
+      kuma.immich-server.docker.docker_host_name: local-docker-host
+      kuma.immich-server.docker.docker_container: immich-server
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.immich.rule: "Host(`immich.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.immich.entrypoints: websecure
+      traefik.http.routers.immich.tls.certresolver: myresolver
+      traefik.http.services.immich.loadbalancer.server.port: "2283"
+      homepage.group: Photos
+      homepage.name: Immich
+      homepage.icon: immich
+      homepage.href: "https://immich.${DOMAIN}"
+      homepage.description: Private photo and video backup platform.
+
+  machine-learning:
+    container_name: immich-machine-learning
+    labels:
+      kuma.immich-machine-learning.docker.name: "immich-machine-learning"
+      kuma.immich-machine-learning.docker.docker_host_name: local-docker-host
+      kuma.immich-machine-learning.docker.docker_container: immich-machine-learning
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ:-Etc/UTC}"
+    volumes:
+      - ./model-cache:/cache
+    networks:
+      - backend
+    healthcheck:
+      disable: false
+
+  valkey:
+    container_name: immich-valkey
+    labels:
+      kuma.immich-valkey.docker.name: "immich-valkey"
+      kuma.immich-valkey.docker.docker_host_name: local-docker-host
+      kuma.immich-valkey.docker.docker_container: immich-valkey
+    image: docker.io/valkey/valkey:9@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd
+    restart: unless-stopped
+    volumes:
+      - ./valkey:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  database:
+    container_name: immich-database
+    labels:
+      kuma.immich-database.docker.name: "immich-database"
+      kuma.immich-database.docker.docker_host_name: local-docker-host
+      kuma.immich-database.docker.docker_container: immich-database
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
+      POSTGRES_USER: "${DB_USERNAME:-postgres}"
+      POSTGRES_DB: "${DB_DATABASE_NAME:-immich}"
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    networks:
+      - backend
+    healthcheck:
+      disable: false
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway

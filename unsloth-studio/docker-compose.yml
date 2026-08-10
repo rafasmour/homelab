@@ -1,0 +1,33 @@
+services:
+  unsloth-studio:
+    container_name: unsloth-studio
+    image: unsloth/unsloth:${UNSLOTH_VERSION:-latest}
+    restart: unless-stopped
+    gpus: all
+    shm_size: 8gb
+    environment:
+      JUPYTER_PASSWORD: "${JUPYTER_PASSWORD:?Set JUPYTER_PASSWORD in .env}"
+    volumes:
+      - ./work:/workspace/work
+    networks:
+      - webgateway
+    labels:
+      kuma.unsloth-studio.docker.name: "unsloth-studio"
+      kuma.unsloth-studio.docker.docker_host_name: local-docker-host
+      kuma.unsloth-studio.docker.docker_container: unsloth-studio
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.unsloth-studio.rule: "Host(`unsloth.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.unsloth-studio.entrypoints: websecure
+      traefik.http.routers.unsloth-studio.tls.certresolver: myresolver
+      traefik.http.services.unsloth-studio.loadbalancer.server.port: "8888"
+      homepage.group: AI
+      homepage.name: Unsloth Studio
+      homepage.icon: mdi-brain
+      homepage.href: "https://unsloth.${DOMAIN}"
+      homepage.description: Web studio for training and running open language models.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

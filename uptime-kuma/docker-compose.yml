@@ -1,0 +1,56 @@
+services:
+  uptime-kuma:
+    container_name: uptime-kuma
+    image: louislam/uptime-kuma:${UPTIME_KUMA_VERSION:-2}
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - webgateway
+      - backend
+    labels:
+      kuma.uptime-kuma.docker.name: "uptime-kuma"
+      kuma.uptime-kuma.docker.docker_host_name: local-docker-host
+      kuma.uptime-kuma.docker.docker_container: uptime-kuma
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.uptime-kuma.rule: "Host(`uptime-kuma.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.uptime-kuma.entrypoints: websecure
+      traefik.http.routers.uptime-kuma.tls.certresolver: myresolver
+      traefik.http.services.uptime-kuma.loadbalancer.server.port: "3001"
+      homepage.group: Monitoring
+      homepage.name: Uptime Kuma
+      homepage.icon: uptime-kuma
+      homepage.href: "https://uptime-kuma.${DOMAIN}"
+      homepage.description: Uptime monitoring and public status pages.
+
+
+  autokuma:
+    container_name: autokuma
+    image: ghcr.io/bigboot/autokuma:2.0.0
+    restart: unless-stopped
+    environment:
+      AUTOKUMA__KUMA__URL: http://uptime-kuma:3001
+      AUTOKUMA__KUMA__USERNAME: "${AUTOKUMA_KUMA_USERNAME:?Set AUTOKUMA_KUMA_USERNAME in .env}"
+      AUTOKUMA__KUMA__PASSWORD: "${AUTOKUMA_KUMA_PASSWORD:?Set AUTOKUMA_KUMA_PASSWORD in .env}"
+      AUTOKUMA__DOCKER__EXCLUDE_CONTAINER_PATTERNS: "^[a-f0-9]{12}_.*_"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./autokuma-data:/data
+    networks:
+      - backend
+    labels:
+      kuma.autokuma.docker.name: "autokuma"
+      kuma.autokuma.docker.docker_host_name: local-docker-host
+      kuma.autokuma.docker.docker_container: autokuma
+      kuma.local-docker-host.docker_host.name: "Local Docker"
+      kuma.local-docker-host.docker_host.connection_type: socket
+      kuma.local-docker-host.docker_host.path: /var/run/docker.sock
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway
+  backend:
+    internal: true

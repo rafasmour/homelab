@@ -1,0 +1,77 @@
+extensions:
+  docker_observer:
+    endpoint: http://otel-docker-proxy:2375
+    include_all_containers: true
+  file_storage:
+    directory: /var/lib/otelcol/file-storage
+    create_directory: true
+    compaction:
+      on_start: true
+      directory: /var/lib/otelcol/file-storage
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  # Applications on webgateway can also submit OTLP logs.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Docker discovery creates exactly one filelog receiver for every running
+  # container. The wildcard ID path covers all current and future containers.
+  receiver_creator/docker:
+    watch_observers: [docker_observer]
+    receivers:
+      filelog/container:
+        rule: type == "container" and port == 0 and name != "otel-collector"
+        config:
+          include:
+            - /var/lib/docker/containers/`container_id`/`container_id`-json.log
+          start_at: end
+          include_file_name: false
+          include_file_path: true
+          storage: file_storage
+          operators:
+            - id: parse-container-log
+              type: container
+        resource_attributes:
+          service.name: '`name`'
+          container.name: '`name`'
+          container.id: '`container_id`'
+          container.image.name: '`image`'
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  resource/host:
+    attributes:
+      - key: host.name
+        value: ${env:HOST_NAME}
+        action: upsert
+  batch:
+    send_batch_size: 1024
+    timeout: 1s
+
+exporters:
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      queue_size: 5000
+      storage: file_storage
+
+service:
+  extensions: [docker_observer, file_storage, health_check]
+  pipelines:
+    logs:
+      receivers: [otlp, receiver_creator/docker]
+      processors: [memory_limiter, resource/host, batch]
+      exporters: [otlphttp/loki]

@@ -1,0 +1,35 @@
+services:
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:${GRAFANA_VERSION:-latest}
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      GF_SERVER_ROOT_URL: "https://grafana.${DOMAIN:?Set DOMAIN in .env}"
+      GF_SECURITY_ADMIN_USER: "${GF_SECURITY_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?Set GF_SECURITY_ADMIN_PASSWORD in .env}"
+    volumes:
+      - ./data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - webgateway
+    labels:
+      kuma.grafana.docker.name: "grafana"
+      kuma.grafana.docker.docker_host_name: local-docker-host
+      kuma.grafana.docker.docker_container: grafana
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.grafana.rule: "Host(`grafana.${DOMAIN}`)"
+      traefik.http.routers.grafana.entrypoints: websecure
+      traefik.http.routers.grafana.tls.certresolver: myresolver
+      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+      homepage.group: Monitoring
+      homepage.name: Grafana
+      homepage.icon: grafana
+      homepage.href: "https://grafana.${DOMAIN}"
+      homepage.description: Dashboards and observability visualization.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

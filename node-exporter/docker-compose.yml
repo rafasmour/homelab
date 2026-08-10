@@ -1,0 +1,21 @@
+services:
+  node-exporter:
+    container_name: node-exporter
+    labels:
+      kuma.node-exporter.docker.name: "node-exporter"
+      kuma.node-exporter.docker.docker_host_name: local-docker-host
+      kuma.node-exporter.docker.docker_container: node-exporter
+    image: quay.io/prometheus/node-exporter:v1.11.1
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - webgateway
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

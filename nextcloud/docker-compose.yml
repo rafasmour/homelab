@@ -1,7 +1,11 @@
 services:
   database:
     container_name: nextcloud-database
-    image: mariadb:lts
+    labels:
+      kuma.nextcloud-database.docker.name: "nextcloud-database"
+      kuma.nextcloud-database.docker.docker_host_name: local-docker-host
+      kuma.nextcloud-database.docker.docker_container: nextcloud-database
+    image: mariadb:${MARIADB_VERSION:-lts}
     restart: unless-stopped
     command:
       - --transaction-isolation=READ-COMMITTED
@@ -24,8 +28,13 @@ services:
 
   redis:
     container_name: nextcloud-redis
-    image: redis:alpine
+    labels:
+      kuma.nextcloud-redis.docker.name: "nextcloud-redis"
+      kuma.nextcloud-redis.docker.docker_host_name: local-docker-host
+      kuma.nextcloud-redis.docker.docker_container: nextcloud-redis
+    image: redis:${REDIS_VERSION:-alpine}
     restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
     command: redis-server --appendonly yes
     volumes:
       - ./redis:/data
@@ -39,7 +48,7 @@ services:
 
   nextcloud:
     container_name: nextcloud
-    image: nextcloud:apache
+    image: nextcloud:${NEXTCLOUD_VERSION:-apache}
     restart: unless-stopped
     depends_on:
       database:
@@ -53,7 +62,7 @@ services:
       MYSQL_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}"
       REDIS_HOST: redis
       NEXTCLOUD_TRUSTED_DOMAINS: "nextcloud.${DOMAIN:?Set DOMAIN in .env}"
-      TRUSTED_PROXIES: 172.17.1.0/24
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:?Set TRUSTED_PROXIES to the webgateway subnet in .env}"
       APACHE_DISABLE_REWRITE_IP: "1"
       OVERWRITEHOST: "nextcloud.${DOMAIN}"
       OVERWRITEPROTOCOL: https
@@ -64,6 +73,9 @@ services:
       - backend
       - webgateway
     labels:
+      kuma.nextcloud.docker.name: "nextcloud"
+      kuma.nextcloud.docker.docker_host_name: local-docker-host
+      kuma.nextcloud.docker.docker_container: nextcloud
       traefik.enable: "true"
       traefik.docker.network: webgateway
       traefik.http.routers.nextcloud.rule: "Host(`nextcloud.${DOMAIN}`)"
@@ -82,7 +94,11 @@ services:
 
   cron:
     container_name: nextcloud-cron
-    image: nextcloud:apache
+    labels:
+      kuma.nextcloud-cron.docker.name: "nextcloud-cron"
+      kuma.nextcloud-cron.docker.docker_host_name: local-docker-host
+      kuma.nextcloud-cron.docker.docker_container: nextcloud-cron
+    image: nextcloud:${NEXTCLOUD_VERSION:-apache}
     restart: unless-stopped
     entrypoint: /cron.sh
     depends_on:

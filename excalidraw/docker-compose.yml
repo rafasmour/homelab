@@ -1,11 +1,14 @@
 services:
   excalidraw:
     container_name: excalidraw
-    image: excalidraw/excalidraw:latest
+    image: excalidraw/excalidraw:${EXCALIDRAW_VERSION:-latest}
     restart: unless-stopped
     networks:
       - webgateway
     labels:
+      kuma.excalidraw.docker.name: "excalidraw"
+      kuma.excalidraw.docker.docker_host_name: local-docker-host
+      kuma.excalidraw.docker.docker_container: excalidraw
       traefik.enable: "true"
       traefik.docker.network: webgateway
       traefik.http.routers.excalidraw.rule: "Host(`excalidraw.${DOMAIN:?Set DOMAIN in .env}`)"
@@ -22,4 +25,3 @@ networks:
   webgateway:
     external: true
     name: webgateway
-
