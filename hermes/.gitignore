@@ -1,0 +1,7 @@
+*
+
+!.env.example
+!docker-compose.yml
+!README.md
+!.gitignore
+!start-with-forage.sh

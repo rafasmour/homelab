@@ -1,0 +1,91 @@
+services:
+  api:
+    image: nousresearch/hermes-agent:${HERMES_AGENT_VERSION:-latest}
+    container_name: hermes-api
+    restart: unless-stopped
+    command: ["sh", "/usr/local/bin/start-with-forage.sh"]
+    volumes:
+      - hermes-data:/home/hermes/.hermes
+      - hermes-agent-src:/opt/hermes
+      - ./start-with-forage.sh:/usr/local/bin/start-with-forage.sh:ro
+    environment:
+      HERMES_HOME: /home/hermes/.hermes
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      HERMES_INFERENCE_BASE_URL: "${HERMES_INFERENCE_BASE_URL:-http://llama-cpp:8080/v1}"
+      HERMES_MODEL: "${HERMES_MODEL:-}"
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: "8642"
+      API_SERVER_KEY: "${API_SERVER_KEY:?Set API_SERVER_KEY in .env}"
+      API_SERVER_MODEL_NAME: "${API_SERVER_MODEL_NAME:-hermes-agent}"
+      FORAGE_URL: http://forage:3672
+      FORAGE_API_KEY: "${FORAGE_API_KEY:?Set FORAGE_API_KEY in .env}"
+      FORAGE_PLUGIN_REF: "${FORAGE_PLUGIN_REF:-main}"
+      N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.hermes-api.rule: "Host(`hermes.${DOMAIN:?Set DOMAIN in .env}`) && PathPrefix(`/v1`)"
+      traefik.http.routers.hermes-api.entrypoints: websecure
+      traefik.http.routers.hermes-api.tls.certresolver: myresolver
+      traefik.http.routers.hermes-api.priority: "100"
+      traefik.http.services.hermes-api.loadbalancer.server.port: "8642"
+    networks:
+      - backend
+      - hermes-mcp
+      - webgateway
+
+  webui:
+    image: ghcr.io/nesquena/hermes-webui:${HERMES_WEBUI_VERSION:-latest}
+    container_name: hermes-webui
+    restart: unless-stopped
+    depends_on:
+      - api
+    volumes:
+      - hermes-data:/home/hermeswebui/.hermes
+      - hermes-agent-src:/home/hermeswebui/.hermes/hermes-agent:ro
+      - ./workspace:/workspace
+    environment:
+      HERMES_WEBUI_HOST: 0.0.0.0
+      HERMES_WEBUI_PORT: "8787"
+      HERMES_WEBUI_STATE_DIR: /home/hermeswebui/.hermes/webui
+      HERMES_WEBUI_DEFAULT_WORKSPACE: /workspace
+      HERMES_API_URL: http://hermes-api:8642
+      HERMES_WEBUI_GATEWAY_API_KEY: "${API_SERVER_KEY:?Set API_SERVER_KEY in .env}"
+      HERMES_WEBUI_PASSWORD: "${HERMES_WEBUI_PASSWORD:?Set HERMES_WEBUI_PASSWORD in .env}"
+      HERMES_WEBUI_SECURE: "1"
+      HERMES_WEBUI_ALLOWED_ORIGINS: "https://hermes.${DOMAIN:?Set DOMAIN in .env}"
+      HERMES_WEBUI_TRUST_FORWARDED_HOST: "1"
+      HERMES_WEBUI_TRUST_FORWARDED_FOR: "1"
+      HERMES_WEBUI_TRUST_FORWARDED_PROTO: "1"
+      WANTED_UID: "${HERMES_UID:-1000}"
+      WANTED_GID: "${HERMES_GID:-1000}"
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.hermes-webui.rule: "Host(`hermes.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.hermes-webui.entrypoints: websecure
+      traefik.http.routers.hermes-webui.tls.certresolver: myresolver
+      traefik.http.services.hermes-webui.loadbalancer.server.port: "8787"
+      homepage.group: AI
+      homepage.name: Hermes
+      homepage.icon: mdi-robot
+      homepage.href: "https://hermes.${DOMAIN}"
+      homepage.description: Web interface for the Hermes autonomous agent.
+    networks:
+      - backend
+      - webgateway
+
+volumes:
+  hermes-data:
+  hermes-agent-src:
+
+networks:
+  backend:
+    internal: true
+  hermes-mcp:
+    name: hermes-mcp
+  webgateway:
+    external: true
+    name: webgateway
