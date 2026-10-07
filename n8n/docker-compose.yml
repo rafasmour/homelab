@@ -67,9 +67,42 @@ services:
       homepage.href: "https://n8n.${DOMAIN}"
       homepage.description: Workflow automation and integration platform.
 
+  mcp:
+    container_name: n8n-mcp
+    image: ghcr.io/czlonkowski/n8n-mcp:${N8N_MCP_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      - n8n
+    environment:
+      N8N_MODE: "true"
+      MCP_MODE: http
+      HOST: 0.0.0.0
+      PORT: "3000"
+      NODE_ENV: production
+      LOG_LEVEL: info
+      N8N_API_URL: http://n8n:5678
+      N8N_API_KEY: "${N8N_API_KEY:?Set N8N_API_KEY in .env}"
+      AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
+      MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN}"
+      WEBHOOK_SECURITY_MODE: permissive
+    networks:
+      - backend
+      - hermes-mcp
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl -fsS -H "Authorization: Bearer $$AUTH_TOKEN" http://localhost:3000/health >/dev/null'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
 networks:
   backend:
     internal: true
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
   webgateway:
     external: true
     name: webgateway
