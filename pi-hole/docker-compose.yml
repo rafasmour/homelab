@@ -20,14 +20,26 @@ services:
       FTLCONF_debug_api: 'false'
     volumes:
       - './etc-pihole:/etc/pihole'
+    ports:
+      - "${PIHOLE_BIND_IP:?Set PIHOLE_BIND_IP in .env}:53:53/tcp"
+      - "${PIHOLE_BIND_IP:?Set PIHOLE_BIND_IP in .env}:53:53/udp"
+      - "${PIHOLE_WIREGUARD_BIND_IP:?Set PIHOLE_WIREGUARD_BIND_IP in .env}:53:53/tcp"
+      - "${PIHOLE_WIREGUARD_BIND_IP:?Set PIHOLE_WIREGUARD_BIND_IP in .env}:53:53/udp"
     cap_add:
       - SYS_NICE
     restart: unless-stopped
-    network_mode: host
+    networks:
+      - webgateway
     labels:
       kuma.pihole.docker.name: "pihole"
       kuma.pihole.docker.docker_host_name: local-docker-host
       kuma.pihole.docker.docker_container: pihole
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.pihole.rule: "Host(`pihole.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.pihole.entrypoints: websecure
+      traefik.http.routers.pihole.tls.certresolver: myresolver
+      traefik.http.services.pihole.loadbalancer.server.port: "8080"
       homepage.group: Management
       homepage.name: Pi-hole
       homepage.icon: pi-hole
@@ -36,4 +48,9 @@ services:
       homepage.widget.type: pihole
       homepage.widget.url: "https://pihole.${DOMAIN}"
       homepage.widget.version: 6
-      homepage.widget.key: "${API_TOKEN_FOR_HOMEPAGE:?Set API_TOKEN_FOR_HOMEPAGE in .env}"
+      homepage.widget.key: "${WEBPASSWORD}"
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway
