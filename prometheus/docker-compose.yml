@@ -11,6 +11,8 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./data:/prometheus
+    secrets:
+      - uptime_kuma_api_key
     networks:
       - webgateway
     labels:
@@ -33,3 +35,7 @@ networks:
   webgateway:
     external: true
     name: webgateway
+
+secrets:
+  uptime_kuma_api_key:
+    environment: UPTIME_KUMA_API_KEY

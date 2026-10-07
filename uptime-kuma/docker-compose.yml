@@ -3,6 +3,8 @@ services:
     container_name: uptime-kuma
     image: louislam/uptime-kuma:${UPTIME_KUMA_VERSION:-2}
     restart: unless-stopped
+    environment:
+      UPTIME_KUMA_DB_TYPE: sqlite
     volumes:
       - ./data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -25,15 +27,55 @@ services:
       homepage.href: "https://uptime-kuma.${DOMAIN}"
       homepage.description: Uptime monitoring and public status pages.
 
+  uptime-kuma-bootstrap:
+    container_name: uptime-kuma-bootstrap
+    image: louislam/uptime-kuma:${UPTIME_KUMA_VERSION:-2}
+    restart: "no"
+    depends_on:
+      uptime-kuma:
+        condition: service_started
+    environment:
+      UPTIME_KUMA_USERNAME: "${UPTIME_KUMA_USERNAME:?Set UPTIME_KUMA_USERNAME in .env}"
+      UPTIME_KUMA_PASSWORD: "${UPTIME_KUMA_PASSWORD:?Set UPTIME_KUMA_PASSWORD in .env}"
+    command:
+      - node
+      - -e
+      - |
+        const { io } = require("socket.io-client");
+        const url = "http://uptime-kuma:3001";
+        const username = process.env.UPTIME_KUMA_USERNAME;
+        const password = process.env.UPTIME_KUMA_PASSWORD;
+        const socket = io(url, { reconnection: true, reconnectionDelay: 1000 });
+        const fail = (message) => { console.error(message); socket.close(); process.exit(1); };
+        const timeout = setTimeout(() => fail("Timed out waiting for Uptime Kuma."), 120000);
+        socket.on("connect_error", () => {});
+        socket.on("connect", () => {
+          socket.emit("needSetup", (needSetup) => {
+            const event = needSetup ? "setup" : "login";
+            const args = needSetup ? [username, password] : [{ username, password }];
+            socket.emit(event, ...args, (result) => {
+              clearTimeout(timeout);
+              if (!result?.ok) fail("Uptime Kuma " + event + " failed: " + (result?.msg ?? "unknown error"));
+              console.log((needSetup ? "Created" : "Verified") + " Uptime Kuma administrator '" + username + "'.");
+              socket.close();
+              process.exit(0);
+            });
+          });
+        });
+    networks:
+      - backend
 
   autokuma:
     container_name: autokuma
     image: ghcr.io/bigboot/autokuma:2.0.0
     restart: unless-stopped
+    depends_on:
+      uptime-kuma-bootstrap:
+        condition: service_completed_successfully
     environment:
       AUTOKUMA__KUMA__URL: http://uptime-kuma:3001
-      AUTOKUMA__KUMA__USERNAME: "${AUTOKUMA_KUMA_USERNAME:?Set AUTOKUMA_KUMA_USERNAME in .env}"
-      AUTOKUMA__KUMA__PASSWORD: "${AUTOKUMA_KUMA_PASSWORD:?Set AUTOKUMA_KUMA_PASSWORD in .env}"
+      AUTOKUMA__KUMA__USERNAME: "${UPTIME_KUMA_USERNAME:?Set UPTIME_KUMA_USERNAME in .env}"
+      AUTOKUMA__KUMA__PASSWORD: "${UPTIME_KUMA_PASSWORD:?Set UPTIME_KUMA_PASSWORD in .env}"
       AUTOKUMA__DOCKER__EXCLUDE_CONTAINER_PATTERNS: "^[a-f0-9]{12}_.*_"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
