@@ -1,0 +1,20 @@
+# Greek GPU price watchlist for the Hermes gpu-watch job.
+#
+# The tracked example stays empty of real product names. The running job
+# reads /home/hermes/.hermes/gpu-watchlist.yml inside hermes-api, which is
+# seeded from this file. Add names there. An empty products list keeps the
+# job silent.
+#
+# Shops searched on every run:
+#   skroutz.gr, public.gr, plaisio.gr
+#   plus Forage/SearXNG for other Greek shops such as kotsovolos.gr and
+#   bestprice.gr
+#
+# Each product:
+#   name: search string sent to those shops
+#   target_price: optional EUR ceiling; when set, alert only under this price
+#
+# Alert when today's lowest in-stock price is below the last price stored
+# in that job's notepad. A first observation is stored and does not alert.
+
+products: []

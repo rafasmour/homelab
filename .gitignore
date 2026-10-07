@@ -106,6 +106,7 @@ vaultwarden/data/
 !homepage/config/docker.yaml
 !hermes/.gitignore
 !hermes/start-with-forage.sh
+!hermes/gpu-watchlist.example.yml
 !image-generation/.dockerignore
 !image-generation/.gitignore
 !image-generation/Dockerfile

@@ -8,6 +8,7 @@ services:
       - hermes-data:/home/hermes/.hermes
       - hermes-agent-src:/opt/hermes
       - ./start-with-forage.sh:/usr/local/bin/start-with-forage.sh:ro
+      - ./gpu-watchlist.example.yml:/usr/local/share/hermes/gpu-watchlist.example.yml:ro
     environment:
       HERMES_HOME: /home/hermes/.hermes
       HERMES_UID: "${HERMES_UID:-1000}"
