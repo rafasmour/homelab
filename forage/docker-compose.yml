@@ -1,0 +1,26 @@
+services:
+  forage:
+    build:
+      context: "https://github.com/aldemaroc/forage.git#${FORAGE_VERSION:-main}"
+    image: forage:${FORAGE_IMAGE_TAG:-local}
+    container_name: forage
+    restart: unless-stopped
+    environment:
+      FORAGE_API_KEYS: "${FORAGE_API_KEY:?Set FORAGE_API_KEY in .env}"
+      FORAGE_CONFIG: /etc/forage/config.yml
+      TZ: "${TZ:-Etc/UTC}"
+    volumes:
+      - ./config.yml:/etc/forage/config.yml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:3672/health', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - webgateway
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

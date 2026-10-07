@@ -1,0 +1,6 @@
+search:
+  # Both containers share the external webgateway network.
+  searxng_url: http://searxng:8080
+
+auth:
+  enabled: true
