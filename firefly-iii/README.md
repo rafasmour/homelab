@@ -12,6 +12,8 @@ After creating the owner account, open Firefly III's **Options > OAuth** page at
 
 The importer has no independent login in front of its workflow. Protect `firefly-importer.${DOMAIN}` with a Traefik authentication middleware or an identity-aware proxy if the hostname is publicly reachable.
 
+Directory auto-import is enabled for `/import`. A file is imported when a JSON mapping with the same name is present, or when `imports/_fallback.json` exists. `AUTO_IMPORT_SECRET` must match the value in `n8n/.env`. The n8n Piraeus workflow writes `imports/piraeus-current.csv` and posts to this endpoint.
+
 ## Backup and important notes
 
 Back up `.env`, `database`, `uploads`, and any reusable import configurations in `imports` together. Prefer a consistent MariaDB dump or stop the stack before copying `database`. Bank files placed in `imports` contain sensitive financial data and remain ignored by Git.

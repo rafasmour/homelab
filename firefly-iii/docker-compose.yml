@@ -80,6 +80,10 @@ services:
       FIREFLY_III_ACCESS_TOKEN: "${FIREFLY_III_ACCESS_TOKEN:-}"
       TRUSTED_PROXIES: "*"
       TZ: "${TZ:-Etc/UTC}"
+      CAN_POST_AUTOIMPORT: "true"
+      IMPORT_DIR_ALLOWLIST: /import
+      FALLBACK_IN_DIR: "true"
+      AUTO_IMPORT_SECRET: "${AUTO_IMPORT_SECRET:-}"
     volumes:
       - ./imports:/import
     networks:

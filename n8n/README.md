@@ -10,7 +10,7 @@ Copy `.env.example` to `.env`, set the database password and a permanent `N8N_EN
 
 ## Hermes MCP integration
 
-The `mcp` service runs the official [n8n MCP server](https://github.com/czlonkowski/n8n-mcp) with workflow-management tools enabled. It is reachable only by containers attached to the `hermes-mcp` network and has no host port or Traefik route.
+The `mcp` service runs the official [n8n MCP server](https://github.com/czlonkowski/n8n-mcp) with workflow-management tools enabled. Containers on the `hermes-mcp` network use `http://n8n-mcp:3000/mcp`. Traefik also routes `https://n8n-mcp.${DOMAIN}/mcp` to it. There is no host port. Callers must send `Authorization: Bearer <N8N_MCP_AUTH_TOKEN>`.
 
 Create an API key under **Settings > n8n API**, store it as `N8N_API_KEY`, and generate `N8N_MCP_AUTH_TOKEN` with `openssl rand -hex 32`. Put the same MCP token in `hermes/.env`; Hermes uses it as the Bearer token for `http://n8n-mcp:3000/mcp`.
 
@@ -21,6 +21,10 @@ docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d
 ```
 
 The MCP server can create, update, execute, and delete workflows. Back up production workflows and review changes before running them.
+
+## Piraeus monthly statement
+
+`workflows/piraeus-monthly-import.json` is imported into the running n8n container and left inactive. Connect a Gmail OAuth credential on its trigger, set `PIRAEUS_ZIP_PASSWORD`, and set the same `AUTO_IMPORT_SECRET` in this `.env` and `firefly-iii/.env`. Import one normalized CSV through the Firefly data importer UI and save that mapping as `imports/_fallback.json`. The workflow then unzips the statement, writes `imports/piraeus-current.csv`, and asks the importer to load it. A successful import moves that CSV into `firefly-iii/import-archive`. The workflow saves the zip at `/tmp/piraeus-statement.zip`, so Compose sets `N8N_RESTRICT_FILE_ACCESS_TO` to allow `/tmp` alongside `~/.n8n-files`.
 
 ## Firefly subscriptions calendar
 

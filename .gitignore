@@ -54,6 +54,7 @@ affine/redis/
 affine/storage/
 firefly-iii/database/
 firefly-iii/imports/
+firefly-iii/import-archive/
 firefly-iii/uploads/
 gitlab/config/
 gitlab/data/
@@ -124,7 +125,10 @@ vaultwarden/data/
 !forage/config.yml
 !drawio/Dockerfile
 !drawio/.dockerignore
+!n8n/scripts/
+!n8n/scripts/piraeus-import.cjs
 !n8n/workflows/
+!n8n/workflows/piraeus-monthly-import.json
 !n8n/workflows/firefly-subscriptions-to-nextcloud.json
 
 # Existing tracked `.gitkeep` files remain tracked automatically. Their runtime

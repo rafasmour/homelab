@@ -1,0 +1,91 @@
+{
+  "id": "7f3a9c2e-1b64-4d80-9e15-6a2c8f0d4b71",
+  "name": "Piraeus monthly statement",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Connect the Gmail credential on the trigger, set PIRAEUS_ZIP_PASSWORD in n8n/.env, and put the Firefly mapping at firefly-iii/imports/_fallback.json. The workflow stays off until you activate it.",
+        "height": 180,
+        "width": 360
+      },
+      "id": "8a1d4c2e-6b7f-4a91-9c3d-1e5f7a9b0c11",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-40, -180]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyHour"
+            }
+          ]
+        },
+        "filters": {
+          "q": "has:attachment filename:zip"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "b2e4f6a8-1c3d-4e5f-8a7b-9c0d1e2f3a4b",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 80]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/tmp/piraeus-statement.zip",
+        "dataPropertyName": "attachment_0"
+      },
+      "id": "c3f5a7b9-2d4e-4f60-9b8c-0d1e2f3a4b5c",
+      "name": "Save zip",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [500, 80]
+    },
+    {
+      "parameters": {
+        "command": "node /scripts/piraeus-import.cjs /tmp/piraeus-statement.zip"
+      },
+      "id": "d4a6b8c0-3e5f-4071-8c9d-1e2f3a4b5c6d",
+      "name": "Import statement",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [760, 80]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Save zip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save zip": {
+      "main": [
+        [
+          {
+            "node": "Import statement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

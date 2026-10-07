@@ -46,8 +46,17 @@ services:
       N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}"
       GENERIC_TIMEZONE: "${TZ:-Etc/UTC}"
       TZ: "${TZ:-Etc/UTC}"
+      PIRAEUS_ZIP_PASSWORD: "${PIRAEUS_ZIP_PASSWORD:-}"
+      AUTO_IMPORT_SECRET: "${AUTO_IMPORT_SECRET:-}"
+      FIREFLY_IMPORT_DIR: /firefly-import
+      FIREFLY_IMPORT_ARCHIVE: /firefly-import-archive
+      NODES_EXCLUDE: '["n8n-nodes-base.localFileTrigger"]'
+      N8N_RESTRICT_FILE_ACCESS_TO: /tmp;~/.n8n-files
     volumes:
       - ./data:/home/node/.n8n
+      - ./scripts/piraeus-import.cjs:/scripts/piraeus-import.cjs:ro
+      - ../firefly-iii/imports:/firefly-import
+      - ../firefly-iii/import-archive:/firefly-import-archive
     networks:
       - backend
       - webgateway
@@ -85,9 +94,17 @@ services:
       AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN}"
       WEBHOOK_SECURITY_MODE: permissive
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.n8n-mcp.rule: "Host(`n8n-mcp.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.n8n-mcp.entrypoints: websecure
+      traefik.http.routers.n8n-mcp.tls.certresolver: myresolver
+      traefik.http.services.n8n-mcp.loadbalancer.server.port: "3000"
     networks:
       - backend
       - hermes-mcp
+      - webgateway
     healthcheck:
       test:
         - CMD-SHELL
