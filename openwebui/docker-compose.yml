@@ -1,0 +1,36 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:${OPEN_WEBUI_IMAGE_TAG:-main}
+    container_name: open-webui
+    restart: unless-stopped
+    environment:
+      OPENAI_API_BASE_URL: http://llama-server:8080/v1
+      OPENAI_API_KEY: "${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env}"
+      ENABLE_OPENAI_API: "true"
+      ENABLE_OLLAMA_API: "false"
+      WEBUI_AUTH: "true"
+      ENABLE_SIGNUP: "${ENABLE_SIGNUP:-true}"
+
+    volumes:
+      - ./data:/app/backend/data
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.open-webui.rule: "Host(`webui.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.open-webui.entrypoints: websecure
+      traefik.http.routers.open-webui.tls.certresolver: myresolver
+      traefik.http.services.open-webui.loadbalancer.server.port: "8080"
+      homepage.group: AI
+      homepage.name: Open WebUI
+      homepage.icon: open-webui
+      homepage.href: "https://webui.${DOMAIN}"
+      homepage.description: Browser interface for local language models.
+
+    networks:
+      - webgateway
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway
