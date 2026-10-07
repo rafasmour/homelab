@@ -108,9 +108,41 @@ services:
     networks:
       - backend
 
+  mcp:
+    container_name: nextcloud-mcp
+    image: ghcr.io/cbcoutinho/nextcloud-mcp-server:${NEXTCLOUD_MCP_VERSION:-latest}
+    restart: unless-stopped
+    command: ["--transport", "streamable-http"]
+    depends_on:
+      - nextcloud
+    environment:
+      NEXTCLOUD_HOST: http://nextcloud
+      NEXTCLOUD_USERNAME: "${NEXTCLOUD_MCP_USERNAME:?Set NEXTCLOUD_MCP_USERNAME in .env}"
+      NEXTCLOUD_PASSWORD: "${NEXTCLOUD_MCP_APP_PASSWORD:?Set NEXTCLOUD_MCP_APP_PASSWORD in .env}"
+      MCP_DEPLOYMENT_MODE: single_user_basic
+      ENABLE_SEMANTIC_SEARCH: "false"
+    volumes:
+      - ./mcp-data:/app/data
+    networks:
+      - backend
+      - hermes-mcp
+    healthcheck:
+      test:
+        - CMD
+        - /opt/venv/bin/python
+        - -c
+        - 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health/ready", timeout=5).read()'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
 networks:
   backend:
     internal: true
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
   webgateway:
     external: true
     name: webgateway
