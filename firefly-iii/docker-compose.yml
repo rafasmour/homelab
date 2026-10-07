@@ -35,6 +35,7 @@ services:
       APP_DEBUG: "false"
       APP_KEY: "${APP_KEY:?Set APP_KEY in .env}"
       APP_URL: "https://firefly.${DOMAIN:?Set DOMAIN in .env}"
+      FIREFLY_III_LAYOUT: "${FIREFLY_III_LAYOUT:-v2}"
       SITE_OWNER: "${SITE_OWNER:?Set SITE_OWNER in .env}"
       TRUSTED_PROXIES: "**"
       DB_CONNECTION: mysql
@@ -65,6 +66,37 @@ services:
       homepage.icon: firefly-iii
       homepage.href: "https://firefly.${DOMAIN}"
       homepage.description: Personal finance and budget manager.
+
+  data-importer:
+    container_name: firefly-iii-data-importer
+    image: fireflyiii/data-importer:${DATA_IMPORTER_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      - firefly-iii
+    environment:
+      FIREFLY_III_URL: "http://firefly-iii:8080"
+      VANITY_URL: "https://firefly.${DOMAIN:?Set DOMAIN in .env}"
+      FIREFLY_III_CLIENT_ID: "${FIREFLY_III_CLIENT_ID:-}"
+      FIREFLY_III_ACCESS_TOKEN: "${FIREFLY_III_ACCESS_TOKEN:-}"
+      TRUSTED_PROXIES: "*"
+      TZ: "${TZ:-Etc/UTC}"
+    volumes:
+      - ./imports:/import
+    networks:
+      - backend
+      - webgateway
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.firefly-importer.rule: "Host(`firefly-importer.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.firefly-importer.entrypoints: websecure
+      traefik.http.routers.firefly-importer.tls.certresolver: myresolver
+      traefik.http.services.firefly-importer.loadbalancer.server.port: "8080"
+      homepage.group: Finance
+      homepage.name: Firefly III Data Importer
+      homepage.icon: firefly-iii
+      homepage.href: "https://firefly-importer.${DOMAIN}"
+      homepage.description: Import bank statements and transaction files.
 
   cron:
     container_name: firefly-iii-cron
