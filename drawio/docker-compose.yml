@@ -1,0 +1,47 @@
+services:
+  drawio:
+    image: jgraph/drawio:${DRAWIO_VERSION:-latest}
+    container_name: drawio
+    restart: unless-stopped
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.drawio.rule: "Host(`drawio.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.drawio.entrypoints: websecure
+      traefik.http.routers.drawio.tls.certresolver: myresolver
+      traefik.http.services.drawio.loadbalancer.server.port: "8080"
+      homepage.group: Knowledge
+      homepage.name: draw.io
+      homepage.icon: draw-io
+      homepage.href: "https://drawio.${DOMAIN}"
+      homepage.description: Browser-based diagram and flowchart editor.
+    networks:
+      - webgateway
+
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DRAWIO_MCP_VERSION: "${DRAWIO_MCP_VERSION:-1.5.0}"
+        SUPERGATEWAY_VERSION: "${SUPERGATEWAY_VERSION:-3.4.3}"
+    container_name: drawio-mcp
+    restart: unless-stopped
+    environment:
+      DRAWIO_BASE_URL: "https://drawio.${DOMAIN:?Set DOMAIN in .env}/"
+    networks:
+      - hermes-mcp
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+networks:
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
+  webgateway:
+    external: true
+    name: webgateway
