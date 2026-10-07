@@ -77,6 +77,8 @@ Forage on those profiles is a symlink to the default profile's `plugins/web/fora
 
 The wger MCP server is `http://wger-mcp:8765/mcp`. Its `Authorization` header is `Bearer` plus `MCP_STATIC_TOKEN` from `wger/.env`, expanded into the Hermes config. It is registered on the default profile, for the 22:00 cron job, and on `calories`, for chat. That registration was a config write on the running container. The API was not restarted. `hermes mcp test wger` then discovered the nutrition tools, including `log_ingredient` (`plan_id`, `ingredient_id`, `amount_g`, optional `when`, `meal_id`, `weight_unit_id`) and `nutrition_summary` (the day's kcal and macros). `WGER_API_KEY` may still be a placeholder. Diary calls stay unauthorized until a real key is set and only `wger-mcp` is recreated.
 
+`start-with-forage.sh` creates these profiles, the wger MCP entry, the Forage symlinks, the GPU watchlist, and the default-profile cron jobs when they are missing. An existing profile, MCP entry, symlink, or cron name is left in place, so a later API start does not duplicate the jobs already on this volume.
+
 ## Nightly schedule
 
 The container clock is UTC. `hermes cron` has no timezone flag, so these jobs are stored in UTC. The intended wall times are Europe/Athens during EEST, a fixed offset of UTC+3. Each expression is that EEST time minus 3 hours. This is not a zoneinfo DST calendar: the expressions stay on UTC+3 and are not switched to EET (UTC+2) in winter. The Hermes container stays on UTC. Jobs at 01:00–02:30 EEST run on the previous UTC date. Each prompt says the intended wall time is Athens/EEST, and "today" means that EEST calendar date.
