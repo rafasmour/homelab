@@ -5,19 +5,23 @@
 !.gitignore
 !AGENTS.md
 !README.md
+!TODO.md
 !update-domain.sh
 
 # Supported service folders. Add a matching `!service-name/` entry when a new
 # stack is created. Files inside remain ignored unless allowlisted separately.
-!affine/
 !chartdb/
+!drawio/
 !excalidraw/
 !firefly-iii/
+!forage/
 !gitlab/
 !grafana/
+!hermes/
 !homepage/
+!image-generation/
 !immich/
-!invidious/
+!llama-cpp/
 !loki/
 !mealie/
 !memos/
@@ -25,6 +29,7 @@
 !nextcloud/
 !node-exporter/
 !open-telemetry/
+!openwebui/
 !pi-hole/
 !prometheus/
 !reactive-resume/
@@ -48,6 +53,7 @@ affine/postgres/
 affine/redis/
 affine/storage/
 firefly-iii/database/
+firefly-iii/imports/
 firefly-iii/uploads/
 gitlab/config/
 gitlab/data/
@@ -66,8 +72,10 @@ n8n/data/
 n8n/postgres/
 nextcloud/database/
 nextcloud/html/
+nextcloud/mcp-data/
 nextcloud/redis/
 open-telemetry/data/
+openwebui/data/
 pi-hole/etc-pihole/
 prometheus/data/
 reactive-resume/data/
@@ -90,14 +98,31 @@ vaultwarden/data/
 !grafana/provisioning/
 !grafana/provisioning/datasources/
 !grafana/provisioning/datasources/observability.yml
+!grafana/provisioning/dashboards/
+!grafana/provisioning/dashboards/provider.yml
+!grafana/provisioning/dashboards/container-health.json
 !open-telemetry/otel-collector-config.yml
 !homepage/config/
 !homepage/config/docker.yaml
-!invidious/config/
-!invidious/config/sql/
-!invidious/config/sql/*.sql
-!invidious/docker/
-!invidious/docker/init-invidious-db.sh
+!hermes/.gitignore
+!hermes/start-with-forage.sh
+!image-generation/.dockerignore
+!image-generation/.gitignore
+!image-generation/Dockerfile
+!image-generation/docker-entrypoint.sh
+!llama-cpp/.gitignore
+!llama-cpp/AGENTS.md
+!llama-cpp/Dockerfile
+!llama-cpp/models/
+!llama-cpp/models/router-config.ini.example
+!llama-cpp/models/downloads.md
+!llama-cpp/patches/
+!llama-cpp/patches/spark2_5-27868-clean.patch
+!llama-cpp/patches/spark2_5-ifm-fixes.patch
+!openwebui/.gitignore
+!forage/config.yml
+!drawio/Dockerfile
+!drawio/.dockerignore
 
 # Existing tracked `.gitkeep` files remain tracked automatically. Their runtime
 # parent directories are deliberately not unignored so Git never scans data.
