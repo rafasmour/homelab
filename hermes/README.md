@@ -14,7 +14,7 @@ Docker Compose deployment for [Hermes Agent](https://github.com/NousResearch/her
 - A `llama-cpp` container reachable as `llama-cpp:8080` on `webgateway`
 - The Forage stack reachable as `forage:3672` on `webgateway`
 - The Compose-managed `hermes-mcp` Docker network
-- The Nextcloud, n8n, and draw.io MCP services attached to `hermes-mcp`
+- The Nextcloud, n8n, draw.io, and wger MCP services attached to `hermes-mcp`
 
 ## Configure and start
 
@@ -74,6 +74,8 @@ Every profile below uses the same llama.cpp model as `nextcloud`: `gemma-4-12b-i
 | calories | wger | Forage | Log foods; Forage when wger has no match |
 
 Forage on those profiles is a symlink to the default profile's `plugins/web/forage` directory, so the plugin is not cloned again. `finance` has no Forage plugin.
+
+The wger MCP server is `http://wger-mcp:8765/mcp`. Its `Authorization` header is `Bearer` plus `MCP_STATIC_TOKEN` from `wger/.env`, expanded into the Hermes config. It is registered on the default profile, for the 22:00 cron job, and on `calories`, for chat. That registration was a config write on the running container. The API was not restarted. `hermes mcp test wger` then discovered the nutrition tools, including `log_ingredient` (`plan_id`, `ingredient_id`, `amount_g`, optional `when`, `meal_id`, `weight_unit_id`) and `nutrition_summary` (the day's kcal and macros). `WGER_API_KEY` may still be a placeholder. Diary calls stay unauthorized until a real key is set and only `wger-mcp` is recreated.
 
 ## Nightly schedule
 

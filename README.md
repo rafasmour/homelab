@@ -36,6 +36,7 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Unsloth Studio](unsloth-studio/README.md) | GPU-backed model training workspace | `unsloth.${DOMAIN}` | AI |
 | [Uptime Kuma](uptime-kuma/README.md) | Uptime monitoring with AutoKuma discovery | `uptime-kuma.${DOMAIN}` | Monitoring |
 | [Vaultwarden](vaultwarden/README.md) | Bitwarden-compatible password management | `vaultwarden.${DOMAIN}` | Security |
+| [wger](wger/README.md) | Workout and nutrition tracking | `wger.${DOMAIN}` | Food |
 
 Pi-hole publishes DNS only on the LAN and WireGuard addresses from its environment file. Its web interface is routed through Traefik.
 

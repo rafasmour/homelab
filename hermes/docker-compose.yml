@@ -24,6 +24,7 @@ services:
       FORAGE_API_KEY: "${FORAGE_API_KEY:?Set FORAGE_API_KEY in .env}"
       FORAGE_PLUGIN_REF: "${FORAGE_PLUGIN_REF:-main}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
+      MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
     labels:
       traefik.enable: "true"
       traefik.docker.network: webgateway

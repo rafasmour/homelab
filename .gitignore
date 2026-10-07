@@ -38,6 +38,7 @@
 !unsloth-studio/
 !uptime-kuma/
 !vaultwarden/
+!wger/
 
 # Standard files allowed in every explicitly allowlisted service folder.
 !*/docker-compose.yml
@@ -92,6 +93,11 @@ unsloth-studio/work/
 uptime-kuma/autokuma-data/
 uptime-kuma/data/
 vaultwarden/data/
+wger/celery-beat/
+wger/media/
+wger/postgres/
+wger/redis/
+wger/static/
 
 # Additional tracked configuration and initialization files.
 !prometheus/prometheus.yml
@@ -130,6 +136,11 @@ vaultwarden/data/
 !n8n/workflows/
 !n8n/workflows/piraeus-monthly-import.json
 !n8n/workflows/firefly-subscriptions-to-nextcloud.json
+!wger/config/
+!wger/config/nginx.conf
+!wger/powersync/
+!wger/powersync/powersync.yaml
+!wger/powersync/sync_rules.yaml
 
 # Existing tracked `.gitkeep` files remain tracked automatically. Their runtime
 # parent directories are deliberately not unignored so Git never scans data.

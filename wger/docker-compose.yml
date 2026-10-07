@@ -1,0 +1,306 @@
+# Adapted from https://github.com/wger-project/docker (production stack).
+# nginx stays in front of gunicorn so /static and /media are served. Traefik
+# publishes only nginx. Postgres and Redis stay on the internal backend
+# network. The application and Celery worker also join `egress` so they can
+# download the ingredient database without joining webgateway.
+
+x-wger-environment: &wger-environment
+  SECRET_KEY: "${SECRET_KEY:?Set SECRET_KEY in .env}"
+  SITE_URL: "https://wger.${DOMAIN:?Set DOMAIN in .env}"
+  JWT_PUBLIC_KEY: "${JWT_PUBLIC_KEY:?Set JWT_PUBLIC_KEY in .env}"
+  JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:?Set JWT_PRIVATE_KEY in .env}"
+  TIME_ZONE: "${TIME_ZONE:-Europe/Athens}"
+  TZ: "${TZ:-Europe/Athens}"
+  CSRF_TRUSTED_ORIGINS: "https://wger.${DOMAIN}"
+  X_FORWARDED_PROTO_HEADER_SET: "True"
+  USE_X_FORWARDED_HOST: "True"
+  MEDIA_URL: "https://wger.${DOMAIN}/media/"
+  STATIC_URL: "https://wger.${DOMAIN}/static/"
+  WGER_INSTANCE: "https://wger.de"
+  ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-True}"
+  ALLOW_GUEST_USERS: "False"
+  ALLOW_UPLOAD_VIDEOS: "True"
+  MIN_ACCOUNT_AGE_TO_TRUST: "21"
+  SYNC_EXERCISES_CELERY: "True"
+  SYNC_EXERCISE_IMAGES_CELERY: "True"
+  SYNC_EXERCISE_VIDEOS_CELERY: "True"
+  SYNC_INGREDIENTS_CELERY: "True"
+  SYNC_INGREDIENTS_DUMP_URL: "https://wger.de/media/ingredients/ingredients.jsonl.gz"
+  DOWNLOAD_INGREDIENTS_FROM: "WGER"
+  CACHE_API_EXERCISES_CELERY: "True"
+  CACHE_API_EXERCISES_CELERY_FORCE_UPDATE: "True"
+  USE_CELERY: "True"
+  CELERY_BROKER: "redis://cache:6379/2"
+  CELERY_BACKEND: "redis://cache:6379/2"
+  CELERY_WORKER_CONCURRENCY: "${CELERY_WORKER_CONCURRENCY:-4}"
+  POSTGRES_USER: "${POSTGRES_USER:-wger}"
+  POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+  POSTGRES_DB: "${POSTGRES_DB:-wger}"
+  PS_DATABASE_URI: "postgres://${POSTGRES_USER:-wger}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wger}"
+  PS_STORAGE_PG_URI: "postgres://powersync_storage:${POWERSYNC_STORAGE_PASSWORD:?Set POWERSYNC_STORAGE_PASSWORD in .env}@db:5432/${POSTGRES_DB:-wger}"
+  PS_PORT: "8080"
+  POWERSYNC_URL_PATH: "ps"
+  DJANGO_PERFORM_MIGRATIONS: "True"
+  DJANGO_CACHE_BACKEND: "django_redis.cache.RedisCache"
+  DJANGO_CACHE_LOCATION: "redis://cache:6379/1"
+  DJANGO_CACHE_TIMEOUT: "1296000"
+  DJANGO_CACHE_CLIENT_CLASS: "django_redis.client.DefaultClient"
+  AXES_ENABLED: "True"
+  AXES_FAILURE_LIMIT: "10"
+  AXES_COOLOFF_TIME: "30"
+  AXES_HANDLER: "axes.handlers.cache.AxesCacheHandler"
+  AXES_LOCKOUT_PARAMETERS: "ip_address"
+  AXES_IPWARE_PROXY_COUNT: "2"
+  AXES_IPWARE_META_PRECEDENCE_ORDER: "HTTP_X_FORWARDED_FOR,REMOTE_ADDR"
+  DJANGO_DEBUG: "False"
+  WGER_USE_GUNICORN: "True"
+  EXERCISE_CACHE_TTL: "2419200"
+  WGER_PORT: "8000"
+  ACCESS_TOKEN_LIFETIME: "10"
+  REFRESH_TOKEN_LIFETIME: "2880"
+  DJANGO_CLEAR_STATIC_FIRST: "False"
+  DJANGO_COLLECTSTATIC_ON_STARTUP: "True"
+  FROM_EMAIL: "wger Workout Manager <wger@example.com>"
+  NUMBER_OF_PROXIES: "2"
+  GUNICORN_CMD_ARGS: "--workers 3 --threads 2 --worker-class gthread --timeout 240"
+  EXPOSE_PROMETHEUS_METRICS: "False"
+  USE_RECAPTCHA: "False"
+  LOG_LEVEL_PYTHON: "INFO"
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  db:
+    container_name: wger-database
+    image: docker.io/postgres:${POSTGRES_VERSION:-15-alpine}
+    restart: unless-stopped
+    shm_size: 256mb
+    logging: *default-logging
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      POSTGRES_USER: "${POSTGRES_USER:-wger}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: "${POSTGRES_DB:-wger}"
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_connections=30
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U \"$$POSTGRES_USER\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backend
+    labels:
+      kuma.wger-database.docker.name: "wger-database"
+      kuma.wger-database.docker.docker_host_name: local-docker-host
+      kuma.wger-database.docker.docker_container: wger-database
+
+  cache:
+    container_name: wger-redis
+    image: docker.io/redis:${REDIS_VERSION:-7-alpine}
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - ./redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+    labels:
+      kuma.wger-redis.docker.name: "wger-redis"
+      kuma.wger-redis.docker.docker_host_name: local-docker-host
+      kuma.wger-redis.docker.docker_container: wger-redis
+
+  web:
+    container_name: wger-web
+    image: docker.io/wger/server:${WGER_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    stop_grace_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    environment:
+      <<: *wger-environment
+    volumes:
+      - ./static:/home/wger/static
+      - ./media:/home/wger/media
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8000/api/v2/version/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
+    networks:
+      - backend
+      - egress
+      - hermes-mcp
+
+  celery_worker:
+    container_name: wger-celery-worker
+    image: docker.io/wger/server:${WGER_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    command: /start-worker
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      <<: *wger-environment
+    volumes:
+      - ./media:/home/wger/media
+    healthcheck:
+      test: ["CMD", "celery", "-A", "wger", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backend
+      - egress
+
+  celery_beat:
+    container_name: wger-celery-beat
+    image: docker.io/wger/server:${WGER_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    command: /start-beat
+    depends_on:
+      celery_worker:
+        condition: service_healthy
+    environment:
+      <<: *wger-environment
+    volumes:
+      - ./celery-beat:/home/wger/beat
+    networks:
+      - backend
+
+  powersync:
+    container_name: wger-powersync
+    image: docker.io/journeyapps/powersync-service:${POWERSYNC_VERSION:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["start", "-r", "unified"]
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      POWERSYNC_CONFIG_PATH: /config/powersync.yaml
+      PS_DATABASE_URI: "postgres://${POSTGRES_USER:-wger}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wger}"
+      PS_STORAGE_PG_URI: "postgres://powersync_storage:${POWERSYNC_STORAGE_PASSWORD}@db:5432/${POSTGRES_DB:-wger}"
+      PS_PORT: "8080"
+      PS_JWKS_URL: http://web:8000/api/v2/powersync-keys
+    volumes:
+      - ./powersync:/config:ro
+    networks:
+      - backend
+
+  nginx:
+    container_name: wger
+    image: docker.io/nginx:${NGINX_VERSION:-stable-alpine}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      - web
+      - powersync
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./static:/wger/static:ro
+      - ./media:/wger/media:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/v2/version/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backend
+      - webgateway
+    labels:
+      kuma.wger.docker.name: "wger"
+      kuma.wger.docker.docker_host_name: local-docker-host
+      kuma.wger.docker.docker_container: wger
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.wger.rule: "Host(`wger.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.wger.entrypoints: websecure
+      traefik.http.routers.wger.tls.certresolver: myresolver
+      traefik.http.services.wger.loadbalancer.server.port: "80"
+      homepage.group: Food
+      homepage.name: wger
+      homepage.icon: wger
+      homepage.href: "https://wger.${DOMAIN}"
+      homepage.description: Workout manager and nutrition diary.
+
+  mcp:
+    container_name: wger-mcp
+    image: ghcr.io/wger-project/mcp-server:${WGER_MCP_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      MCP_AUTH: static_token
+      MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
+      WGER_API_KEY: "${WGER_API_KEY:?Set WGER_API_KEY in .env}"
+      WGER_BASE_URL: "http://web:8000"
+      MCP_TOOLS: "${MCP_TOOLS:-nutrition}"
+      DEFAULT_LANGUAGE: "${WGER_LANGUAGE:-en}"
+      HOST: 0.0.0.0
+      PORT: "8765"
+    networks:
+      - hermes-mcp
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+networks:
+  backend:
+    internal: true
+  egress:
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
+  webgateway:
+    external: true
+    name: webgateway
