@@ -75,6 +75,7 @@ services:
       homepage.description: Web interface for the Hermes autonomous agent.
     networks:
       - backend
+      - hermes-mcp
       - webgateway
 
 volumes:
