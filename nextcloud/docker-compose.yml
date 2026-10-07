@@ -110,7 +110,7 @@ services:
 
   mcp:
     container_name: nextcloud-mcp
-    image: ghcr.io/cbcoutinho/nextcloud-mcp-server:${NEXTCLOUD_MCP_VERSION:-latest}
+    image: ghcr.io/cbcoutinho/nextcloud-mcp-server:${NEXTCLOUD_MCP_VERSION:-0.198.5}
     restart: unless-stopped
     command: ["--transport", "streamable-http"]
     depends_on:
