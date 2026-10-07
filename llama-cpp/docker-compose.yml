@@ -1,0 +1,50 @@
+services:
+  llama-cpp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        LLAMA_REF: ${LLAMA_REF:-main}
+        LLAMA_REPO: ${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp}
+        MAX_JOBS: ${MAX_JOBS:-4}
+    container_name: llama-server
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "991"
+    volumes:
+      - ./models:/models
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--metrics"
+      - "--verbose"
+      - "--models-preset"
+      - "/models/router-config.ini"
+      - "--jinja"
+      - "--models-max"
+      - "${MAX_MODELS:-1}"
+      - "--sleep-idle-seconds"
+      - "${SLEEP_IDLE_SECONDS:-300}"
+    restart: unless-stopped
+    networks:
+      - webgateway
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.llama-server.rule=Host(`ai.${DOMAIN}`)
+      - traefik.http.routers.llama-server.entrypoints=websecure
+      - traefik.http.routers.llama-server.tls=true
+      - "traefik.http.services.llama-server.loadbalancer.server.scheme=http"
+      - "traefik.http.services.llama-server.loadbalancer.server.port=8080"
+      - homepage.group=AI
+      - homepage.name=llama.cpp
+      - homepage.icon=mdi-brain
+      - homepage.href=https://ai.${DOMAIN}
+      - homepage.description=OpenAI-compatible local language model server.
+
+networks:
+  webgateway:
+    external: true

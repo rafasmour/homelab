@@ -1,0 +1,172 @@
+version = 1
+
+; Command-line options override these values. Keep model-execution options here.
+[*]
+flash-attn = on
+n-gpu-layers = auto
+threads = 8
+threads-batch = 16
+parallel = 4
+kv-unified = true
+batch-size = 512
+ubatch-size = 256
+cache-type-k = q8_0
+cache-type-v = q4_0
+repeat-penalty = 1.1
+
+[ornith-1.5-35b-a3b]
+model = /models/ornith/ornith-1.5-35b-a3b/Ornith-1.5-35B-A3B-IQ4_XS.gguf
+ctx-size = 65536
+parallel = 1
+n-cpu-moe = 28
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 0.6
+top-p = 0.95
+top-k = 20
+
+[ornith-1.5-9b-dflash]
+model = /models/ornith/ornith-1.5-9b/Ornith-1.5-9B-AD-Q5_K-Q4_K.gguf
+model-draft = /models/ornith/ornith-1.5-9b/qwen35-9b-dflash-Q4_K_M.gguf
+ctx-size = 65536
+parallel = 1
+spec-type = draft-dflash
+spec-draft-n-max = 8
+temp = 0.6
+top-p = 0.95
+top-k = 20
+
+[qwen-3.6-35b-a3b-mtp]
+model = /models/qwen/qwen-3.6-35b-a3b/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf
+ctx-size = 65536
+parallel = 1
+n-cpu-moe = 28
+cache-type-k = q4_0
+cache-type-v = q4_0
+spec-type = draft-mtp
+spec-draft-n-max = 2
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0
+presence-penalty = 1.5
+repeat-penalty = 1.0
+
+[gemma-4-26b-a4b]
+model = /models/gemma/gemma-4-26b-a4b/gemma-4-26B-A4B-Q4_K_M.gguf
+ctx-size = 65536
+parallel = 1
+n-cpu-moe = 21
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[gemma-4-12b-it-qat-mtp]
+model = /models/gemma/gemma-4-12b-it-qat/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+model-draft = /models/gemma/gemma-4-12b-it-qat/mtp-gemma-4-12B-it.gguf
+ctx-size = 65536
+parallel = 1
+spec-type = draft-mtp
+spec-draft-n-max = 4
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[gemma-4-12b-it-qat-vision]
+model = /models/gemma/gemma-4-12b-it-qat/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+mmproj = /models/gemma/gemma-4-12b-it-qat/mmproj-F16.gguf
+ctx-size = 65536
+parallel = 1
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[gemma-4-e4b-it-mtp]
+model = /models/gemma/gemma-4-e4b-it/gemma-4-E4B-it-IQ4_XS.gguf
+model-draft = /models/gemma/gemma-4-e4b-it/mtp-gemma-4-E4B-it.gguf
+ctx-size = 65536
+parallel = 1
+spec-type = draft-mtp
+spec-draft-n-max = 4
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[gemma-4-e4b-it-vision]
+model = /models/gemma/gemma-4-e4b-it/gemma-4-E4B-it-IQ4_XS.gguf
+mmproj = /models/gemma/gemma-4-e4b-it/mmproj-F16.gguf
+ctx-size = 65536
+parallel = 1
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[tiel-coder-35b-a3b]
+model = /models/tiel/tiel-coder-35b-a3b/Tiel-Coder-35B-A3B-UD-IQ4_XS.gguf
+ctx-size = 65536
+parallel = 1
+n-cpu-moe = 28
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 0.6
+top-p = 0.95
+top-k = 20
+
+[ling-3-tiny]
+model = /models/ling/ling-3-tiny/Ling-3.0-tiny-Q5_K_M.gguf
+ctx-size = 65536
+parallel = 1
+temp = 1.0
+top-p = 0.95
+top-k = 20
+
+[granite-4.2-8b]
+model = /models/granite/granite-4.2-8b/granite-4.2-8b-Q4_K_M.gguf
+ctx-size = 65536
+parallel = 1
+temp = 1.0
+top-p = 0.95
+repeat-penalty = 1.0
+
+[gemma-4-e2b-it]
+model = /models/gemma/gemma-4-e2b-it/google_gemma-4-E2B-it-Q4_K_M.gguf
+ctx-size = 65536
+parallel = 1
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[unlimited-ocr]
+model = /models/ocr/unlimited-ocr/Unlimited-OCR-Q4_K_M.gguf
+mmproj = /models/ocr/unlimited-ocr/mmproj-Unlimited-OCR-F16.gguf
+ctx-size = 65536
+parallel = 1
+temp = 0
+
+[kat-coder-v2.5-dev-q4]
+model = /models/kat-coder/kat-coder-v2.5-dev/kat-coder-v2.5-dev-q4_k_m.gguf
+ctx-size = 65536
+parallel = 1
+cpu-moe = true
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 1.0
+top-p = 0.95
+top-k = 20
+presence-penalty = 1.5
+repeat-penalty = 1.0
+
+[kat-coder-v2.5-dev-iq3]
+model = /models/kat-coder/kat-coder-v2.5-dev/Kwaipilot_KAT-Coder-V2.5-Dev-IQ3_XXS.gguf
+ctx-size = 65536
+parallel = 1
+n-cpu-moe = 25
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 1.0
+top-p = 0.95
+top-k = 20
+presence-penalty = 1.5
+repeat-penalty = 1.0

@@ -1,0 +1,14 @@
+* 
+
+!.env.example
+!docker-compose.yml
+!Dockerfile
+!README.md
+!AGENTS.md
+!.gitignore
+!models
+!models/router-config.ini.example
+!models/downloads.md
+!patches
+!patches/spark2_5-27868-clean.patch
+!patches/spark2_5-ifm-fixes.patch

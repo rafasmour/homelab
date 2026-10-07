@@ -1,0 +1,51 @@
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -337,6 +337,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
+         case LLM_ARCH_STEP35:
+             return new llama_model_step35(params);
+         case LLM_ARCH_K2_HORIZON:
+             return new llama_model_k2_horizon(params);
++        case LLM_ARCH_SPARK2_5:
++            return new llama_model_spark2_5(params);
+             default:
+             throw std::runtime_error(std::string("unsupported model architecture: '") + llm_arch_name(arch) + "'");
+@@ -2933,6 +2935,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
+         case LLM_ARCH_MIMO2:
+         case LLM_ARCH_STEP35:
++        case LLM_ARCH_SPARK2_5:
+         case LLM_ARCH_TALKIE:
+         case LLM_ARCH_K2_HORIZON:
+         case LLM_ARCH_MELLUM:
+             return LLAMA_ROPE_TYPE_NEOX;
+diff --git a/src/llama-vocab.h b/src/llama-vocab.h
+--- a/src/llama-vocab.h
++++ b/src/llama-vocab.h
+@@ -66,6 +66,7 @@ enum llama_vocab_pre_type {
+     LLAMA_VOCAB_PRE_TYPE_MELLUM2           = 55,
+     LLAMA_VOCAB_PRE_TYPE_LAGUNA            = 56,
+     LLAMA_VOCAB_PRE_TYPE_K2_HORIZON        = 57,
++    LLAMA_VOCAB_PRE_TYPE_SPARK2_5          = 58,
+ };
+ 
+ struct LLM_KV;
+diff --git a/src/models/models.h b/src/models/models.h
+--- a/src/models/models.h
++++ b/src/models/models.h
+@@ -2560,3 +2560,16 @@ struct llama_model_k2_horizon : public llama_model_base {
+         const llm_graph_params & params
+     ) const override;
+ };
++
++
++struct llama_model_spark2_5 : public llama_model_base {
++    llama_model_spark2_5(const struct llama_model_params & params) : llama_model_base(params) {}
++    void load_arch_hparams(llama_model_loader & ml) override;
++    void load_arch_tensors(llama_model_loader & ml) override;
++
++    struct graph : public llm_graph_context {
++        graph(const llama_model & model, const llm_graph_params & params);
++    };
++
++    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
++};
