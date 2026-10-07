@@ -20,8 +20,9 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
-  # Docker discovery creates exactly one filelog receiver for every running
-  # container. The wildcard ID path covers all current and future containers.
+  # Docker discovery creates a dedicated filelog receiver for every running
+  # service container. Each receiver gets its own file path, resource labels,
+  # and persistent offset state, so services are fetched independently.
   receiver_creator/docker:
     watch_observers: [docker_observer]
     receivers:
@@ -37,6 +38,11 @@ receivers:
           operators:
             - id: parse-container-log
               type: container
+              format: docker
+              # This stack tails Docker json-file logs directly rather than
+              # Kubernetes /var/log/pods paths, so there is no Kubernetes
+              # metadata to infer from the file name.
+              add_metadata_from_filepath: false
         resource_attributes:
           service.name: '`name`'
           container.name: '`name`'
