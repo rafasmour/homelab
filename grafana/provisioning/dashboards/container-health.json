@@ -1,0 +1,95 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Current Docker monitor status reported by Uptime Kuma. Filters stale null-URL series retained by the exporter.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Container" },
+            "properties": [
+              { "id": "displayName", "value": "Container" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Health" },
+            "properties": [
+              { "id": "displayName", "value": "Health" },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Unhealthy" },
+                      "1": { "color": "green", "index": 1, "text": "Healthy" },
+                      "2": { "color": "orange", "index": 2, "text": "Pending" },
+                      "3": { "color": "blue", "index": 3, "text": "Maintenance" }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background" }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 18, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          { "desc": false, "displayName": "Container" }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "editorMode": "code",
+          "expr": "monitor_status{job=\"uptime-kuma\", monitor_url=\"https://\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{monitor_name}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Container Health",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true,
+              "monitor_hostname": true,
+              "monitor_id": true,
+              "monitor_port": true,
+              "monitor_type": true,
+              "monitor_url": true
+            },
+            "indexByName": { "monitor_name": 0, "Value": 1 },
+            "renameByName": { "monitor_name": "Container", "Value": "Health" }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["uptime-kuma", "containers", "homelab"],
+  "time": { "from": "now-15m", "to": "now" },
+  "timezone": "browser",
+  "title": "Container Health",
+  "uid": "container-health",
+  "version": 1
+}
