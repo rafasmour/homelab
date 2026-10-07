@@ -22,6 +22,10 @@ docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d
 
 The MCP server can create, update, execute, and delete workflows. Back up production workflows and review changes before running them.
 
+## Firefly subscriptions calendar
+
+`workflows/firefly-subscriptions-to-nextcloud.json` runs at 00:30 Europe/Athens and does not use a model. It lists Firefly III bills and upserts one all-day event per active subscription on the Nextcloud calendar named Payments. Each event includes the amount, the next date, and the Firefly id. Import it inactive. On the Firefly request, attach a Header Auth credential whose header is `Authorization` and whose value is `Bearer` plus a Firefly personal access token. On the CalDAV requests, attach a Basic Auth credential with the Nextcloud username and a CalDAV app password. No credentials are stored in the workflow file. Create the Payments calendar in Nextcloud before the first run. Hermes reads the Payments calendar at 03:30 and only unpaid items become tasks at 07:00.
+
 ## Backup and important notes
 
 Back up `.env`, `data`, and a consistent copy or dump of `postgres`.

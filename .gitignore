@@ -124,6 +124,8 @@ vaultwarden/data/
 !forage/config.yml
 !drawio/Dockerfile
 !drawio/.dockerignore
+!n8n/workflows/
+!n8n/workflows/firefly-subscriptions-to-nextcloud.json
 
 # Existing tracked `.gitkeep` files remain tracked automatically. Their runtime
 # parent directories are deliberately not unignored so Git never scans data.

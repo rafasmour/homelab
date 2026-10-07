@@ -1,0 +1,408 @@
+{
+  "id": "6c2e9b14-8d57-4a31-b0f6-3e8a1d5c7b92",
+  "name": "Firefly subscriptions to Nextcloud Payments",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Attach credentials before activating. No model is used.\n\nList Firefly bills: Header Auth. Header name Authorization, value Bearer <Firefly personal access token>.\n\nCalDAV requests: Basic Auth. User is the Nextcloud username. Password is a CalDAV app password. Leave the PROPFIND method expression as it is.\n\nThe Nextcloud calendar must be named Payments. Each event stores the amount, next date, and Firefly id.",
+        "height": 280,
+        "width": 420
+      },
+      "id": "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+      "name": "Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -280
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 0 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b2c3d4e5-f6a7-4890-b123-456789abcdef",
+      "name": "00:30 Europe/Athens",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ 'PROPFIND' }}",
+        "url": "http://nextcloud/remote.php/dav/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Depth",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/xml; charset=utf-8",
+        "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<d:propfind xmlns:d=\"DAV:\">\n  <d:prop>\n    <d:current-user-principal/>\n  </d:prop>\n</d:propfind>\n"
+      },
+      "id": "c3d4e5f6-a7b8-4901-c234-56789abcdef0",
+      "name": "CalDAV principal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function decodeXml(text) {\n  return String(text)\n    .replace(/&lt;/g, \"<\")\n    .replace(/&gt;/g, \">\")\n    .replace(/&quot;/g, '\"')\n    .replace(/&apos;/g, \"'\")\n    .replace(/&amp;/g, \"&\");\n}\n\nfunction toInternal(href) {\n  let path = decodeXml(String(href || \"\")).trim();\n  const absolute = path.match(/^https?:\\/\\/[^/]+(\\/.*)$/i);\n  if (absolute) path = absolute[1];\n  if (!path.startsWith(\"/\")) path = `/${path}`;\n  return `http://nextcloud${path}`;\n}\n\nfunction xmlText() {\n  const value = $input.first().json.data;\n  return typeof value === \"string\" ? value : \"\";\n}\n\nconst xml = xmlText();\nconst match = xml.match(/<(?:[\\w.-]+:)?current-user-principal\\b[\\s\\S]*?<(?:[\\w.-]+:)?href>([^<]+)<\\/(?:[\\w.-]+:)?href>/i);\nif (!match) {\n  throw new Error(\"CalDAV response did not include the current user principal. Attach the Nextcloud basic auth credential.\");\n}\nreturn [{ json: { url: toInternal(match[1]) } }];\n"
+      },
+      "id": "d4e5f6a7-b8c9-4012-d345-6789abcdef01",
+      "name": "Principal URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ 'PROPFIND' }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Depth",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/xml; charset=utf-8",
+        "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<d:propfind xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">\n  <d:prop>\n    <c:calendar-home-set/>\n  </d:prop>\n</d:propfind>\n"
+      },
+      "id": "e5f6a7b8-c9d0-4123-e456-789abcdef012",
+      "name": "Calendar home",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function decodeXml(text) {\n  return String(text)\n    .replace(/&lt;/g, \"<\")\n    .replace(/&gt;/g, \">\")\n    .replace(/&quot;/g, '\"')\n    .replace(/&apos;/g, \"'\")\n    .replace(/&amp;/g, \"&\");\n}\n\nfunction toInternal(href) {\n  let path = decodeXml(String(href || \"\")).trim();\n  const absolute = path.match(/^https?:\\/\\/[^/]+(\\/.*)$/i);\n  if (absolute) path = absolute[1];\n  if (!path.startsWith(\"/\")) path = `/${path}`;\n  return `http://nextcloud${path}`;\n}\n\nfunction xmlText() {\n  const value = $input.first().json.data;\n  return typeof value === \"string\" ? value : \"\";\n}\n\nconst xml = xmlText();\nconst match = xml.match(/<(?:[\\w.-]+:)?calendar-home-set\\b[\\s\\S]*?<(?:[\\w.-]+:)?href>([^<]+)<\\/(?:[\\w.-]+:)?href>/i);\nif (!match) {\n  throw new Error(\"CalDAV response did not include a calendar home\");\n}\nreturn [{ json: { url: toInternal(match[1]) } }];\n"
+      },
+      "id": "f6a7b8c9-d0e1-4234-f567-89abcdef0123",
+      "name": "Calendar home URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ 'PROPFIND' }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Depth",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/xml; charset=utf-8",
+        "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<d:propfind xmlns:d=\"DAV:\">\n  <d:prop>\n    <d:displayname/>\n    <d:resourcetype/>\n  </d:prop>\n</d:propfind>\n"
+      },
+      "id": "a7b8c9d0-e1f2-4345-a678-9abcdef01234",
+      "name": "List calendars",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function decodeXml(text) {\n  return String(text)\n    .replace(/&lt;/g, \"<\")\n    .replace(/&gt;/g, \">\")\n    .replace(/&quot;/g, '\"')\n    .replace(/&apos;/g, \"'\")\n    .replace(/&amp;/g, \"&\");\n}\n\nfunction toInternal(href) {\n  let path = decodeXml(String(href || \"\")).trim();\n  const absolute = path.match(/^https?:\\/\\/[^/]+(\\/.*)$/i);\n  if (absolute) path = absolute[1];\n  if (!path.startsWith(\"/\")) path = `/${path}`;\n  return `http://nextcloud${path}`;\n}\n\nfunction xmlText() {\n  const value = $input.first().json.data;\n  return typeof value === \"string\" ? value : \"\";\n}\n\nconst xml = xmlText();\nconst chunks = xml.split(/<(?:[\\w.-]+:)?response[\\s>]/i).slice(1);\nlet calendarUrl = \"\";\nfor (const chunk of chunks) {\n  const href = (chunk.match(/<(?:[\\w.-]+:)?href>([^<]*)<\\/(?:[\\w.-]+:)?href>/i) || [])[1];\n  const name = (chunk.match(/<(?:[\\w.-]+:)?displayname>([^<]*)<\\/(?:[\\w.-]+:)?displayname>/i) || [])[1];\n  if (href && decodeXml(name || \"\").trim() === \"Payments\") {\n    calendarUrl = toInternal(href);\n    break;\n  }\n}\nif (!calendarUrl) {\n  throw new Error('Nextcloud calendar \"Payments\" was not found');\n}\nreturn [{ json: { calendarUrl } }];\n"
+      },
+      "id": "b8c9d0e1-f2a3-4456-b789-abcdef012345",
+      "name": "Payments calendar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://firefly-iii:8080/api/v1/bills",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.api+json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "qs",
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ $response.body.meta.pagination.current_page >= $response.body.meta.pagination.total_pages }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20
+            }
+          }
+        },
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "50"
+            }
+          ]
+        }
+      },
+      "id": "c9d0e1f2-a3b4-4567-c89a-bcdef0123456",
+      "name": "List Firefly bills",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2060,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const calendarUrl = $(\"Payments calendar\").first().json.calendarUrl;\nif (!calendarUrl) {\n  throw new Error(\"Payments calendar URL is missing\");\n}\n\nfunction amountLabel(attributes) {\n  const currency = attributes.currency_code || \"\";\n  const format = (value) => {\n    const number = Number(String(value ?? \"\").replace(/\\s/g, \"\"));\n    return Number.isFinite(number) ? number.toFixed(2) : String(value ?? \"\");\n  };\n  const min = format(attributes.amount_min);\n  const max = format(attributes.amount_max);\n  const amount = min === max ? min : `${min}-${max}`;\n  return `${amount} ${currency}`.trim();\n}\n\nfunction nextDate(attributes) {\n  const sources = [attributes.next_expected_match].concat(attributes.pay_dates || []);\n  for (const source of sources) {\n    const match = String(source || \"\").match(/^(\\d{4}-\\d{2}-\\d{2})/);\n    if (match) return match[1];\n  }\n  return \"\";\n}\n\nfunction icsEscape(value) {\n  return String(value)\n    .replace(/\\\\/g, \"\\\\\\\\\")\n    .replace(/\\r\\n|\\n|\\r/g, \"\\\\n\")\n    .replace(/,/g, \"\\\\,\")\n    .replace(/;/g, \"\\\\;\");\n}\n\nfunction compact(isoDate) {\n  return isoDate.replace(/-/g, \"\");\n}\n\nfunction nextDay(isoDate) {\n  const [year, month, day] = isoDate.split(\"-\").map(Number);\n  const date = new Date(Date.UTC(year, month - 1, day + 1));\n  const pad = (value) => String(value).padStart(2, \"0\");\n  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}`;\n}\n\nfunction stamp() {\n  return new Date().toISOString().replace(/[-:]/g, \"\").replace(/\\.\\d{3}Z$/, \"Z\");\n}\n\nconst bills = [];\nfor (const item of $input.all()) {\n  const rows = Array.isArray(item.json && item.json.data) ? item.json.data : [];\n  bills.push(...rows);\n}\n\nconst events = [];\nfor (const bill of bills) {\n  const attributes = bill.attributes || {};\n  if (attributes.active === false) continue;\n  const date = nextDate(attributes);\n  if (!date) continue;\n  const id = String(bill.id);\n  const name = attributes.name || `Firefly bill ${id}`;\n  const amount = amountLabel(attributes);\n  const description = [`Amount: ${amount}`, `Next date: ${date}`, `Firefly id: ${id}`].join(\"\\n\");\n  const ics = [\n    \"BEGIN:VCALENDAR\",\n    \"VERSION:2.0\",\n    \"PRODID:-//homelab//firefly-subscriptions//EN\",\n    \"CALSCALE:GREGORIAN\",\n    \"BEGIN:VEVENT\",\n    `UID:firefly-bill-${id}@homelab`,\n    `DTSTAMP:${stamp()}`,\n    `DTSTART;VALUE=DATE:${compact(date)}`,\n    `DTEND;VALUE=DATE:${nextDay(date)}`,\n    `SUMMARY:${icsEscape(`${name} (${amount})`)}`,\n    `DESCRIPTION:${icsEscape(description)}`,\n    \"END:VEVENT\",\n    \"END:VCALENDAR\",\n    \"\",\n  ].join(\"\\r\\n\");\n  const base = calendarUrl.endsWith(\"/\") ? calendarUrl : `${calendarUrl}/`;\n  events.push({\n    json: {\n      url: `${base}firefly-bill-${id}.ics`,\n      ics,\n      fireflyId: id,\n      name,\n      amount,\n      nextDate: date,\n    },\n  });\n}\nreturn events;\n"
+      },
+      "id": "d0e1f2a3-b4c5-4678-d9ab-cdef01234567",
+      "name": "Subscription events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": false,
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/calendar; charset=utf-8",
+        "body": "={{ $json.ics }}"
+      },
+      "id": "e1f2a3b4-c5d6-4789-eabc-def012345678",
+      "name": "Upsert event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2580,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "00:30 Europe/Athens": {
+      "main": [
+        [
+          {
+            "node": "CalDAV principal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CalDAV principal": {
+      "main": [
+        [
+          {
+            "node": "Principal URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Principal URL": {
+      "main": [
+        [
+          {
+            "node": "Calendar home",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar home": {
+      "main": [
+        [
+          {
+            "node": "Calendar home URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar home URL": {
+      "main": [
+        [
+          {
+            "node": "List calendars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List calendars": {
+      "main": [
+        [
+          {
+            "node": "Payments calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payments calendar": {
+      "main": [
+        [
+          {
+            "node": "List Firefly bills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Firefly bills": {
+      "main": [
+        [
+          {
+            "node": "Subscription events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Subscription events": {
+      "main": [
+        [
+          {
+            "node": "Upsert event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens"
+  },
+  "pinData": {}
+}
