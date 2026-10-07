@@ -1,0 +1,35 @@
+services:
+  stable-diffusion:
+    build:
+      context: .
+    image: image-generation-sd-cpp:latest
+    container_name: stable-diffusion
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - ./models:/models:ro
+      - ./outputs:/outputs
+    environment:
+      # SD_MODEL is for a complete single-file checkpoint. For split models such
+      # as Z-Image, set SD_DIFFUSION_MODEL, SD_VAE, and SD_LLM instead.
+      SD_MODEL: ${SD_MODEL:-}
+      SD_DIFFUSION_MODEL: ${SD_DIFFUSION_MODEL:-}
+      SD_VAE: ${SD_VAE:-}
+      SD_LLM: ${SD_LLM:-}
+      SD_BACKEND: ${SD_BACKEND:-vulkan0}
+      SD_MAX_VRAM: ${SD_MAX_VRAM:-}
+      SD_AUTO_FIT: ${SD_AUTO_FIT:-false}
+      SD_STREAM_LAYERS: ${SD_STREAM_LAYERS:-false}
+    restart: unless-stopped
+    networks:
+      - webgateway
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.stable-diffusion.rule=Host(`${SD_SUBDOMAIN:-stable-diffusion}.${DOMAIN}`)
+      - traefik.http.routers.stable-diffusion.entrypoints=websecure
+      - traefik.http.routers.stable-diffusion.tls=true
+      - traefik.http.services.stable-diffusion.loadbalancer.server.port=1234
+
+networks:
+  webgateway:
+    external: true
