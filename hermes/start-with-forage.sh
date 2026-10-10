@@ -19,6 +19,8 @@ if [ ! -f "${plugin_dir}/plugin.yaml" ]; then
 fi
 
 hermes plugins enable web/forage
+# A sticky specialist profile would send these writes and cron jobs there.
+hermes profile use default
 hermes config set web.search_backend forage
 hermes config set web.extract_backend forage
 hermes config set mcp_servers.nextcloud \
@@ -203,6 +205,7 @@ ensure_cron_job() {
   if cron_job_exists "${name}"; then
     return 0
   fi
+  hermes profile use default
   if [ "${continuity}" = "yes" ]; then
     hermes cron create --name "${name}" --deliver local --continuity \
       "${schedule}" "${prompt}"
@@ -409,4 +412,19 @@ EOF
 )
 ensure_cron_job calories-report "0 19 * * *" no "${calories_report_prompt}"
 
+for profile in nextcloud finance ai-news hf-models llamacpp-vulkan gpu-watch selfhosted calories router digest; do
+  if [ -f "${HERMES_HOME}/profiles/${profile}/config.yaml" ]; then
+    hermes -p "${profile}" config set platforms.api_server.enabled false
+    hermes -p "${profile}" config set gateway.enabled false
+  fi
+done
+
+s6_svc=$(find /package/admin -path '*/command/s6-svc' -type f 2>/dev/null | head -n 1)
+if [ -n "${s6_svc}" ]; then
+  for profile in nextcloud finance ai-news hf-models llamacpp-vulkan gpu-watch selfhosted calories router digest; do
+    "${s6_svc}" -d "/run/service/gateway-${profile}" 2>/dev/null || true
+  done
+fi
+
+hermes profile use default
 exec hermes gateway run
