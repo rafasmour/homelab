@@ -1,0 +1,30 @@
+{
+  "version": 3,
+  "date": "Y-m-d",
+  "default_account": 1,
+  "delimiter": "comma",
+  "headers": true,
+  "rules": true,
+  "skip_form": true,
+  "add_import_tag": true,
+  "roles": [
+    "date_transaction",
+    "amount",
+    "description",
+    "note"
+  ],
+  "do_mapping": [
+    false,
+    false,
+    false,
+    false
+  ],
+  "mapping": {},
+  "duplicate_detection_method": "classic",
+  "ignore_duplicate_lines": true,
+  "ignore_duplicate_transactions": true,
+  "unique_column_index": 0,
+  "unique_column_type": "internal-id",
+  "flow": "file",
+  "conversion": false
+}

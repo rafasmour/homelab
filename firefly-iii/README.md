@@ -12,7 +12,7 @@ After creating the owner account, open Firefly III's **Options > OAuth** page at
 
 The importer has no independent login in front of its workflow. Protect `firefly-importer.${DOMAIN}` with a Traefik authentication middleware or an identity-aware proxy if the hostname is publicly reachable.
 
-Directory auto-import is enabled for `/import`. A file is imported when a JSON mapping with the same name is present, or when `imports/_fallback.json` exists. `AUTO_IMPORT_SECRET` must match the value in `n8n/.env`. The n8n Piraeus workflow writes `imports/piraeus-current.csv` and posts to this endpoint.
+Directory auto-import is enabled for `/import`. Each CSV needs a sibling `.json` mapping or a shared `imports/_fallback.json` (`FALLBACK_IN_DIR=true` in Compose). Copy `imports/_fallback.json.example` to `imports/_fallback.json` and set `default_account` to your Piraeus asset account id from Firefly III. `AUTO_IMPORT_SECRET` must match `n8n/.env`. The n8n Piraeus workflow writes `imports/piraeus-current.csv` and posts to the importer `/autoimport` endpoint.
 
 ## Backup and important notes
 

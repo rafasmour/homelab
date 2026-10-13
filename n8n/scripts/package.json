@@ -1,0 +1,9 @@
+{
+  "name": "n8n-piraeus-import",
+  "private": true,
+  "description": "Dependencies for /scripts/piraeus-import.cjs in the n8n container",
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "iconv-lite": "^0.6.3"
+  }
+}

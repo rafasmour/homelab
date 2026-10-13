@@ -25,7 +25,12 @@ services:
 
   n8n:
     container_name: n8n
-    image: docker.n8n.io/n8nio/n8n:${N8N_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        N8N_VERSION: ${N8N_VERSION:-latest}
+    image: n8n-homelab:${N8N_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       database:
@@ -48,6 +53,7 @@ services:
       TZ: "${TZ:-Etc/UTC}"
       PIRAEUS_ZIP_PASSWORD: "${PIRAEUS_ZIP_PASSWORD:-}"
       AUTO_IMPORT_SECRET: "${AUTO_IMPORT_SECRET:-}"
+      FIREFLY_IMPORT_DEFAULT_ACCOUNT_ID: "${FIREFLY_IMPORT_DEFAULT_ACCOUNT_ID:-}"
       FIREFLY_IMPORT_DIR: /firefly-import
       FIREFLY_IMPORT_ARCHIVE: /firefly-import-archive
       NODES_EXCLUDE: '["n8n-nodes-base.localFileTrigger"]'
