@@ -52,8 +52,9 @@ Use this checklist for a fresh installation. Complete the shared prerequisites b
 ## Local AI
 
 - [ ] [llama.cpp](llama-cpp/README.md): verify Vulkan and `/dev/dri`, add GGUF models and router presets, build the image, and test `/v1/models`.
-- [ ] [Open WebUI](openwebui/README.md): start it after llama.cpp, create the administrator, and verify model connectivity.
-- [ ] [Hermes](hermes/README.md): configure the llama.cpp endpoint and provider credentials, then test its dashboard and API routes.
+- [ ] [Open WebUI](openwebui/README.md): start it after llama.cpp and verify model connectivity. Login is disabled.
+- [ ] [Hermes](hermes/README.md): configure the llama.cpp endpoint and provider credentials, then test the API routes.
+- [ ] [DeepSeek Agent Harness](deepseek-agent-harness/README.md): build the image, set trusted-host access, add Traefik auth if needed, and connect llama.cpp or DeepSeek cloud in the Web UI.
 - [ ] [Image Generation](image-generation/README.md): verify Vulkan access, download the required model files, build the image, and generate a test image.
 - [ ] [Unsloth Studio](unsloth-studio/README.md): install the NVIDIA runtime, set the Jupyter password, and verify GPU access inside the container.
 

@@ -14,14 +14,16 @@
 !drawio/
 !excalidraw/
 !firefly-iii/
-!forage/
 !gitlab/
 !grafana/
 !hermes/
+!deepseek-agent-harness/
+!home-assistant/
 !homepage/
 !image-generation/
 !immich/
 !llama-cpp/
+!llama-cpp-classifier/
 !loki/
 !mealie/
 !memos/
@@ -38,6 +40,7 @@
 !unsloth-studio/
 !uptime-kuma/
 !vaultwarden/
+!web-search/
 !wger/
 
 # Standard files allowed in every explicitly allowlisted service folder.
@@ -55,6 +58,8 @@ affine/redis/
 affine/storage/
 firefly-iii/database/
 firefly-iii/imports/
+!firefly-iii/imports/
+!firefly-iii/imports/_fallback.json.example
 firefly-iii/import-archive/
 firefly-iii/uploads/
 gitlab/config/
@@ -62,6 +67,9 @@ gitlab/data/
 gitlab/logs/
 grafana/data/
 homepage/config/
+home-assistant/config/
+home-assistant/piper/
+home-assistant/whisper/
 immich/library/
 immich/model-cache/
 immich/postgres/
@@ -112,8 +120,18 @@ wger/static/
 !homepage/config/
 !homepage/config/docker.yaml
 !hermes/.gitignore
-!hermes/start-with-forage.sh
+!hermes/start.sh
 !hermes/gpu-watchlist.example.yml
+!deepseek-agent-harness/.dockerignore
+!deepseek-agent-harness/.gitignore
+!deepseek-agent-harness/Dockerfile
+!deepseek-agent-harness/docker/
+!deepseek-agent-harness/docker/entrypoint.sh
+!deepseek-agent-harness/docker/healthcheck.sh
+!deepseek-agent-harness/patches/
+!deepseek-agent-harness/patches/enable-remote-access.mjs
+deepseek-agent-harness/data/
+deepseek-agent-harness/workspaces/
 !image-generation/.dockerignore
 !image-generation/.gitignore
 !image-generation/Dockerfile
@@ -127,12 +145,26 @@ wger/static/
 !llama-cpp/patches/
 !llama-cpp/patches/spark2_5-27868-clean.patch
 !llama-cpp/patches/spark2_5-ifm-fixes.patch
+!llama-cpp-classifier/.gitignore
+!llama-cpp-classifier/.dockerignore
+!llama-cpp-classifier/Dockerfile
+!llama-cpp-classifier/models/
+!llama-cpp-classifier/models/router-config.ini.example
+!llama-cpp-classifier/models/downloads.md
 !openwebui/.gitignore
-!forage/config.yml
+!web-search/Dockerfile
+!web-search/.dockerignore
+!web-search/requirements.txt
+!web-search/app/
+!web-search/app/*.py
 !drawio/Dockerfile
 !drawio/.dockerignore
+!n8n/Dockerfile
+!n8n/.dockerignore
 !n8n/scripts/
 !n8n/scripts/piraeus-import.cjs
+!n8n/scripts/package.json
+!n8n/scripts/package-lock.json
 !n8n/workflows/
 !n8n/workflows/piraeus-monthly-import.json
 !n8n/workflows/firefly-subscriptions-to-nextcloud.json
@@ -141,6 +173,8 @@ wger/static/
 !wger/powersync/
 !wger/powersync/powersync.yaml
 !wger/powersync/sync_rules.yaml
+!home-assistant/scripts/
+!home-assistant/scripts/bootstrap-and-start.sh
 
 # Existing tracked `.gitkeep` files remain tracked automatically. Their runtime
 # parent directories are deliberately not unignored so Git never scans data.
