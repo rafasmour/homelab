@@ -53,18 +53,20 @@ by it. GGUF files and the active `router-config.ini` are ignored by Git.
 Router command-line options take precedence over model-preset options. Therefore
 all model execution settings belong in `router-config.ini`: the `[*]` section
 defines shared defaults and a model section can override them. A `ctx-size` of
-`0` uses the context size stored in the model; set an explicit value on larger
-model presets when they need a memory cap. The supplied profile uses Vulkan
-Flash Attention, a unified quantized KV cache across four request slots, and 8
-CPU generation threads for an 8-core Ryzen. Tune context, batch sizes, and GPU
-layers to the available VRAM and model architecture.
+`0` uses the context size stored in the model. The supplied profile sets
+`ctx-size = 262144` (256K), `kv-unified = true` (one KV buffer shared across
+slots, llama-server `--kv-unified`), and `parallel = 4` (llama-server
+`--parallel`, four request slots). Each alias in the template repeats those
+two values so it does not inherit a smaller cap. Vulkan Flash Attention stays
+on, with 8 CPU generation threads for an 8-core Ryzen. Tune context, batch
+sizes, and GPU layers to the available VRAM and model architecture.
 
 The included performance profile is intended for an 8 GB
-Vulkan GPU. Smaller models can use more context and full GPU offload; larger
-MoE models keep selected expert layers in RAM through `n-cpu-moe` and use one
-request slot. Every supplied alias reserves a 64K context for agent harnesses;
-this significantly increases KV memory and makes the initial expert-offload
-values starting points that must be tuned on the target host. The KAT Q4 file
+Vulkan GPU. Smaller models can use full GPU offload; larger
+MoE models keep selected expert layers in RAM through `n-cpu-moe`.
+A 256K context with a unified KV cache uses much more KV memory than a 64K
+cache and makes the initial expert-offload values starting points that must
+be tuned on the target host. The KAT Q4 file
 is 21.2 GB before context and runtime allocations, so that alias is explicitly
 best-effort and may swap heavily or fail to load.
 
