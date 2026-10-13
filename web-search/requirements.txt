@@ -1,0 +1,4 @@
+mcp>=1.12,<2
+markdownify>=1.1,<2
+trafilatura>=2.0,<3
+uvicorn>=0.32,<1

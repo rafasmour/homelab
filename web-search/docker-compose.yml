@@ -1,0 +1,38 @@
+services:
+  web-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: web-search:${WEB_SEARCH_IMAGE_TAG:-local}
+    container_name: web-search-mcp
+    restart: unless-stopped
+    environment:
+      WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
+      SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      SEARCH_ENGINE: "${SEARCH_ENGINE:-searxng}"
+      FETCH_HEADERS: "${FETCH_HEADERS:-curl_recommended}"
+      FETCH_WEBSITE: "${FETCH_WEBSITE:-curl}"
+      EXTRACT_MAIN_CONTENT: "${EXTRACT_MAIN_CONTENT:-trafilatura}"
+      HTML_TO_MARKDOWN: "${HTML_TO_MARKDOWN:-markdownify}"
+      WEB_SEARCH_RESULT_COUNT: "${WEB_SEARCH_RESULT_COUNT:-5}"
+      WEB_SEARCH_MAX_RESULTS: "${WEB_SEARCH_MAX_RESULTS:-8}"
+      WEB_SEARCH_PAGE_CHARS: "${WEB_SEARCH_PAGE_CHARS:-8000}"
+      WEB_SEARCH_TOTAL_CHARS: "${WEB_SEARCH_TOTAL_CHARS:-40000}"
+      TZ: "${TZ:-Etc/UTC}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - hermes-mcp
+      - webgateway
+
+networks:
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
+  webgateway:
+    external: true
+    name: webgateway

@@ -12,14 +12,17 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [draw.io](drawio/README.md) | Browser-based diagram and flowchart editor with Hermes MCP tools | `drawio.${DOMAIN}` | Knowledge |
 | [Excalidraw](excalidraw/README.md) | Local-first whiteboarding | `excalidraw.${DOMAIN}` | Knowledge |
 | [Firefly III](firefly-iii/README.md) | Personal finance management and data importing | `firefly.${DOMAIN}`, `firefly-importer.${DOMAIN}` | Finance |
-| [Forage](forage/README.md) | Internal web search and extraction backend for Hermes | Private only | Not listed |
+| [Web search MCP](web-search/README.md) | SearXNG-backed crawl-to-markdown MCP for Hermes and Open WebUI | Private only | Not listed |
 | [GitLab CE](gitlab/README.md) | Git hosting and CI/CD | `gitlab.${DOMAIN}` | Development |
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
-| [Hermes](hermes/README.md) | Agent dashboard and OpenAI-compatible API | `hermes.${DOMAIN}` | AI |
+| [DeepSeek Agent Harness](deepseek-agent-harness/README.md) | DeepSeek agent harness Web UI with plugins | `deepseek-harness.${DOMAIN}` | AI |
+| [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent | `hermes.${DOMAIN}` | AI |
+| [Home Assistant](home-assistant/README.md) | Assist pipeline with Whisper and Piper | `home-assistant.${DOMAIN}` | Home |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
 | [Image Generation](image-generation/README.md) | Vulkan Stable Diffusion WebUI and API | `stable-diffusion.${DOMAIN}` | Not configured |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
 | [llama.cpp](llama-cpp/README.md) | Vulkan model router with an OpenAI-compatible API | `ai.${DOMAIN}` | AI |
+| [llama.cpp classifiers](llama-cpp-classifier/README.md) | CPU router for decision models | `classify.${DOMAIN}` | AI |
 | [Loki](loki/README.md) | Log aggregation | `loki.${DOMAIN}` | Monitoring |
 | [Mealie](mealie/README.md) | Recipe and meal planning | `mealie.${DOMAIN}` | Food |
 | [Memos](memos/README.md) | Lightweight notes and knowledge capture | `memos.${DOMAIN}` | Knowledge |
