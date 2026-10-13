@@ -8,7 +8,7 @@ Privacy-respecting metasearch at `https://searxng.${DOMAIN}`.
 
 Copy `.env.example` to `.env`, replace `SEARXNG_SECRET`, ensure `webgateway` exists, and run `docker compose --env-file .env up -d`. Valkey is private and is used for rate limiting/cache state.
 
-Forage requires SearXNG's JSON response format. Merge the following into the existing ignored `config/settings.yml`, preserving all other settings, and restart SearXNG:
+The web-search MCP requires SearXNG's JSON response format. Merge the following into the existing ignored `config/settings.yml`, preserving all other settings, and restart SearXNG:
 
 ```yaml
 search:

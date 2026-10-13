@@ -42,7 +42,7 @@ Calendar tools take the CalDAV URI, the `name` returned by `nc_calendar_list_cal
 
 `tasks` accepts only VTODO. `nc_calendar_create_event` on it returns Forbidden. That is the component type; the app password is valid. Put tasks and task reminders on `tasks` with `nc_calendar_create_todo`. Put timed events and event alarms on `personal` with `nc_calendar_create_event`. `personal-1` is a different calendar that shares the display name Personal and accepts only VTODO. Leave `contact_birthdays` for generated birthdays. Deleted collections `tasks-1` and `-` are not in the tool's calendar list.
 
-The Nextcloud profile soul in `hermes/start-with-forage.sh` is written only when that profile does not already exist. An existing profile keeps the `SOUL.md` in the Hermes data volume.
+The Nextcloud profile soul in `hermes/start.sh` is written only when that profile does not already exist. An existing profile keeps the `SOUL.md` in the Hermes data volume.
 
 ## Backup and important notes
 
