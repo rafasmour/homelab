@@ -75,7 +75,7 @@ Authentication is a static bearer token. The caller sends:
 
 `Authorization: Bearer <MCP_STATIC_TOKEN>`
 
-`MCP_AUTH` is `static_token`. The server then calls wger with `WGER_API_KEY`. `WGER_BASE_URL` is `http://web:8000`. `wger-web` joins `hermes-mcp` so that name resolves; the MCP container itself stays on `hermes-mcp` only. The LAN name `wger.<DOMAIN>` is served with Traefik's default certificate, which this client rejects, so the MCP uses the internal HTTP port instead of the public URL. `MCP_TOOLS` is `nutrition`, which is the group that covers meal logging and daily totals.
+`MCP_AUTH` is `static_token`. The server then calls wger with `WGER_API_KEY`. `WGER_BASE_URL` is `http://web:8000`. `wger-web` joins `hermes-mcp` so that name resolves; the MCP container itself stays on `hermes-mcp` only. The LAN name `wger.<DOMAIN>` is served with Traefik's default certificate, which this client rejects, so the MCP uses the internal HTTP port instead of the public URL. `MCP_TOOLS` is `nutrition,exercises`: nutrition covers meal logging and daily totals, and exercises exposes `search_ingredients` so a diary row can use a real ingredient id.
 
 Register it from a container on `hermes-mcp`. Do not put the token value in git. The two operations the calorie profile needs:
 

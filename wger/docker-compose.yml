@@ -281,7 +281,7 @@ services:
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
       WGER_API_KEY: "${WGER_API_KEY:?Set WGER_API_KEY in .env}"
       WGER_BASE_URL: "http://web:8000"
-      MCP_TOOLS: "${MCP_TOOLS:-nutrition}"
+      MCP_TOOLS: "${MCP_TOOLS:-nutrition,exercises}"
       DEFAULT_LANGUAGE: "${WGER_LANGUAGE:-en}"
       HOST: 0.0.0.0
       PORT: "8765"
