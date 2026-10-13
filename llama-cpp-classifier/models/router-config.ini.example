@@ -1,0 +1,17 @@
+version = 1
+
+; Command-line options override these values. This router is CPU-only:
+; the image has no Vulkan or CUDA backend, and Compose passes --n-gpu-layers 0.
+[*]
+n-gpu-layers = 0
+threads = 8
+threads-batch = 8
+parallel = 1
+; GGUF context for ggml-org/Laya-GGUF. Encoders have no KV cache, so every
+; question in one /v1/systemone request must fit in a single ubatch.
+ctx-size = 8192
+batch-size = 8192
+ubatch-size = 8192
+
+[laya]
+model = /models/laya/Laya-Q8_0.gguf

@@ -1,0 +1,47 @@
+services:
+  llama-classifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        LLAMA_REF: ${LLAMA_REF:-main}
+        LLAMA_REPO: ${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp}
+        MAX_JOBS: ${MAX_JOBS:-4}
+    container_name: llama-classifier
+    volumes:
+      - ./models:/models
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--metrics"
+      - "--verbose"
+      - "--n-gpu-layers"
+      - "0"
+      - "--models-preset"
+      - "/models/router-config.ini"
+      - "--models-max"
+      - "${MAX_MODELS:-4}"
+      - "--sleep-idle-seconds"
+      - "${SLEEP_IDLE_SECONDS:-300}"
+    restart: unless-stopped
+    networks:
+      - webgateway
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.llama-classifier.rule: "Host(`classify.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.llama-classifier.entrypoints: websecure
+      traefik.http.routers.llama-classifier.tls.certresolver: myresolver
+      traefik.http.services.llama-classifier.loadbalancer.server.port: "8080"
+      homepage.group: AI
+      homepage.name: llama.cpp classifiers
+      homepage.icon: mdi-tag-check
+      homepage.href: "https://classify.${DOMAIN}"
+      homepage.description: CPU router for llama.cpp decision models.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

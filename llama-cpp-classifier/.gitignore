@@ -1,0 +1,11 @@
+*
+
+!.env.example
+!docker-compose.yml
+!Dockerfile
+!README.md
+!.gitignore
+!.dockerignore
+!models
+!models/router-config.ini.example
+!models/downloads.md
