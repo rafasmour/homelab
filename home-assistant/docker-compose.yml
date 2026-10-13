@@ -1,0 +1,105 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:${HOME_ASSISTANT_VERSION:-stable}
+    container_name: home-assistant
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "/usr/local/bin/bootstrap-and-start.sh"]
+    environment:
+      TZ: "${TZ:-Etc/UTC}"
+    volumes:
+      - ./config:/config
+      - ./scripts/bootstrap-and-start.sh:/usr/local/bin/bootstrap-and-start.sh:ro
+    networks:
+      - backend
+      - webgateway
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8123/', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.home-assistant.rule: "Host(`home-assistant.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.home-assistant.entrypoints: websecure
+      traefik.http.routers.home-assistant.tls.certresolver: myresolver
+      traefik.http.services.home-assistant.loadbalancer.server.port: "8123"
+      homepage.group: Home
+      homepage.name: Home Assistant
+      homepage.icon: home-assistant
+      homepage.href: "https://home-assistant.${DOMAIN}"
+      homepage.description: Assist pipeline with Whisper STT and Piper TTS.
+
+  wyoming-whisper:
+    image: rhasspy/wyoming-whisper:${WHISPER_VERSION:-3.8.1}
+    container_name: wyoming-whisper
+    restart: unless-stopped
+    command:
+      - --model
+      - ${WHISPER_MODEL:-tiny-int8}
+      - --language
+      - ${WHISPER_LANGUAGE:-en}
+      - --download-dir
+      - /data
+    volumes:
+      - ./whisper:/data
+    networks:
+      - backend
+      - model-downloads
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/src/.venv/bin/python3",
+          "-c",
+          "import socket; socket.create_connection(('127.0.0.1', 10300), 5).close()",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
+  wyoming-piper:
+    image: rhasspy/wyoming-piper:${PIPER_VERSION:-2.5.2}
+    container_name: wyoming-piper
+    restart: unless-stopped
+    command:
+      - --voice
+      - ${PIPER_VOICE:-en_US-lessac-medium}
+      - --download-dir
+      - /data
+    volumes:
+      - ./piper:/data
+    networks:
+      - backend
+      - model-downloads
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/src/.venv/bin/python3",
+          "-c",
+          "import socket; socket.create_connection(('127.0.0.1', 10200), 5).close()",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
+networks:
+  backend:
+    internal: true
+  # Whisper and Piper download a model and a voice on first start. This
+  # network is outbound-only for those downloads. It is not webgateway, and
+  # neither container publishes a host port.
+  model-downloads:
+  webgateway:
+    external: true
+    name: webgateway
