@@ -20,6 +20,9 @@ services:
       FTLCONF_debug_api: 'false'
     volumes:
       - './etc-pihole:/etc/pihole'
+    # Bind DNS only to the LAN and WireGuard addresses. Docker cannot publish
+    # the WireGuard mapping unless wg0 already holds PIHOLE_WIREGUARD_BIND_IP;
+    # a missing address exits 255 and is not retried by unless-stopped.
     ports:
       - "${PIHOLE_BIND_IP:?Set PIHOLE_BIND_IP in .env}:53:53/tcp"
       - "${PIHOLE_BIND_IP:?Set PIHOLE_BIND_IP in .env}:53:53/udp"
