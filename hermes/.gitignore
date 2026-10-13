@@ -4,5 +4,5 @@
 !docker-compose.yml
 !README.md
 !.gitignore
-!start-with-forage.sh
+!start.sh
 !gpu-watchlist.example.yml

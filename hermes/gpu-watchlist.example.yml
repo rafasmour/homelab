@@ -7,7 +7,7 @@
 #
 # Shops searched on every run:
 #   skroutz.gr, public.gr, plaisio.gr
-#   plus Forage/SearXNG for other Greek shops such as kotsovolos.gr and
+#   plus web-search MCP / SearXNG for other Greek shops such as kotsovolos.gr and
 #   bestprice.gr
 #
 # Each product:
@@ -17,4 +17,11 @@
 # Alert when today's lowest in-stock price is below the last price stored
 # in that job's notepad. A first observation is stored and does not alert.
 
-products: []
+products: [
+  'RTX 5070 Ti',
+  'RTX 5080 Ti',
+  'RTX 5090 Ti',
+  'RTX 5060 Ti',
+  'RX 9070',
+  'RX 9060',
+]
