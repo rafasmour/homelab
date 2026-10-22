@@ -4,15 +4,21 @@ Dockerized [`llama-server`](https://github.com/ggml-org/llama.cpp) configured as
 an OpenAI-compatible model router. Models are selected by the alias defined in
 `models/router-config.ini` and loaded from the local `models/` directory.
 
-The image builds llama.cpp with Vulkan support and is intended for an AMD GPU
-available through `/dev/dri`. Traefik publishes the API at
+The image builds llama.cpp with the ROCm/HIP backend for an RDNA3 AMD GPU
+(`gfx1100`, RX 7900 XT/XTX/GRE) with rocWMMA flash attention, using
+`/dev/kfd` and `/dev/dri`. Traefik publishes the API at
 `https://ai.<DOMAIN>`; port 8080 is not published directly on the host.
 
 ## Requirements
 
 - Docker Engine with Docker Compose
-- A working AMDGPU/Mesa Vulkan setup on the host
-- Access to `/dev/dri` for Docker containers
+- An RDNA3 AMD GPU with the in-kernel `amdgpu` driver (ROCm userspace is
+  provided by the image; no host ROCm install is needed)
+- Access to `/dev/kfd` and `/dev/dri` for Docker containers; the Compose file
+  adds the host `video` (44) and `render` (991) group IDs, so adjust them if
+  `getent group video render` differs on your host
+- For Navi 32/33 cards, change the `AMDGPU_TARGETS` build argument in the
+  `Dockerfile` to `gfx1101` or `gfx1102`
 - An existing external Docker network named `webgateway`, used by Traefik
 - One or more local GGUF model files
 
@@ -30,7 +36,7 @@ the build and router behavior:
 | Variable | Purpose |
 | --- | --- |
 | `DOMAIN` | Creates the Traefik host rule `ai.<DOMAIN>` |
-| `MAX_JOBS` | Parallel jobs used while compiling llama.cpp |
+| `MAX_JOBS` | Parallel jobs used while compiling llama.cpp; empty uses every CPU thread, set a number if the build runs out of RAM |
 | `MAX_MODELS` | Maximum number of loaded router models; use `1` on memory-constrained hosts |
 | `SLEEP_IDLE_SECONDS` | Unload an idle model after this duration so another preset can load |
 | `LLAMA_REF` | llama.cpp tag or commit to build; defaults to upstream `main` for current architecture support |
@@ -57,12 +63,12 @@ defines shared defaults and a model section can override them. A `ctx-size` of
 `ctx-size = 262144` (256K), `kv-unified = true` (one KV buffer shared across
 slots, llama-server `--kv-unified`), and `parallel = 4` (llama-server
 `--parallel`, four request slots). Each alias in the template repeats those
-two values so it does not inherit a smaller cap. Vulkan Flash Attention stays
+two values so it does not inherit a smaller cap. Flash Attention stays
 on, with 8 CPU generation threads for an 8-core Ryzen. Tune context, batch
 sizes, and GPU layers to the available VRAM and model architecture.
 
-The included performance profile is intended for an 8 GB
-Vulkan GPU. Smaller models can use full GPU offload; larger
+The included performance profile was written for an 8 GB GPU; the
+RX 7900 XT has 20 GB, so offload values can be raised. Smaller models can use full GPU offload; larger
 MoE models keep selected expert layers in RAM through `n-cpu-moe`.
 A 256K context with a unified KV cache uses much more KV memory than a 64K
 cache and makes the initial expert-offload values starting points that must

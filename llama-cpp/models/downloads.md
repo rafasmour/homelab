@@ -7,6 +7,7 @@ projectors.
 hf download AtomicChat/Ornith-1.5-35B-A3B-GGUF Ornith-1.5-35B-A3B-IQ4_XS.gguf --local-dir models/ornith/ornith-1.5-35b-a3b
 hf download AtomicChat/Ornith-1.5-9B-GGUF Ornith-1.5-9B-AD-Q5_K-Q4_K.gguf --local-dir models/ornith/ornith-1.5-9b
 hf download unsloth/Qwen3.6-35B-A3B-MTP-GGUF Qwen3.6-35B-A3B-UD-IQ4_XS.gguf --local-dir models/qwen/qwen-3.6-35b-a3b
+hf download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-Q4_0.gguf MTP/mtp-Qwen3.8-27B-Q4_0.gguf --local-dir models/qwen/qwen-3.8-27b
 hf download ggml-org/gemma-4-26B-A4B-it-GGUF gemma-4-26B-A4B-it-Q4_0.gguf --local-dir models/gemma/gemma-4-26b-a4b
 hf download unsloth/gemma-4-12B-it-qat-GGUF gemma-4-12B-it-qat-UD-Q4_K_XL.gguf --local-dir models/gemma/gemma-4-12b-it-qat
 hf download unsloth/gemma-4-12B-it-qat-GGUF mmproj-F16.gguf --local-dir models/gemma/gemma-4-12b-it-qat

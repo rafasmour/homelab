@@ -6,9 +6,10 @@ services:
       args:
         LLAMA_REF: ${LLAMA_REF:-main}
         LLAMA_REPO: ${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp}
-        MAX_JOBS: ${MAX_JOBS:-4}
+        MAX_JOBS: ${MAX_JOBS:-}
     container_name: llama-server
     devices:
+      - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
     group_add:
       - "44"
