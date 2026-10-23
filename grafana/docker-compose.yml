@@ -8,6 +8,9 @@ services:
       GF_SERVER_ROOT_URL: "https://grafana.${DOMAIN:?Set DOMAIN in .env}"
       GF_SECURITY_ADMIN_USER: "${GF_SECURITY_ADMIN_USER:-admin}"
       GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?Set GF_SECURITY_ADMIN_PASSWORD in .env}"
+      # Alert notifications to Nextcloud Talk (provisioning/alerting/talk-contact-point.yml).
+      TALK_DELIVER_SECRET: "${TALK_DELIVER_SECRET:?Set TALK_DELIVER_SECRET in .env}"
+      TALK_ALERTS_ROOM: "${TALK_ALERTS_ROOM:?Set TALK_ALERTS_ROOM in .env}"
     volumes:
       - ./data:/var/lib/grafana
       - ./provisioning:/etc/grafana/provisioning:ro

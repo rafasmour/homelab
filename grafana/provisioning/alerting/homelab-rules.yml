@@ -1,0 +1,848 @@
+# Homelab alert rules (Grafana-managed), routed to Nextcloud Talk by
+# talk-contact-point.yml. Thresholds follow the Ryzen 1800X Tdie limit
+# (Tjmax 95 °C; Tctl reads 20 °C high, so temp2/Tdie is used), the hardware's
+# own node_hwmon_temp_crit_celsius for GPU and NVMe, and common node_exporter
+# alert practice (disk < 10/5 %, memory < 10/5 %, swap > 80 %, OOM kills).
+apiVersion: 1
+groups:
+- orgId: 1
+  name: Temperatures
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  - uid: cpu-temp-warning
+    title: CPU temperature high
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_hwmon_temp_celsius{sensor="temp2"} * on(chip) group_left(chip_name) node_hwmon_chip_names{chip_name="k10temp"}
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 80
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: CPU die (Tdie) is {{ humanize $values.A.Value }} °C (warning above 80 °C, Ryzen 1800X Tjmax 95 °C).
+  - uid: cpu-temp-critical
+    title: CPU temperature critical
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_hwmon_temp_celsius{sensor="temp2"} * on(chip) group_left(chip_name) node_hwmon_chip_names{chip_name="k10temp"}
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 90
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: CPU die (Tdie) is {{ humanize $values.A.Value }} °C, close to the 95 °C limit. Check cooling now.
+  - uid: hw-temp-near-crit-warning
+    title: Hardware temperature near its limit
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_hwmon_temp_celsius and on(chip, sensor) (node_hwmon_temp_celsius - on(chip, sensor) node_hwmon_temp_crit_celsius > -15)
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.chip }} {{ $labels.sensor }} is {{ humanize $values.A.Value }} °C, within 15 °C of its critical limit (GPU edge/junction/memory, NVMe).'
+  - uid: hw-temp-near-crit-critical
+    title: Hardware temperature critical
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_hwmon_temp_celsius and on(chip, sensor) (node_hwmon_temp_celsius - on(chip, sensor) node_hwmon_temp_crit_celsius > -8)
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.chip }} {{ $labels.sensor }} is {{ humanize $values.A.Value }} °C, within 8 °C of its critical limit. Throttling or shutdown is next.'
+- orgId: 1
+  name: Storage
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  - uid: disk-space-warning
+    title: Disk space low
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"} / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"}
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 10
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.mountpoint }} has {{ humanize $values.A.Value }}% free.'
+  - uid: disk-space-critical
+    title: Disk space critical
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"} / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"}
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 5
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.mountpoint }} has only {{ humanize $values.A.Value }}% free.'
+  - uid: disk-fill-24h
+    title: Disk will fill within 24 hours
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: predict_linear(node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"}[6h], 86400) and on(mountpoint) (node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"} / node_filesystem_size_bytes{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"}
+          < 0.25)
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.mountpoint }} is on track to run out of space within 24 hours at the current write rate.'
+  - uid: inodes-low
+    title: Inodes low
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * node_filesystem_files_free{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"} / node_filesystem_files{fstype=~"ext4|xfs|btrfs|vfat|fuseblk"} > 0 < 100
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 10
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.mountpoint }} has {{ humanize $values.A.Value }}% free inodes.'
+  - uid: fs-readonly
+    title: Filesystem mounted read-only
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_filesystem_readonly{fstype=~"ext4|xfs|btrfs"}
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.mountpoint }} is read-only, usually after disk errors. Check dmesg and SMART.'
+  - uid: io-pressure
+    title: Disk I/O pressure high
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * rate(node_pressure_io_stalled_seconds_total[5m])
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 30
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: All tasks were stalled on I/O {{ humanize $values.A.Value }}% of the time over 5 minutes.
+- orgId: 1
+  name: Memory and CPU
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  - uid: memory-warning
+    title: Memory low
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 10
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: Only {{ humanize $values.A.Value }}% of RAM is available.
+  - uid: memory-critical
+    title: Memory critical
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 5
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: Only {{ humanize $values.A.Value }}% of RAM is available; the OOM killer is next (it hung the GPU driver on 2026-10-23).
+  - uid: swap-high
+    title: Swap almost full
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * (1 - node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes) and on() node_memory_SwapTotal_bytes > 0
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 80
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: Swap is {{ humanize $values.A.Value }}% used.
+  - uid: oom-kill
+    title: Process killed by the OOM killer
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: increase(node_vmstat_oom_kill[10m])
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: critical
+    annotations:
+      summary: The kernel OOM killer ran {{ humanize $values.A.Value }} time(s) in the last 10 minutes. Check llama-server and VRAM/RAM.
+  - uid: memory-pressure
+    title: Memory pressure high
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 100 * rate(node_pressure_memory_stalled_seconds_total[5m])
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 10
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: All tasks were stalled on memory {{ humanize $values.A.Value }}% of the time over 5 minutes (heavy swapping).
+  - uid: load-high
+    title: System load high
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_load15 / on(instance) count by (instance) (node_cpu_seconds_total{mode="idle"})
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 1.5
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: 15-minute load is {{ humanize $values.A.Value }}× the CPU thread count.
+- orgId: 1
+  name: Host and services
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  - uid: host-rebooted
+    title: Host rebooted
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: changes(node_boot_time_seconds[15m])
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: warning
+    annotations:
+      summary: The server rebooted in the last 15 minutes.
+  - uid: clock-not-synced
+    title: Clock not synchronised
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: node_timex_sync_status
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+    noDataState: OK
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: warning
+    annotations:
+      summary: The system clock is not NTP-synchronised; TLS, cron and calendar times can drift.
+  - uid: scrape-target-down
+    title: Monitoring target down
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: up
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: lt
+            params:
+            - 1
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Prometheus cannot scrape {{ $labels.job }} ({{ $labels.instance }}).
+  - uid: service-down
+    title: Service down
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: monitor_status == bool 0
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Uptime Kuma reports {{ $labels.monitor_name }} as down.

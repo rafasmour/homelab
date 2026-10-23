@@ -118,6 +118,9 @@ wger/static/
 !grafana/provisioning/dashboards/
 !grafana/provisioning/dashboards/provider.yml
 !grafana/provisioning/dashboards/container-health.json
+!grafana/provisioning/alerting/
+!grafana/provisioning/alerting/talk-contact-point.yml
+!grafana/provisioning/alerting/homelab-rules.yml
 !open-telemetry/otel-collector-config.yml
 !homepage/config/
 !homepage/config/docker.yaml

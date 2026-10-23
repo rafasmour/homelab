@@ -1,0 +1,59 @@
+apiVersion: 1
+
+# Alerts go to the "Grafana alerts" Nextcloud Talk room through the
+# hermes-nextcloud-bridge /deliver endpoint, posted by the Hermes Talk bot.
+# TALK_DELIVER_SECRET and TALK_ALERTS_ROOM come from grafana/.env.
+
+templates:
+  - orgId: 1
+    name: talk
+    template: |
+      {{ define "talk.message" -}}
+      {{ if gt (len .Alerts.Firing) 0 -}}
+      🚨 **{{ len .Alerts.Firing }} homelab alert{{ if gt (len .Alerts.Firing) 1 }}s{{ end }} firing**
+      {{ range .Alerts.Firing }}
+      {{ if eq .Labels.severity "critical" }}🔴{{ else }}🟠{{ end }} **{{ .Labels.alertname }}** ({{ .Labels.severity }})
+      {{ .Annotations.summary }}
+      {{ end }}{{ end -}}
+      {{ if gt (len .Alerts.Resolved) 0 }}
+      ✅ **Resolved**
+      {{ range .Alerts.Resolved }}- {{ .Labels.alertname }}: {{ .Annotations.summary }}
+      {{ end }}{{ end }}
+      [Open Grafana alerts]({{ .ExternalURL }}/alerting/list)
+      {{- end }}
+
+      {{ define "talk.payload" -}}
+      {{ coll.Dict "room_token" .Vars.room_token "message" (tmpl.Exec "talk.message" .) | data.ToJSON }}
+      {{- end }}
+
+contactPoints:
+  - orgId: 1
+    name: Nextcloud Talk
+    receivers:
+      - uid: nextcloud-talk
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: http://hermes-nextcloud-bridge:8788/deliver
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $TALK_DELIVER_SECRET
+          maxAlerts: "20"
+          payload:
+            template: '{{ template "talk.payload" . }}'
+            vars:
+              room_token: $TALK_ALERTS_ROOM
+
+policies:
+  - orgId: 1
+    receiver: Nextcloud Talk
+    group_by: ["grafana_folder", "alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h
+    routes:
+      - receiver: Nextcloud Talk
+        object_matchers:
+          - ["severity", "=", "critical"]
+        group_wait: 10s
+        repeat_interval: 1h
