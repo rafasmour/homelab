@@ -7,6 +7,8 @@ services:
     # the pinned commit.
     build:
       context: "https://github.com/robertlmann02/nextcloud-talk-hermes-bridge.git#${TALK_BRIDGE_REF:-b26267ff8ffb02b4e282b032815584163cff5021}"
+      additional_contexts:
+        patches: ./patches
       args:
         HERMES_AGENT_VERSION: "${HERMES_AGENT_VERSION:-latest}"
         HERMES_UID: "${HERMES_UID:-1000}"
@@ -18,6 +20,10 @@ services:
         ARG HERMES_GID
         COPY nextcloud_talk_hermes_bridge /opt/talk-bridge/nextcloud_talk_hermes_bridge
         COPY LICENSE /opt/talk-bridge/LICENSE
+        # Per-room Hermes profiles (TALK_ROOM_PROFILES); fails the build if it no longer applies.
+        COPY --from=patches room_profiles.py /tmp/room_profiles.py
+        RUN /opt/hermes/.venv/bin/python /tmp/room_profiles.py /opt/talk-bridge/nextcloud_talk_hermes_bridge/bridge.py \
+          && rm /tmp/room_profiles.py
         RUN mkdir -p /home/hermes /data && chown -R $${HERMES_UID}:$${HERMES_GID} /home/hermes /data
         ENV PYTHONPATH=/opt/talk-bridge
         ENTRYPOINT ["/opt/hermes/.venv/bin/python", "-m", "nextcloud_talk_hermes_bridge.bridge"]
@@ -33,6 +39,9 @@ services:
       HERMES_HOME_DIR: /home/hermes
       HERMES_BIN: /opt/hermes/bin/hermes
       HERMES_PROFILE: "${HERMES_PROFILE:-default}"
+      # "<profile>=<room-token>|..." — each Talk room talks to its own profile, and
+      # talk_send in bridge-run sessions posts to that profile's room.
+      NEXTCLOUD_TALK_PROFILE_ROOMS: "${NEXTCLOUD_TALK_PROFILE_ROOMS:-}"
       HERMES_TOOLSETS: "${HERMES_TOOLSETS:-kanban,nextcloud,wger,web_search,talk}"
       HERMES_SKILLS: ""
       HERMES_YOLO: "0"

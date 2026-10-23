@@ -128,6 +128,8 @@ wger/static/
 !hermes/plugins/talk_send/
 !hermes/plugins/talk_send/plugin.yaml
 !hermes/plugins/talk_send/__init__.py
+!hermes-nextcloud-bridge/patches/
+!hermes-nextcloud-bridge/patches/room_profiles.py
 !deepseek-agent-harness/.dockerignore
 !deepseek-agent-harness/.gitignore
 !deepseek-agent-harness/Dockerfile

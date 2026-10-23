@@ -70,6 +70,30 @@ The bridge reaches Nextcloud at `http://nextcloud`, `hermes-api` and the MCP ser
    docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d
    ```
 
+## One room per profile
+
+Each Hermes profile has its own Talk conversation, owned by `pi.hole`, with the Hermes bot added and its own emoji avatar and color:
+
+| Room | Profile | Avatar |
+|---|---|---|
+| Hermes | `default` | 🤖 blue |
+| Hermes · Nextcloud | `nextcloud` | 📅 Nextcloud blue |
+| Hermes · Finance | `finance` | 💶 green |
+| Hermes · Calories | `calories` | 🥗 orange |
+| Hermes · AI news | `ai-news` | 🧠 purple |
+| Hermes · HF models | `hf-models` | 🤗 yellow |
+| Hermes · llama.cpp Vulkan | `llamacpp-vulkan` | 🦙 red |
+| Hermes · GPU watch | `gpu-watch` | 🎮 teal |
+| Hermes · Self-hosted | `selfhosted` | 🏠 slate |
+
+`NEXTCLOUD_TALK_PROFILE_ROOMS="profile=room-token|..."` holds the map and must be identical in this `.env` and `hermes/.env`. It drives three things:
+
+- Incoming messages: `patches/room_profiles.py` is applied while the image is built. It runs `hermes chat` with the profile mapped to the room the message came from and with that profile's `platform_toolsets.cli` (without `clarify`). Unmapped rooms use `HERMES_PROFILE`. The patch replaces exact upstream lines; if a newer `TALK_BRIDGE_REF` changes them, the build fails instead of ignoring the map.
+- Cron output: `hermes/start.sh` sets each job's delivery to `nextcloud_talk:<room-token>` of its profile.
+- `talk_send`: posts to the calling profile's room.
+
+To add a room: create the conversation as `pi.hole` (Talk API `POST /ocs/v2.php/apps/spreed/api/v4/room` with `roomType=2`), set the avatar with `POST /ocs/v2.php/apps/spreed/api/v1/room/<token>/avatar/emoji` (`emoji`, `color`), add the bot with `occ talk:bot:setup 1 <token>`, add `profile=<token>` to both `.env` files, then recreate `hermes-api` and this bridge.
+
 ## Validate
 
 ```sh
