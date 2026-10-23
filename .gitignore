@@ -30,6 +30,8 @@
 !memos/
 !n8n/
 !nextcloud/
+!nextcloud/php/
+!nextcloud/php/timezone.ini
 !node-exporter/
 !open-telemetry/
 !openwebui/

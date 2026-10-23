@@ -67,8 +67,10 @@ services:
       OVERWRITEHOST: "nextcloud.${DOMAIN}"
       OVERWRITEPROTOCOL: https
       OVERWRITECLIURL: "https://nextcloud.${DOMAIN}"
+      TZ: "${TZ:-Europe/Athens}"
     volumes:
       - ./html:/var/www/html
+      - ./php/timezone.ini:/usr/local/etc/php/conf.d/zz-timezone.ini:ro
     networks:
       - backend
       # hermes-nextcloud-bridge: Talk bot webhooks and bot replies.
@@ -105,8 +107,11 @@ services:
     entrypoint: /cron.sh
     depends_on:
       - nextcloud
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
     volumes:
       - ./html:/var/www/html
+      - ./php/timezone.ini:/usr/local/etc/php/conf.d/zz-timezone.ini:ro
     networks:
       - backend
 
@@ -123,6 +128,7 @@ services:
       NEXTCLOUD_PASSWORD: "${NEXTCLOUD_MCP_APP_PASSWORD:?Set NEXTCLOUD_MCP_APP_PASSWORD in .env}"
       MCP_DEPLOYMENT_MODE: single_user_basic
       ENABLE_SEMANTIC_SEARCH: "false"
+      TZ: "${TZ:-Europe/Athens}"
     volumes:
       - ./mcp-data:/app/data
     networks:
