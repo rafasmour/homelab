@@ -40,9 +40,14 @@ load-mode = dio
 
 [mellum-2.1-12b-a2.5b]
 ; JetBrains Mellum 2.1 (12B MoE, 2.5B active), thinking variant, Q6_K, fully
-; on the GPU. Native context is 131072.
+; on the GPU. Native context is 131072 (8192 with YaRN x16 built in). It serves
+; Hermes chat, Talk rooms, cron and Open WebUI at once: 6 slots, each with its
+; own full 131072 window (kv-unified off), 786432 tokens of KV in total, q8_0 K
+; and V. Measured 18.36 GiB of 20 GiB (7 slots: 19.57 GiB; 8 with V q4_0: 18.97 GiB).
 model = /models/mellum/mellum-2.1-12b-a2.5b/Mellum2.1-12B-A2.5B-Thinking-Q6_K.gguf
-ctx-size = 131072
+ctx-size = 786432
+parallel = 6
+kv-unified = false
 spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
