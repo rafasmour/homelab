@@ -6,3 +6,7 @@
 !.gitignore
 !start.sh
 !gpu-watchlist.example.yml
+!plugins/
+!plugins/talk_send/
+!plugins/talk_send/plugin.yaml
+!plugins/talk_send/__init__.py

@@ -1,0 +1,19 @@
+name: talk_send
+version: 1.0.0
+description: "Send a message to the Nextcloud Talk home room as the Hermes Talk bot, through the hermes-nextcloud-bridge /deliver endpoint."
+author: homelab
+provides_tools:
+  - talk_send
+requires_env:
+  - name: NEXTCLOUD_TALK_DELIVER_URL
+    description: "hermes-nextcloud-bridge /deliver URL"
+    prompt: "Bridge /deliver URL"
+    password: false
+  - name: NEXTCLOUD_TALK_DELIVER_SECRET
+    description: "Bearer token accepted by the bridge /deliver endpoint"
+    prompt: "Bridge delivery bearer secret"
+    password: true
+  - name: NEXTCLOUD_TALK_HOME_ROOM
+    description: "Talk room token that receives the messages"
+    prompt: "Talk home room token"
+    password: false

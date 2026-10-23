@@ -122,6 +122,10 @@ wger/static/
 !hermes/.gitignore
 !hermes/start.sh
 !hermes/gpu-watchlist.example.yml
+!hermes/plugins/
+!hermes/plugins/talk_send/
+!hermes/plugins/talk_send/plugin.yaml
+!hermes/plugins/talk_send/__init__.py
 !deepseek-agent-harness/.dockerignore
 !deepseek-agent-harness/.gitignore
 !deepseek-agent-harness/Dockerfile

@@ -86,6 +86,8 @@ Register it from a container on `hermes-mcp`. Do not put the token value in git.
 
 The same group can `search_ingredients`, `list_nutrition_plans`, and `create_nutrition_plan` (`only_logging` is the diary-only plan). A meal log needs a plan id and an ingredient id from those calls. `GET /health` on port 8765 is unauthenticated and is only the process health check.
 
+Hermes registers this server on the default profile (the chat assistant in Open WebUI and Nextcloud Talk) and on `calories`. The model sees the tools as `mcp__wger__<tool>`, for example `mcp__wger__search_ingredients` and `mcp__wger__log_ingredient`. When the user says what they ate, the default profile asks for the food, amount, meal, and time, then logs it with those two calls. The MCP has no workout logging, so a reported workout becomes a completed Nextcloud to-do with the exercises looked up through `mcp__wger__search_exercises`.
+
 ## Backup
 
 Back up `.env`, `postgres/`, `media/`, and `redis/`. `static/` and `celery-beat/` are regenerated. Prefer a database dump:

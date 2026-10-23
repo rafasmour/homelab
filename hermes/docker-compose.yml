@@ -9,12 +9,14 @@ services:
       - hermes-agent-src:/opt/hermes
       - ./start.sh:/usr/local/bin/start.sh:ro
       - ./gpu-watchlist.example.yml:/usr/local/share/hermes/gpu-watchlist.example.yml:ro
+      - ./plugins:/usr/local/share/hermes/plugins:ro
     environment:
       HERMES_HOME: /home/hermes/.hermes
       HERMES_UID: "${HERMES_UID:-1000}"
       HERMES_GID: "${HERMES_GID:-1000}"
       HERMES_INFERENCE_BASE_URL: "${HERMES_INFERENCE_BASE_URL:-http://llama-cpp:8080/v1}"
-      HERMES_MODEL: "${HERMES_MODEL:-}"
+      HERMES_MODEL: "${HERMES_MODEL:-mellum-2.1-12b-a2.5b}"
+      HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_PORT: "8642"
@@ -23,6 +25,11 @@ services:
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
+      # Cron delivery (--deliver nextcloud_talk) and the talk_send tool post
+      # through hermes-nextcloud-bridge.
+      NEXTCLOUD_TALK_DELIVER_URL: "${NEXTCLOUD_TALK_DELIVER_URL:-http://hermes-nextcloud-bridge:8788/deliver}"
+      NEXTCLOUD_TALK_DELIVER_SECRET: "${NEXTCLOUD_TALK_DELIVER_SECRET:?Set NEXTCLOUD_TALK_DELIVER_SECRET in .env}"
+      NEXTCLOUD_TALK_HOME_ROOM: "${NEXTCLOUD_TALK_HOME_ROOM:?Set NEXTCLOUD_TALK_HOME_ROOM in .env}"
     labels:
       traefik.enable: "true"
       traefik.docker.network: webgateway
