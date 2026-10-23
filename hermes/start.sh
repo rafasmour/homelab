@@ -299,6 +299,8 @@ servers = {
         "url": "http://wger-mcp:8765/mcp",
         "headers": {"Authorization": f"Bearer {env['MCP_STATIC_TOKEN']}"},
     },
+    # Official Hugging Face MCP; read-only Hub search works without a token.
+    "huggingface": {"url": "https://huggingface.co/mcp"},
 }
 mcp = {}
 for name in split(mcp_csv):
@@ -313,7 +315,9 @@ model.update({
     "base_url": env["HERMES_SELECTED_BASE_URL"],
     "api_mode": "chat_completions",
     "default": env["HERMES_SELECTED_MODEL"],
-    "context_length": 262144,
+    # One llama.cpp slot of the model (Mellum: 131072 per slot, 4 slots), so
+    # Hermes compresses before a request outgrows its slot.
+    "context_length": int(env.get("HERMES_CONTEXT_LENGTH") or 131072),
 })
 data["timezone"] = env["HERMES_TIMEZONE"]
 
@@ -418,10 +422,12 @@ configure_profile nextcloud nextcloud,web_search \
   kanban,nextcloud,web_search,talk,clarify nextcloud,web_search,talk
 configure_profile finance nextcloud,n8n \
   kanban,nextcloud,n8n,talk,clarify nextcloud,n8n,talk
-for profile in ai-news hf-models llamacpp-vulkan gpu-watch selfhosted; do
+for profile in ai-news llamacpp-vulkan gpu-watch selfhosted; do
   configure_profile "${profile}" web_search \
     kanban,web_search,talk,clarify web_search,talk
 done
+configure_profile hf-models huggingface,web_search \
+  kanban,huggingface,web_search,talk,clarify huggingface,web_search,talk
 configure_profile calories wger,nextcloud,web_search \
   kanban,wger,nextcloud,web_search,talk,clarify wger,nextcloud,talk
 
@@ -498,6 +504,8 @@ talk_send posts to the Talk home room as the Hermes bot and notifies the user. m
 
 Kanban workers: call kanban_complete only with the created object's id in the summary (event UID, todo UID, wger log item id) or, for research, the URLs you read. Otherwise call kanban_block with the tool error.
 
+Today's date: your system prompt contains a line "Conversation started: <weekday>, <month> <day>, <year> (Europe/Athens, ...)". That is today. Use exactly that date for "today", "now", and "just now", and count "tomorrow", "Tuesday", "next week" from it. Never use any other date as today, and repeat the full date (YYYY-MM-DD) in every confirmation.
+
 Time zone: Europe/Athens. Resolve relative dates ("tomorrow", "Tuesday") against the current Athens date. Write datetimes as ISO 8601 with the Athens UTC offset in force on that date (+03:00 in summer time, +02:00 in winter time), or pass timezone "Europe/Athens" where the tool accepts it.
 EOF
 )
@@ -540,10 +548,13 @@ Ask one short follow-up with every missing detail at once (use clarify when it i
 
 Food:
 1. mcp__wger__list_nutrition_plans and use the most recent plan's id as plan_id.
-2. mcp__wger__search_ingredients with the food name in English. Pick the closest match from the result. Never invent an ingredient_id.
-3. Convert the portion to grams. mcp__wger__list_ingredient_units gives the portions wger knows; otherwise use a typical weight and say which.
-4. mcp__wger__log_ingredient with plan_id, ingredient_id, amount_g, when (ISO datetime, Athens offset), and meal_id when the plan has a matching meal.
-5. Reply with the food, grams, meal, time, and the log item id.
+2. mcp__wger__get_nutrition_plan with plan_id and find the meal named like the user's meal (Breakfast, Lunch, Dinner, Snack). If it is missing, mcp__wger__create_meal with plan_id, that name, and the time. Use its id as meal_id.
+3. mcp__wger__search_ingredients with the whole dish name in English first ("ham and cheese sandwich", then "sandwich ham cheese"). If a result is that dish, log it once with the full grams.
+4. If no result is the dish, split it into its main components with typical weights that add up to the portion (for a 150 g ham and cheese sandwich: 70 g bread, 40 g ham, 40 g cheese), search each one, and log each one. Never log only one component of a dish. Never invent an ingredient_id.
+5. Convert portions to grams. mcp__wger__list_ingredient_units gives the portions wger knows; otherwise use a typical weight and say which.
+6. mcp__wger__log_ingredient for each item with plan_id, ingredient_id, amount_g, meal_id, and when = today's date (or the date the user gave) and time as ISO 8601 with the Athens offset.
+7. mcp__wger__list_log_items with that date and plan_id, and check every new row has the right date, grams, and meal.
+8. Reply with each food, grams, meal, date (YYYY-MM-DD) and time, and the log item ids.
 
 Event: mcp__nextcloud__nc_calendar_create_event with calendar_name "personal", title, start_datetime, end_datetime, and timezone "Europe/Athens". Reply with the title, date, time, and UID.
 
@@ -593,7 +604,7 @@ EOF
 }
 
 research_soul ai-news "AI news" "You report hot posts from r/LocalLLaMA: title, link, and one line on why the post matters."
-research_soul hf-models "Hugging Face models" "You find new Hugging Face text models that publish a GGUF file or gained more than 100 downloads. Skip image, audio, and video models. Never download weights."
+research_soul hf-models "Hugging Face models" "You find new Hugging Face text models that publish a GGUF file or gained more than 100 downloads. Skip image, audio, and video models. Never download weights. Search the Hub with mcp__huggingface__hub_repo_search and read a repository with mcp__huggingface__hub_repo_details; use the web-search tools only for pages outside the Hub."
 research_soul llamacpp-vulkan "llama.cpp Vulkan" "You report commits and pull requests on ggml-org/llama.cpp that mention Vulkan: title, link, and the Vulkan-related change in one line."
 research_soul gpu-watch "GPU watch" "You compare in-stock EUR prices in Greek shops (skroutz.gr, bestprice.gr, public.gr, plaisio.gr, kotsovolos.gr) for the GPUs on the watchlist. Ignore out-of-stock offers and listings without a shippable price. Never invent a product or a price."
 research_soul selfhosted "self-hosted news" "You report top posts from r/selfhosted and r/homelab: subreddit, title, and link."
@@ -603,10 +614,11 @@ You are the calories profile of Hermes. You log food through the wger MCP, read 
 
 Logging food:
 1. mcp__wger__list_nutrition_plans and use the most recent plan's id as plan_id.
-2. mcp__wger__search_ingredients with the food name in English and pick an id from that result. Never invent an ingredient_id; ingredient_id 1 is not rice.
-3. Convert the portion to grams (mcp__wger__list_ingredient_units lists known portions).
-4. mcp__wger__log_ingredient with plan_id, ingredient_id, amount_g, when (ISO datetime with the Athens offset), and meal_id when a matching meal exists.
-5. Re-read with mcp__wger__list_log_items or mcp__wger__nutrition_summary and confirm the new row, then report the log item id.
+2. mcp__wger__get_nutrition_plan for the meals; take the meal_id named like the user's meal, or mcp__wger__create_meal when it is missing.
+3. mcp__wger__search_ingredients with the whole dish name in English and pick an id from that result. If no result is the dish, split it into its main components with typical weights that add up to the portion and log each one; never log only one component. Never invent an ingredient_id; ingredient_id 1 is not rice.
+4. Convert the portion to grams (mcp__wger__list_ingredient_units lists known portions).
+5. mcp__wger__log_ingredient with plan_id, ingredient_id, amount_g, meal_id, and when = today's date from the "Conversation started:" line of your system prompt (or the date the user gave) as ISO 8601 with the Athens offset.
+6. Re-read with mcp__wger__list_log_items or mcp__wger__nutrition_summary and confirm the new row, then report the log item id.
 
 If wger has no matching ingredient, use mcp__web_search__web_search only to identify the food, then search wger again with a better English name. A search snippet is never a diary row. If logging is impossible, say so (kanban_block on a card) with the error.
 
@@ -629,7 +641,7 @@ import os
 import sys
 from pathlib import Path
 
-profile, name, schedule, model = sys.argv[1:5]
+profile, name, schedule, model, deliver = sys.argv[1:6]
 prompt = os.environ["CRON_PROMPT"]
 home = Path(os.environ["HERMES_HOME"])
 path = (home if profile == "default" else home / "profiles" / profile) / "cron" / "jobs.json"
@@ -644,7 +656,7 @@ for job in jobs or []:
     if (
         job.get("prompt") != prompt
         or schedule_expr != schedule
-        or job.get("deliver") != "nextcloud_talk"
+        or job.get("deliver") != deliver
         or job.get("model") != model
         or job.get("context_from")
     ):
@@ -654,38 +666,56 @@ print("new")
 PY
 }
 
+# Each profile delivers to its own Talk room from NEXTCLOUD_TALK_PROFILE_ROOMS
+# ("profile=room-token|..."); profiles without a room use the home room.
+talk_deliver_for() {
+  python - "$1" <<'PY'
+import os
+import sys
+
+rooms = {}
+for entry in os.environ.get("NEXTCLOUD_TALK_PROFILE_ROOMS", "").split("|"):
+    profile, sep, token = entry.partition("=")
+    if sep and profile.strip() and token.strip():
+        rooms[profile.strip()] = token.strip()
+room = rooms.get(sys.argv[1])
+print(f"nextcloud_talk:{room}" if room else "nextcloud_talk")
+PY
+}
+
 ensure_cron_job() {
   profile=$1
   name=$2
   schedule=$3
   CRON_PROMPT=$4
   export CRON_PROMPT
-  state=$(cron_job_state "${profile}" "${name}" "${schedule}" "${model_name}")
+  deliver=$(talk_deliver_for "${profile}")
+  state=$(cron_job_state "${profile}" "${name}" "${schedule}" "${model_name}" "${deliver}")
   if [ "${state}" = "new" ]; then
-    hermes_p "${profile}" cron create --name "${name}" --deliver nextcloud_talk \
+    hermes_p "${profile}" cron create --name "${name}" --deliver "${deliver}" \
       --model "${model_name}" --provider custom "${schedule}" "${CRON_PROMPT}" \
       || echo "WARNING: could not create cron job ${profile}/${name}" >&2
   elif [ -n "${state}" ]; then
     hermes_p "${profile}" cron edit "${state}" --schedule "${schedule}" \
-      --prompt "${CRON_PROMPT}" --deliver nextcloud_talk --no-continuity \
+      --prompt "${CRON_PROMPT}" --deliver "${deliver}" --no-continuity \
       --model "${model_name}" --provider custom \
       || echo "WARNING: could not update cron job ${profile}/${name}" >&2
   fi
 }
 
 CRON_RULES=$(cat <<'EOF'
-Rules: use only the tools named in this prompt. Do not use a shell, files, memory, the cron notepad, or Kanban. Report only what a tool result in this run shows, and drop duplicates (same link or same title) within this run. Your final response is posted to the Nextcloud Talk home room automatically, so do not call talk_send. Keep it under 3000 characters, in Markdown. If a tool fails twice, the final response is one line naming the tool and the error.
+Rules: use only the tools named in this prompt. Do not use a shell, files, memory, the cron notepad, or Kanban. Report only what a tool result in this run shows, and drop duplicates (same link or same title) within this run. Your final response is posted to the Nextcloud Talk home room automatically, so do not call talk_send. Keep it under 3000 characters, in Markdown. A tool result that starts with "Could not fetch" or "Could not extract" is a failure, not an empty result: never answer [SILENT] after a failure. If a tool fails twice, the final response is one line naming the tool and the error.
 EOF
 )
 
 ensure_cron_job ai-news ai-news "0 1 * * *" "$(cat <<EOF
 Nightly r/LocalLLaMA digest for the current Europe/Athens date.
 
-1. mcp__web_search__fetch_url with url https://old.reddit.com/r/LocalLLaMA/top/?t=day
-2. If that fails or lists no posts, mcp__web_search__web_search with query "r/LocalLLaMA" and read the best Reddit result with mcp__web_search__fetch_url.
-3. Keep up to 10 posts from the last 24 hours.
+1. mcp__web_search__fetch_url with url https://www.reddit.com/r/LocalLLaMA/top/.rss?t=day (an RSS feed returned as a list of posts with links and dates). Call it once; Reddit rate-limits repeated requests.
+2. If that fails, mcp__web_search__web_search with query "r/LocalLLaMA" and use the Reddit results it returns.
+3. Keep up to 10 posts dated within the last 24 hours.
 
-Final response: a heading "r/LocalLLaMA, <date>" and one bullet per post with the title as a link and one line on why it matters. If there is nothing from the last 24 hours, the final response is "r/LocalLLaMA: nothing new today."
+Final response: a heading "r/LocalLLaMA, <date>" and one bullet per post with the title as a link and one line on why it matters. If there is nothing from the last 24 hours, the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
 ${CRON_RULES}
 EOF
@@ -694,11 +724,11 @@ EOF
 ensure_cron_job hf-models hf-models "30 1 * * *" "$(cat <<EOF
 Nightly new Hugging Face text models for the current Europe/Athens date.
 
-1. mcp__web_search__fetch_url with url https://huggingface.co/api/models?pipeline_tag=text-generation&sort=createdAt&direction=-1&limit=60 and max_chars 60000.
-2. mcp__web_search__fetch_url with url https://huggingface.co/api/models?filter=gguf&sort=createdAt&direction=-1&limit=60 and max_chars 60000.
-3. Keep models whose createdAt is within the last 24 hours and that either have the gguf tag or more than 100 downloads. Skip image, audio, and video models. Never download weights.
+1. mcp__huggingface__hub_repo_search with repo_types ["model"], filters ["text-generation"], sort "trendingScore", and limit 40.
+2. mcp__huggingface__hub_repo_search with repo_types ["model"], filters ["gguf"], sort "trendingScore", and limit 40.
+3. Keep models whose Created date is today or yesterday and that either have the gguf tag or more than 100 downloads. Skip image, audio, and video models. Never download weights.
 
-Final response: a heading "Hugging Face models, <date>" and one bullet per model (at most 15) with the model id linked to https://huggingface.co/<id> and whether it qualified by GGUF, downloads, or both. If none qualify, the final response is "Hugging Face: no new qualifying text models today."
+Final response: a heading "Hugging Face models, <date>" and one bullet per model (at most 15) with the model id linked to https://huggingface.co/<id> and whether it qualified by GGUF, downloads, or both. If none qualify, the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
 ${CRON_RULES}
 EOF
@@ -711,7 +741,7 @@ Nightly llama.cpp Vulkan changes for the current Europe/Athens date. Let <since>
 2. mcp__web_search__fetch_url with url https://api.github.com/search/commits?q=repo:ggml-org/llama.cpp+vulkan+committer-date:%3E%3D<since>&sort=committer-date&order=desc&per_page=20 and max_chars 60000.
 3. Keep items that mention Vulkan in the title or message. Do not comment on GitHub.
 
-Final response: a heading "llama.cpp Vulkan, <date>" and one bullet per pull request or commit with the title as a link (html_url) and the Vulkan-related change in one line. If nothing new mentions Vulkan, the final response is "llama.cpp Vulkan: nothing new today."
+Final response: a heading "llama.cpp Vulkan, <date>" and one bullet per pull request or commit with the title as a link (html_url) and the Vulkan-related change in one line. If nothing new mentions Vulkan, the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
 ${CRON_RULES}
 EOF
@@ -761,14 +791,14 @@ Nightly Greek GPU prices for the current Europe/Athens date. Watchlist:
 
 ${gpu_products}
 
-If the watchlist is "(none)", the final response is "GPU watch: the watchlist is empty." and you call no tools.
+If the watchlist is "(none)", the final response is exactly "[SILENT]" and nothing else, so no message is sent. and you call no tools.
 
 For each product:
 1. mcp__web_search__fetch_url with url https://www.skroutz.gr/search?keyphrase=<product name, URL-encoded> and max_chars 40000.
 2. If that gives no in-stock offers, mcp__web_search__web_search with query "<product name> τιμή" and read one bestprice.gr, public.gr, plaisio.gr, or kotsovolos.gr result with mcp__web_search__fetch_url.
 3. Note the lowest in-stock EUR price, the shop, and the link. Ignore out-of-stock offers, listings without a shippable price, and different models (for example a 5070 when the product is 5070 Ti).
 
-Final response: a heading "GPU prices, <date>" and one bullet per product with the lowest price, shop, and link, or "no in-stock offer found". Prefix a bullet with "ALERT" when the product has a target_price and today's lowest price is below it.
+Final response: a heading "GPU prices, <date>" and one bullet per product that has an in-stock offer, with the lowest price, shop, and link; leave out products without one. If no product has an in-stock offer, the final response is exactly "[SILENT]" and nothing else, so no message is sent. Prefix a bullet with "ALERT" when the product has a target_price and today's lowest price is below it.
 
 ${CRON_RULES}
 EOF
@@ -777,12 +807,11 @@ EOF
 ensure_cron_job selfhosted selfhosted "0 3 * * *" "$(cat <<EOF
 Nightly r/selfhosted and r/homelab digest for the current Europe/Athens date.
 
-1. mcp__web_search__fetch_url with url https://old.reddit.com/r/selfhosted/top/?t=day
-2. mcp__web_search__fetch_url with url https://old.reddit.com/r/homelab/top/?t=day
-3. If a page fails or lists no posts, mcp__web_search__web_search with query "r/<subreddit>" and read the best Reddit result with mcp__web_search__fetch_url.
-4. Keep up to 8 posts per subreddit from the last 24 hours.
+1. mcp__web_search__fetch_url with url https://www.reddit.com/r/selfhosted+homelab/top/.rss?t=day (one RSS feed for both subreddits; each post link contains /r/selfhosted/ or /r/homelab/). Call it once; Reddit rate-limits repeated requests.
+2. If that fails, mcp__web_search__web_search with queries "r/selfhosted" and "r/homelab" and use the Reddit results they return.
+3. Keep up to 8 posts per subreddit dated within the last 24 hours.
 
-Final response: a heading "Self-hosted, <date>" and one bullet per post with the subreddit, the title as a link, and one short line on what it is. If both subreddits have nothing new, the final response is "Self-hosted: nothing new today."
+Final response: a heading "Self-hosted, <date>" and one bullet per post with the subreddit, the title as a link, and one short line on what it is. If both subreddits have nothing new, the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
 ${CRON_RULES}
 EOF
@@ -795,7 +824,7 @@ Nightly unpaid-payments check for the current Europe/Athens date. The current pe
 2. mcp__nextcloud__nc_calendar_list_events with that calendar_name, start_date today, and end_date today.
 3. For each event, look for a matching Firefly III transaction in the current period through the n8n MCP tools (same Firefly id when the event carries one, otherwise the same amount and a matching title). Use n8n only if it already exposes a way to read Firefly transactions. Do not create or edit workflows or transactions.
 
-An item is unpaid when it is due today and no matching transaction exists. Final response: a heading "Payments, <date>" and one bullet per unpaid item (title, amount, due date, Firefly id when present). If Firefly cannot be queried, list today's due items and say that payment status could not be checked and why. If nothing is due or everything is paid, the final response is "Payments: nothing unpaid today."
+An item is unpaid when it is due today and no matching transaction exists. Final response: a heading "Payments, <date>" and one bullet per unpaid item (title, amount, due date, Firefly id when present). If Firefly cannot be queried, list today's due items and say that payment status could not be checked and why. If nothing is due or everything is paid, the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
 ${CRON_RULES}
 EOF
@@ -809,9 +838,9 @@ Morning digest for the current Europe/Athens date.
 3. mcp__nextcloud__nc_calendar_list_todos with calendar_name "homelab" and status "NEEDS-ACTION".
 
 Final response, under a heading "Good morning, <weekday date>":
-- "Today": each event with its start time and title, or "No events today."
+- "Today": each event with its start time and title (leave the section out when there are none).
 - "Open to-dos": to-dos that are overdue or due today first (with due time), then up to 5 others without a due date; give the calendar for each.
-- One closing line: "Night digests (AI news, Hugging Face models, llama.cpp Vulkan, GPU prices, self-hosted, payments) were posted earlier in this room."
+If there are no events today and no open to-dos, the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
 Do not create, change, or complete anything.
 
@@ -825,6 +854,8 @@ Evening nutrition report for the current Europe/Athens date.
 1. mcp__wger__nutrition_summary for today (pass today's date when the tool accepts one): kcal, protein, carbohydrates, fat, and fiber.
 2. mcp__nextcloud__nc_calendar_create_todo with calendar_name "tasks", summary "Calories <YYYY-MM-DD>", description holding the totals, and due today at 22:00 Athens time. If nutrition_summary failed, still create the to-do, with the error in the description; never invent numbers.
 3. mcp__nextcloud__nc_calendar_list_todos with calendar_name "tasks" and summary_contains "Calories <YYYY-MM-DD>" to confirm it exists.
+
+If nutrition_summary succeeded and shows nothing logged today (0 kcal and no items), skip steps 2 and 3 and the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
 Final response: a heading "Nutrition, <date>", the totals (or the error), and the to-do UID. Do not log food in this job.
 

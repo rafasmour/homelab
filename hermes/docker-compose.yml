@@ -30,6 +30,8 @@ services:
       NEXTCLOUD_TALK_DELIVER_URL: "${NEXTCLOUD_TALK_DELIVER_URL:-http://hermes-nextcloud-bridge:8788/deliver}"
       NEXTCLOUD_TALK_DELIVER_SECRET: "${NEXTCLOUD_TALK_DELIVER_SECRET:?Set NEXTCLOUD_TALK_DELIVER_SECRET in .env}"
       NEXTCLOUD_TALK_HOME_ROOM: "${NEXTCLOUD_TALK_HOME_ROOM:?Set NEXTCLOUD_TALK_HOME_ROOM in .env}"
+      # "<profile>=<room-token>|...": each profile's cron output and talk_send go to its own room.
+      NEXTCLOUD_TALK_PROFILE_ROOMS: "${NEXTCLOUD_TALK_PROFILE_ROOMS:-}"
     labels:
       traefik.enable: "true"
       traefik.docker.network: webgateway
