@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import trafilatura
-from lxml import html as lxml_html
+from lxml import etree, html as lxml_html
 
 _NOISE_TAGS = (
     "script",
@@ -21,6 +21,10 @@ class ExtractMainContent(ABC):
     def extract(self, html: str) -> str:
         raise NotImplementedError
 
+    @abstractmethod
+    def title(self, html: str) -> str:
+        raise NotImplementedError
+
 
 class TrafilaturaMainContent(ExtractMainContent):
     def extract(self, html: str) -> str:
@@ -34,6 +38,23 @@ class TrafilaturaMainContent(ExtractMainContent):
         if extracted and extracted.strip():
             return extracted
         return _fallback_main(html)
+
+    def title(self, html: str) -> str:
+        metadata = trafilatura.extract_metadata(html)
+        if metadata is not None and metadata.title and metadata.title.strip():
+            return metadata.title.strip()
+        return _fallback_title(html)
+
+
+def _fallback_title(document: str) -> str:
+    try:
+        tree = lxml_html.fromstring(document)
+    except (ValueError, etree.ParserError):
+        return ""
+    titles = tree.xpath("//title")
+    if not titles:
+        return ""
+    return " ".join((titles[0].text_content() or "").split())
 
 
 def _fallback_main(document: str) -> str:
