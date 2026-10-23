@@ -47,9 +47,8 @@ Point the integration at:
 - API key: any non-empty placeholder unless llama.cpp is authenticated
 - Model: a id from `GET /v1/models` on llama.cpp
 
-### Option B — cloud or harness UI only
+### Option B — chat UI only
 
-- **DeepSeek cloud:** configure `DEEPSEEK_API_KEY` in [DeepSeek Agent Harness](../deepseek-agent-harness/README.md) and use that Web UI; it does not replace Assist without a separate HA integration.
 - **Open WebUI:** [`openwebui`](../openwebui/README.md) is a browser chat UI on llama.cpp, not an Assist backend.
 
 After adding a conversation agent:

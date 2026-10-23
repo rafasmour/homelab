@@ -18,7 +18,6 @@
 !grafana/
 !hermes/
 !hermes-nextcloud-bridge/
-!deepseek-agent-harness/
 !home-assistant/
 !homepage/
 !image-generation/
@@ -133,16 +132,6 @@ wger/static/
 !hermes/plugins/talk_send/__init__.py
 !hermes-nextcloud-bridge/patches/
 !hermes-nextcloud-bridge/patches/room_profiles.py
-!deepseek-agent-harness/.dockerignore
-!deepseek-agent-harness/.gitignore
-!deepseek-agent-harness/Dockerfile
-!deepseek-agent-harness/docker/
-!deepseek-agent-harness/docker/entrypoint.sh
-!deepseek-agent-harness/docker/healthcheck.sh
-!deepseek-agent-harness/patches/
-!deepseek-agent-harness/patches/enable-remote-access.mjs
-deepseek-agent-harness/data/
-deepseek-agent-harness/workspaces/
 !image-generation/.dockerignore
 !image-generation/.gitignore
 !image-generation/Dockerfile
