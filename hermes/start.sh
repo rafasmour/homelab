@@ -114,6 +114,7 @@ model_name="${HERMES_MODEL:-}"
 if [ -z "${model_name}" ]; then
   model_name="$(python - "${inference_base_url}" <<'PY'
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -125,7 +126,11 @@ for attempt in range(30):
     try:
         request = urllib.request.Request(
             models_url,
-            headers={"Accept": "application/json", "User-Agent": "hermes-llama-cpp-discovery"},
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "hermes-llama-cpp-discovery",
+                "Authorization": "Bearer " + os.environ.get("LLAMA_API_KEY", ""),
+            },
         )
         with urllib.request.urlopen(request, timeout=5) as response:
             payload = json.load(response)
@@ -350,6 +355,8 @@ model.update({
     "base_url": env["HERMES_SELECTED_BASE_URL"],
     "api_mode": "chat_completions",
     "default": env["HERMES_SELECTED_MODEL"],
+    # llama-server requires its API key on every request (LLAMA_API_KEY).
+    "api_key": env.get("LLAMA_API_KEY", ""),
     # One llama.cpp slot of the model (Mellum: 98304 per slot, 4 slots), so
     # Hermes compresses before a request outgrows its slot.
     "context_length": int(env.get("HERMES_CONTEXT_LENGTH") or 98304),

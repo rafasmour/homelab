@@ -15,6 +15,12 @@ services:
     group_add:
       - "44"
       - "991"
+    environment:
+      # Required on every request except /health: the router can download
+      # (POST /models), delete (DELETE /models) and load models.
+      LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
+      # Router downloads (POST /models) persist next to the presets.
+      LLAMA_CACHE: /models/cache
     volumes:
       - ./models:/models
     command:

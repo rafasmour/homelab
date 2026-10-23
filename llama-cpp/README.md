@@ -105,6 +105,25 @@ RAM and an 8-core Ryzen 7 1800X:
 
 Rules behind these presets: every slot has more than 64k context; small models use f16 KV and as many slots as fit; larger models use f16 or q8_0 and never q4_0 (it made models misbehave). f16 KV is also much faster on ROCm flash attention: Mellum ran at ~44 tok/s with q8_0 and ~102 tok/s with f16. CPU-offloaded layers of a dense model cost more speed than shorter context (Qwen 3.8: 12 tok/s with 5 layers on the CPU, 31 fully on the GPU). `qwen-3.8-27b-dflash2` is disabled: with its draft it does not fit above 64k. Decode speeds are single short requests. The GPU only runs these models, so presets may use up to ~19.5 GiB of the 20 GiB.
 
+## Pull and delete models through the router API
+
+The router manages downloads itself (Ollama-style), and every request except `/health` needs `Authorization: Bearer $LLAMA_API_KEY`:
+
+```bash
+H="Authorization: Bearer $LLAMA_API_KEY"   # from llama-cpp/.env; also OPENAI_API_KEY in openwebui/.env
+# pull (background download incl. mmproj / MTP / DFlash sidecars and a repo preset.ini)
+curl -X POST https://ai.$DOMAIN/models -H "$H" -H 'Content-Type: application/json' \
+  -d '{"model":"ggml-org/gemma-3-270m-it-GGUF:Q8_0"}'
+curl -N https://ai.$DOMAIN/models/sse -H "$H"            # live download/load progress
+curl https://ai.$DOMAIN/models -H "$H"                   # list: source preset|cache, status, can_remove
+curl -X DELETE "https://ai.$DOMAIN/models?model=ggml-org/gemma-3-270m-it-GGUF:Q8_0" -H "$H"
+```
+
+- Downloads go to `models/cache` (`LLAMA_CACHE`, owned by the container user 999) and appear without a restart as `source: cache`.
+- Downloaded models run with the `[*]` defaults of `router-config.ini`; give one a measured preset (see the table above) before relying on it for long contexts.
+- Presets are never removable through the API (`can_remove: false`); delete their files by hand.
+- Tested on build b11824: pull of a 279 MB model, chat, delete.
+
 ## Download the model set
 
 Use the explicit commands in [`models/downloads.md`](models/downloads.md).
