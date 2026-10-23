@@ -95,15 +95,15 @@ RAM and an 8-core Ryzen 7 1800X:
 | `lfm-2.5-8b-a1b` | LFM2.5 8B-A1B Q4_K_M | f16, 125k x 8 | 17.32 GiB | ~179 tok/s |
 | `gemma-4-12b-it-qat` (`-vision`) | Gemma 4 12B QAT UD-Q4_K_XL | f16, 128k x 4 | 16.91 / 17.12 GiB | ~64 tok/s |
 | `lfm-2.5-24b-a2b` | LFM2.5 24B-A2B Q4_K_M | f16, 96k x 2 | 17.87 GiB | ~130 tok/s |
-| `gemma-4-26b-a4b` (`-vision`) | Gemma 4 26B-A4B Q4_0 | q8_0, 128k x 2 | 18.22 GiB | ~74 tok/s |
+| `gemma-4-26b-a4b` (`-vision`) | Gemma 4 26B-A4B Q4_0 | q8_0, 128k x 2 | 18.22 / 19.16 GiB | ~74 tok/s |
 | `gemma-4-31b-it` / `-vision` | Gemma 4 31B UD-IQ3_XXS | q8_0, 128k / 96k | 18.57 / 18.26 GiB | ~31 tok/s |
 | `qwen-3.6-35b-a3b` | Qwen3.6 35B-A3B UD-IQ4_XS | q8_0, 128k, fully on GPU | 18.39 GiB | ~69 tok/s |
 | `qwen-3.8-27b` | Qwen3.8 27B Q4_0 | q8_0, 96k, fully on GPU | 18.45 GiB | ~31 tok/s |
 | `qwen-3.8-27b-mtp` | Qwen3.8 27B Q4_0 + MTP draft | q8_0, 68k (0.6 GiB headroom) | 19.38 GiB | ~57 tok/s |
 | `flint-40b-a2.5b` | Flint UD-Q3_K_XL | q8_0, 96k, `n-cpu-moe 4` | 18.50 GiB | ~59 tok/s |
-| `hy-memory-30b-a3b` | Hy-Memory 30B-A3B Q3_K_M | q8_0, 96k (not yet measured) | | |
+| `hy-memory-30b-a3b` | Hy-Memory 30B-A3B Q3_K_M | q8_0, 96k, `n-cpu-moe 8` (all 48 layers are full attention) | 17.09 GiB | ~45 tok/s |
 
-Rules behind these presets: every slot has more than 64k context; small models use f16 KV and as many slots as fit; larger models use f16 or q8_0 and never q4_0 (it made models misbehave). f16 KV is also much faster on ROCm flash attention: Mellum ran at ~44 tok/s with q8_0 and ~102 tok/s with f16. CPU-offloaded layers of a dense model cost more speed than shorter context (Qwen 3.8: 12 tok/s with 5 layers on the CPU, 31 fully on the GPU). `qwen-3.8-27b-dflash2` is disabled: with its draft it does not fit above 64k. Decode speeds are single short requests.
+Rules behind these presets: every slot has more than 64k context; small models use f16 KV and as many slots as fit; larger models use f16 or q8_0 and never q4_0 (it made models misbehave). f16 KV is also much faster on ROCm flash attention: Mellum ran at ~44 tok/s with q8_0 and ~102 tok/s with f16. CPU-offloaded layers of a dense model cost more speed than shorter context (Qwen 3.8: 12 tok/s with 5 layers on the CPU, 31 fully on the GPU). `qwen-3.8-27b-dflash2` is disabled: with its draft it does not fit above 64k. Decode speeds are single short requests. The GPU only runs these models, so presets may use up to ~19.5 GiB of the 20 GiB.
 
 ## Download the model set
 
