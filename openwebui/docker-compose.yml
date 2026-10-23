@@ -4,13 +4,86 @@ services:
     container_name: open-webui
     restart: unless-stopped
     environment:
-      OPENAI_API_BASE_URLS: "http://llama-server:8080/v1;http://llama-classifier:8080/v1;http://hermes-api:8642/v1"
-      OPENAI_API_KEYS: "${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};${HERMES_API_KEY:?Set HERMES_API_KEY in .env}"
+      # Make this file authoritative. With persistence on, settings already
+      # stored in data/webui.db override these variables. Admin UI changes
+      # then last only until the next restart; see README.
+      ENABLE_PERSISTENT_CONFIG: "${ENABLE_PERSISTENT_CONFIG:-false}"
+
+      # Connections by index: 0 llama-server, 1 llama-classifier,
+      # 2 Hermes default profile, 3-10 Hermes specialist profiles.
+      OPENAI_API_BASE_URLS: >-
+        http://llama-server:8080/v1;
+        http://llama-classifier:8080/v1;
+        http://hermes-api:8642/v1;
+        http://hermes-api:8642/p/nextcloud/v1;
+        http://hermes-api:8642/p/finance/v1;
+        http://hermes-api:8642/p/calories/v1;
+        http://hermes-api:8642/p/ai-news/v1;
+        http://hermes-api:8642/p/hf-models/v1;
+        http://hermes-api:8642/p/llamacpp-vulkan/v1;
+        http://hermes-api:8642/p/gpu-watch/v1;
+        http://hermes-api:8642/p/selfhosted/v1
+      OPENAI_API_KEYS: >-
+        ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};
+        ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env}
+      # Hermes models are shown as hermes.<model id>, e.g. hermes.nextcloud.
+      OPENAI_API_CONFIGS: >-
+        {
+        "2": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "3": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "4": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "5": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "6": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "7": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "8": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "9": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "10": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]}
+        }
       ENABLE_OPENAI_API: "true"
       ENABLE_OLLAMA_API: "false"
-      WEBUI_AUTH: "false"
+
+      WEBUI_AUTH: "true"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY:?Set WEBUI_SECRET_KEY in .env}"
+      # Keep false; set true in .env only while creating the first admin.
+      ENABLE_SIGNUP: "${ENABLE_SIGNUP:-false}"
+
+      # MCP tool servers on the hermes-mcp network. Connections without
+      # access grants are admin-only.
       ENABLE_TOOL_SERVERS: "true"
-      TOOL_SERVER_CONNECTIONS: '[{"type":"mcp","url":"http://web-search-mcp:8000/mcp","auth_type":"bearer","key":"${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}","config":{"enable":true},"info":{"id":"web-search","name":"Web search"}}]'
+      TOOL_SERVER_CONNECTIONS: >-
+        [
+        {"type": "mcp", "url": "http://web-search-mcp:8000/mcp", "auth_type": "bearer",
+        "key": "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}",
+        "config": {"enable": true}, "info": {"id": "web-search", "name": "Web search"}},
+        {"type": "mcp", "url": "http://nextcloud-mcp:8000/mcp", "auth_type": "none", "key": "",
+        "config": {"enable": true}, "info": {"id": "nextcloud", "name": "Nextcloud"}},
+        {"type": "mcp", "url": "http://wger-mcp:8765/mcp", "auth_type": "bearer",
+        "key": "${WGER_MCP_TOKEN:?Set WGER_MCP_TOKEN in .env}",
+        "config": {"enable": true}, "info": {"id": "wger", "name": "wger"}},
+        {"type": "mcp", "url": "http://n8n-mcp:3000/mcp", "auth_type": "bearer",
+        "key": "${N8N_MCP_TOKEN:?Set N8N_MCP_TOKEN in .env}",
+        "config": {"enable": true}, "info": {"id": "n8n", "name": "n8n"}},
+        {"type": "mcp", "url": "http://drawio-mcp:8000/mcp", "auth_type": "none", "key": "",
+        "config": {"enable": true}, "info": {"id": "drawio", "name": "draw.io"}}
+        ]
+
+      # Built-in web search through the web-search service REST endpoints.
+      ENABLE_WEB_SEARCH: "true"
+      WEB_SEARCH_ENGINE: external
+      EXTERNAL_WEB_SEARCH_URL: http://web-search-mcp:8000/search
+      EXTERNAL_WEB_SEARCH_API_KEY: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
+      WEB_LOADER_ENGINE: external
+      EXTERNAL_WEB_LOADER_URL: http://web-search-mcp:8000/fetch
+      EXTERNAL_WEB_LOADER_API_KEY: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
 
     volumes:
       - ./data:/app/backend/data
@@ -30,8 +103,12 @@ services:
 
     networks:
       - webgateway
+      - hermes-mcp
 
 networks:
   webgateway:
     external: true
     name: webgateway
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
