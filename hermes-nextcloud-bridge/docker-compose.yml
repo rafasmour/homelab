@@ -64,6 +64,8 @@ services:
       TALK_BRIDGE_SKILL_STATUS: "0"
       TALK_APPROVAL_PROMPTS: "0"
       TALK_LOCAL_MEMORY_CONTEXT: "0"
+      # Room history turns inlined into each message (upstream default 24).
+      TALK_CONTEXT_TURNS: "${TALK_CONTEXT_TURNS:-8}"
       NEXTCLOUD_AI_CONTEXT: "0"
       TALK_BRIDGE_LOG: /data/bridge.log
       TALK_BRIDGE_STATE_DIR: /data/state

@@ -6,8 +6,10 @@ rooms use HERMES_PROFILE. The toolsets for a mapped profile come from that
 profile's config.yaml (platform_toolsets.cli without clarify, which a one-shot
 `hermes chat -q` cannot answer, and without talk: the bridge posts the reply
 itself, and talk_send in a room only duplicated it and kept the run going), so
-hermes/start.sh stays their only source. The patch also keeps two CLI
-diagnostics ("Unknown toolsets", tirith) out of the posted reply.
+hermes/start.sh stays their only source; rooms also drop kanban (~5k tokens
+per call). The patch keeps two CLI diagnostics ("Unknown toolsets",
+tirith) out of the posted reply and limits the inlined room history to
+TALK_CONTEXT_TURNS (default 8; upstream sends 24).
 
 Every replacement must match exactly once, so a bridge upgrade that moves this
 code fails the image build instead of shipping a bridge that ignores the map.
@@ -25,7 +27,9 @@ TALK_ROOM_PROFILES = {
     if sep and token.strip() and profile.strip()
 }
 _ROOM = threading.local()
-BRIDGE_EXCLUDED_TOOLSETS = {"clarify", "talk"}
+# Rooms answer directly: no clarify (one-shot run), no talk (the bridge posts
+# the reply) and no kanban (~5k tokens; each profile has its own room).
+BRIDGE_EXCLUDED_TOOLSETS = {"clarify", "talk", "kanban"}
 
 
 def room_profile(token: str) -> str:
@@ -54,6 +58,11 @@ def _toolsets() -> str:
 '''
 
 REPLACEMENTS = [
+    (
+        "        include_history=_include_talk_history_in_context(),\n    )\n",
+        "        include_history=_include_talk_history_in_context(),\n"
+        "        max_turns=int(os.environ.get(\"TALK_CONTEXT_TURNS\") or \"8\"),\n    )\n",
+    ),
     (
         '        "Model:",\n    )\n',
         '        "Model:",\n        "Warning: Unknown toolsets:",\n        "⚠ tirith",\n    )\n',
