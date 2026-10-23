@@ -7,6 +7,7 @@ services:
         LLAMA_REF: ${LLAMA_REF:-main}
         LLAMA_REPO: ${LLAMA_REPO:-https://github.com/ggml-org/llama.cpp}
         MAX_JOBS: ${MAX_JOBS:-}
+    image: llama-cpp-rocm:local
     container_name: llama-server
     devices:
       - /dev/kfd:/dev/kfd
@@ -22,7 +23,6 @@ services:
       - "--port"
       - "8080"
       - "--metrics"
-      - "--verbose"
       - "--models-preset"
       - "/models/router-config.ini"
       - "--jinja"
@@ -46,6 +46,28 @@ services:
       - homepage.href=https://ai.${DOMAIN}
       - homepage.description=OpenAI-compatible local language model server.
 
+  # One-off access to the other llama.cpp tools (llama-cli, llama-bench,
+  # llama-quantize, ...) from the same image, without Traefik labels:
+  #   docker compose run --rm llama-tools llama-cli -m /models/<file>.gguf
+  llama-tools:
+    image: llama-cpp-rocm:local
+    pull_policy: never
+    profiles:
+      - tools
+    entrypoint: ["/usr/bin/env"]
+    command: ["bash", "-c", "ls /usr/local/bin/llama-*"]
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "991"
+    volumes:
+      - ./models:/models
+    networks:
+      - backend
+
 networks:
+  backend:
   webgateway:
     external: true

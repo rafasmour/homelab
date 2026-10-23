@@ -23,9 +23,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         rocwmma-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --filter=blob:none "https://github.com/ggml-org/llama.cpp" /llama.cpp \
+# LLAMA_REPO/LLAMA_REF select the source tree (e.g. a fork). An empty LLAMA_REF, or "main" on a
+# repository without a main branch (upstream uses master), builds the
+# repository's default branch.
+RUN git clone --filter=blob:none "${LLAMA_REPO}" /llama.cpp \
     && cd /llama.cpp \
-    && git checkout master
+    && ref="${LLAMA_REF}" \
+    && if [ -z "$ref" ] || { [ "$ref" = "main" ] && ! git rev-parse -q --verify origin/main >/dev/null; }; then \
+           ref="$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's@^origin/@@')"; \
+       fi \
+    && git checkout "$ref" \
+    && git log -1 --format='llama.cpp source: %H %cd'
 
 WORKDIR /llama.cpp
 
@@ -34,6 +42,8 @@ RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
     cmake -S . -B build \
         -DGGML_HIP=ON \
         -DGGML_HIP_ROCWMMA_FATTN=ON \
+        -DGGML_HIP_GRAPHS=ON \
+        -DGGML_NATIVE=ON \
         -DAMDGPU_TARGETS="${AMDGPU_TARGETS}" \
         -DGGML_CURL=ON \
         -DLLAMA_OPENSSL=ON \
@@ -41,7 +51,7 @@ RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DLLAMA_BUILD_TESTS=OFF \
         -DCMAKE_BUILD_TYPE=Release \
-    && cmake --build build --config Release --target llama-server -j "${MAX_JOBS:-$(nproc)}"
+    && cmake --build build --config Release -j "${MAX_JOBS:-$(nproc)}"
 
 FROM rocm/dev-ubuntu-24.04:${ROCM_VERSION}
 
@@ -54,12 +64,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         hipblas \
+        hipblaslt \
         libcurl4t64 \
         libgomp1 \
         rocblas \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
+# Every llama.cpp tool (llama-cli, llama-bench, llama-quantize, ...) is installed;
+# llama-server stays the entrypoint.
+COPY --from=builder /llama.cpp/build/bin/ /usr/local/bin/
+
+# Kernel arguments in device memory cut per-launch latency, which bounds
+# small-MoE token generation; hipBLASLt speeds up large prompt matmuls.
+ENV HIP_FORCE_DEV_KERNARG=1 \
+    ROCBLAS_USE_HIPBLASLT=1
 
 # 2. Set ownership of the directory where models will be mounted (if needed)
 # Ensure the user has permissions to read the /models volume

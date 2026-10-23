@@ -1,76 +1,77 @@
 version = 1
 
 ; Command-line options override these values. Keep model-execution options here.
+;
+; GPU profile: RX 7900 XT (gfx1100, 20 GiB VRAM, ROCm/HIP), host RAM 15 GB.
+; Budget rule: every preset uses at most ~16 GiB of VRAM (weights + KV cache +
+; compute buffers), measured with /sys/class/drm/card1/device/mem_info_vram_used
+; after loading, which leaves headroom for the desktop and other GPU users.
+;   ctx-size      = min(native context_length from the GGUF, 262144)
+;   parallel      = 1 (one slot gets the whole context)
+;   KV cache      = q8_0, or q4_0 where q8_0 does not fit
+;   fit = off     the explicit n-gpu-layers / n-cpu-moe values below are the
+;                 measured budget; --fit would grow into all free VRAM
+;   n-cpu-moe     MoE presets keep the experts of the first N layers in RAM;
+;                 CPU-resident experts stay at or below ~6 GB of the 15 GB RAM
+; Small dense models also use draftless n-gram speculation (spec-type =
+; ngram-mod): when the context repeats (code edits, quotes) one weight read
+; yields several tokens. Vision presets skip it.
+;
+; The router lists models alphabetically in /v1/models, not in file order, so
+; clients must name the model explicitly (Hermes: mellum-2.1-12b-a2.5b).
+
 [*]
 flash-attn = on
-n-gpu-layers = auto
+fit = off
+n-gpu-layers = all
 threads = 8
 threads-batch = 16
-parallel = 4
+parallel = 1
 kv-unified = true
 ctx-size = 262144
-batch-size = 512
-ubatch-size = 256
 cache-type-k = q8_0
-cache-type-v = q4_0
-repeat-penalty = 1.1
-
-[ornith-1.5-35b-a3b]
-model = /models/ornith/ornith-1.5-35b-a3b/Ornith-1.5-35B-A3B-IQ4_XS.gguf
-ctx-size = 262144
-parallel = 4
-n-cpu-moe = 28
-cache-type-k = q4_0
-cache-type-v = q4_0
-temp = 0.6
-top-p = 0.95
-top-k = 20
-
-[ornith-1.5-9b-dflash]
-model = /models/ornith/ornith-1.5-9b/Ornith-1.5-9B-AD-Q5_K-Q4_K.gguf
-model-draft = /models/ornith/ornith-1.5-9b/qwen35-9b-dflash-Q4_K_M.gguf
-ctx-size = 262144
-parallel = 4
-spec-type = draft-dflash
-spec-draft-n-max = 8
-temp = 0.6
-top-p = 0.95
-top-k = 20
-
-[qwen-3.6-35b-a3b-mtp]
-model = /models/qwen/qwen-3.6-35b-a3b/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf
-ctx-size = 262144
-parallel = 4
-n-cpu-moe = 28
-cache-type-k = q4_0
-cache-type-v = q4_0
-spec-type = draft-mtp
-spec-draft-n-max = 2
-temp = 1.0
-top-p = 0.95
-top-k = 20
-min-p = 0
-presence-penalty = 1.5
+cache-type-v = q8_0
+batch-size = 1024
+ubatch-size = 512
 repeat-penalty = 1.0
+; Read GGUFs with Direct I/O instead of mmap: the models are larger than the
+; 15 GB of RAM, so page-cached mmap loads thrash and crawl.
+load-mode = dio
 
-[gemma-4-26b-a4b]
-model = /models/gemma/gemma-4-26b-a4b/gemma-4-26B-A4B-Q4_K_M.gguf
-ctx-size = 262144
-parallel = 4
-n-cpu-moe = 21
-cache-type-k = q4_0
-cache-type-v = q4_0
+[mellum-2.1-12b-a2.5b]
+; JetBrains Mellum 2.1 (12B MoE, 2.5B active), thinking variant, Q6_K, fully
+; on the GPU. Native context is 131072.
+model = /models/mellum/mellum-2.1-12b-a2.5b/Mellum2.1-12B-A2.5B-Thinking-Q6_K.gguf
+ctx-size = 131072
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+temp = 0.6
+top-p = 0.95
+top-k = 20
+
+[flint-40b-a2.5b]
+; RecursiveSI Flint (40B MoE, 2.5B active, 256 experts), Unsloth UD-Q3_K_XL.
+; No Q4 file fits the budget: UD-Q4_K_XL (23.3 GB) would need ~9 GB of experts
+; in RAM. Vendor sampling: temp 1.0 / top-p 0.95 / top-k 20.
+model = /models/flint/flint-40b-a2.5b/flint-UD-Q3_K_XL.gguf
+n-cpu-moe = 14
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
 temp = 1.0
 top-p = 0.95
-top-k = 64
+top-k = 20
+min-p = 0.0
 
-[gemma-4-12b-it-qat-mtp]
+[gemma-4-12b-it-qat]
 model = /models/gemma/gemma-4-12b-it-qat/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
-model-draft = /models/gemma/gemma-4-12b-it-qat/mtp-gemma-4-12B-it.gguf
-ctx-size = 262144
-parallel = 4
-spec-type = draft-mtp
-spec-draft-n-max = 4
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
 temp = 1.0
 top-p = 0.95
 top-k = 64
@@ -78,96 +79,174 @@ top-k = 64
 [gemma-4-12b-it-qat-vision]
 model = /models/gemma/gemma-4-12b-it-qat/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
 mmproj = /models/gemma/gemma-4-12b-it-qat/mmproj-F16.gguf
-ctx-size = 262144
-parallel = 4
 temp = 1.0
 top-p = 0.95
 top-k = 64
 
-[gemma-4-e4b-it-mtp]
-model = /models/gemma/gemma-4-e4b-it/gemma-4-E4B-it-IQ4_XS.gguf
-model-draft = /models/gemma/gemma-4-e4b-it/mtp-gemma-4-E4B-it.gguf
-ctx-size = 262144
-parallel = 4
+[gemma-4-26b-a4b]
+model = /models/gemma/gemma-4-26b-a4b/gemma-4-26B-A4B-it-Q4_0.gguf
+n-cpu-moe = 5
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[gemma-4-26b-a4b-vision]
+model = /models/gemma/gemma-4-26b-a4b/gemma-4-26B-A4B-it-Q4_0.gguf
+mmproj = /models/gemma/gemma-4-26b-a4b/mmproj-gemma-4-26B-A4B-it-Q8_0.gguf
+n-cpu-moe = 6
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[gemma-4-31b-it]
+; Dense 31B, Unsloth UD-IQ3_XXS, fully on the GPU.
+model = /models/gemma/gemma-4-31b-it/gemma-4-31B-it-UD-IQ3_XXS.gguf
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[gemma-4-31b-it-vision]
+model = /models/gemma/gemma-4-31b-it/gemma-4-31B-it-UD-IQ3_XXS.gguf
+mmproj = /models/gemma/gemma-4-31b-it/mmproj-F16.gguf
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 1.0
+top-p = 0.95
+top-k = 64
+
+[hy-memory-30b-a3b]
+; Tencent Hy-Memory (30B MoE, 3B active, 48 full-attention layers). Q3_K_M:
+; the KV cache at 262144 tokens is large, so Q4_K_M would need ~9 GB of
+; experts in RAM. Vendor settings: no-think, temp 0.7, top-k 0, top-p 1.0.
+model = /models/hy/hy-memory-30b-a3b/Hy-Memory-30B-A3B-Q3_K_M.gguf
+n-cpu-moe = 20
+cache-type-k = q4_0
+cache-type-v = q4_0
+chat-template-kwargs = {"reasoning_effort":"no_think"}
+temp = 0.7
+top-k = 0
+top-p = 1.0
+
+[lfm-2.5-8b-a1b]
+model = /models/lfm/lfm-2.5-8b-a1b/LFM2.5-8B-A1B-Q4_K_M.gguf
+ctx-size = 128000
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+temp = 0.2
+top-k = 80
+repeat-penalty = 1.05
+
+[lfm-2.5-24b-a2b]
+; Official LiquidAI GGUF. 24B MoE (2B active), 40 layers: 30 short-conv + 10 GQA.
+model = /models/lfm/lfm-2.5-24b-a2b/LFM2.5-24B-A2B-Q4_K_M.gguf
+ctx-size = 131072
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+; LiquidAI recommended sampling.
+temp = 0.1
+top-k = 50
+repeat-penalty = 1.05
+
+[minicpm5-2b]
+model = /models/minicpm/minicpm5-2b/MiniCPM5-2B-Q8_0.gguf
+ctx-size = 131072
+batch-size = 2048
+ubatch-size = 1024
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+; Vendor (openbmb/MiniCPM5-2B) recommended: temp 1.0, top_p 0.95, min_p 0.0.
+; min_p 0.0 is explicit: llama.cpp's default 0.05 can cause repetitive output.
+temp = 1.0
+top-p = 0.95
+min-p = 0.0
+
+[qwen-3.6-35b-a3b]
+model = /models/qwen/qwen-3.6-35b-a3b/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf
+n-cpu-moe = 12
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0
+presence-penalty = 1.5
+
+[qwen-3.8-27b]
+; Dense 27B (16 Gated Attention + 48 Gated DeltaNet layers), Q4_0 (15 GiB).
+; Measured 2026-10-23: at 262144 tokens the budget forces ~15-21 layers onto
+; the CPU, and those layers' weights plus their KV cache took 6-7 GB of host
+; RAM; the MTP variant was OOM-killed. So all layers stay on the GPU and the
+; context is cut instead (q4_0 KV, 18 KiB/token). PROVISIONAL: re-measure.
+model = /models/qwen/qwen-3.8-27b/Qwen3.8-27B-Q4_0.gguf
+ctx-size = 32768
+cache-type-k = q4_0
+cache-type-v = q4_0
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0.0
+presence-penalty = 0.0
+
+[qwen-3.8-27b-mtp]
+; Same model with its 1.3 GiB MTP head; three layers move to the CPU to make
+; room for the head. PROVISIONAL: re-measure.
+model = /models/qwen/qwen-3.8-27b/Qwen3.8-27B-Q4_0.gguf
+model-draft = /models/qwen/qwen-3.8-27b/MTP/mtp-Qwen3.8-27B-Q4_0.gguf
+n-gpu-layers = 60
+ctx-size = 32768
+cache-type-k = q4_0
+cache-type-v = q4_0
 spec-type = draft-mtp
-spec-draft-n-max = 4
+spec-draft-n-max = 3
 temp = 1.0
 top-p = 0.95
-top-k = 64
+top-k = 20
+min-p = 0.0
+presence-penalty = 0.0
 
-[gemma-4-e4b-it-vision]
-model = /models/gemma/gemma-4-e4b-it/gemma-4-E4B-it-IQ4_XS.gguf
-mmproj = /models/gemma/gemma-4-e4b-it/mmproj-F16.gguf
-ctx-size = 262144
-parallel = 4
-temp = 1.0
-top-p = 0.95
-top-k = 64
-
-[tiel-coder-35b-a3b]
-model = /models/tiel/tiel-coder-35b-a3b/Tiel-Coder-35B-A3B-UD-IQ4_XS.gguf
-ctx-size = 262144
-parallel = 4
-n-cpu-moe = 28
+[qwen-3.8-27b-dflash2]
+; DFlash2 block-diffusion drafter (incoai, Q4_K_M, ~1.05 GiB); like the MTP
+; preset, a few layers move to the CPU. PROVISIONAL: re-measure.
+model = /models/qwen/qwen-3.8-27b/Qwen3.8-27B-Q4_0.gguf
+model-draft = /models/qwen/qwen-3.8-27b/Qwen3.8-27B-DFlash2-Q4_K_M.gguf
+n-gpu-layers = 60
+ctx-size = 32768
 cache-type-k = q4_0
 cache-type-v = q4_0
-temp = 0.6
-top-p = 0.95
-top-k = 20
-
-[ling-3-tiny]
-model = /models/ling/ling-3-tiny/Ling-3.0-tiny-Q5_K_M.gguf
-ctx-size = 262144
-parallel = 4
+spec-type = draft-dflash
+spec-draft-n-max = 7
 temp = 1.0
 top-p = 0.95
 top-k = 20
+min-p = 0.0
+presence-penalty = 0.0
 
-[granite-4.2-8b]
-model = /models/granite/granite-4.2-8b/granite-4.2-8b-Q4_K_M.gguf
-ctx-size = 262144
-parallel = 4
+[spark-x2.6-4b]
+; XHToken Spark-X2.6-4B (spark2_5 architecture), Q8_0. Native context is
+; 1048576; capped at 262144. Vendor sampling: temp 1.0 / top-p 0.95 / no top-k.
+model = /models/spark/spark-x2.6-4b/Spark-X2.6-4B-Q8_0.gguf
+batch-size = 2048
+ubatch-size = 1024
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
 temp = 1.0
 top-p = 0.95
-repeat-penalty = 1.0
-
-[gemma-4-e2b-it]
-model = /models/gemma/gemma-4-e2b-it/google_gemma-4-E2B-it-Q4_K_M.gguf
-ctx-size = 262144
-parallel = 4
-temp = 1.0
-top-p = 0.95
-top-k = 64
-
-[unlimited-ocr]
-model = /models/ocr/unlimited-ocr/Unlimited-OCR-Q4_K_M.gguf
-mmproj = /models/ocr/unlimited-ocr/mmproj-Unlimited-OCR-F16.gguf
-ctx-size = 262144
-parallel = 4
-temp = 0
-
-[kat-coder-v2.5-dev-q4]
-model = /models/kat-coder/kat-coder-v2.5-dev/kat-coder-v2.5-dev-q4_k_m.gguf
-ctx-size = 262144
-parallel = 4
-cpu-moe = true
-cache-type-k = q4_0
-cache-type-v = q4_0
-temp = 1.0
-top-p = 0.95
-top-k = 20
-presence-penalty = 1.5
-repeat-penalty = 1.0
-
-[kat-coder-v2.5-dev-iq3]
-model = /models/kat-coder/kat-coder-v2.5-dev/Kwaipilot_KAT-Coder-V2.5-Dev-IQ3_XXS.gguf
-ctx-size = 262144
-parallel = 4
-n-cpu-moe = 25
-cache-type-k = q4_0
-cache-type-v = q4_0
-temp = 1.0
-top-p = 0.95
-top-k = 20
-presence-penalty = 1.5
-repeat-penalty = 1.0
+top-k = 0
+min-p = 0.0
+presence-penalty = 0.0
