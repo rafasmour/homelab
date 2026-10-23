@@ -6,6 +6,7 @@
 !AGENTS.md
 !README.md
 !TODO.md
+!ideas.md
 !update-domain.sh
 
 # Supported service folders. Add a matching `!service-name/` entry when a new
