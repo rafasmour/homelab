@@ -102,6 +102,29 @@ services:
       homepage.href: "https://firefly-importer.${DOMAIN}"
       homepage.description: Import bank statements and transaction files.
 
+  mcp:
+    # Firefly III MCP server for the Hermes finance profile (bills/subscriptions,
+    # transactions, accounts, summary). No auth of its own: it is only on the
+    # private hermes-mcp network and has no published port or Traefik route.
+    build:
+      context: ./mcp
+      args:
+        FIREFLY_MCP_VERSION: "${FIREFLY_MCP_VERSION:-1.4.0}"
+    image: firefly-iii-mcp:${FIREFLY_MCP_VERSION:-1.4.0}
+    container_name: firefly-mcp
+    restart: unless-stopped
+    depends_on:
+      - firefly-iii
+    environment:
+      FIREFLY_III_BASE_URL: http://firefly-iii:8080
+      FIREFLY_III_PAT: "${FIREFLY_III_ACCESS_TOKEN:?Set FIREFLY_III_ACCESS_TOKEN (a Firefly III personal access token) in .env}"
+      FIREFLY_III_TOOLS: "${FIREFLY_MCP_TOOLS:-bills,transactions,accounts,summary}"
+      PORT: "3000"
+      TZ: "${TZ:-Etc/UTC}"
+    networks:
+      - backend
+      - hermes-mcp
+
   cron:
     container_name: firefly-iii-cron
     labels:
@@ -128,6 +151,9 @@ services:
 networks:
   backend:
     internal: true
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
   webgateway:
     external: true
     name: webgateway

@@ -63,6 +63,8 @@ firefly-iii/database/
 firefly-iii/imports/
 !firefly-iii/imports/
 !firefly-iii/imports/_fallback.json.example
+!firefly-iii/mcp/
+!firefly-iii/mcp/Dockerfile
 firefly-iii/import-archive/
 firefly-iii/uploads/
 gitlab/config/
