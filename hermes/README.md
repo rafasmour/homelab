@@ -63,7 +63,7 @@ All profiles use `HERMES_MODEL`. Each platform toolset list names only `kanban`,
 | --- | --- | --- | --- | --- |
 | default | nextcloud, wger, web_search | kanban, nextcloud, wger, web_search, talk, clarify | nextcloud, wger, web_search, talk | Personal assistant for Open WebUI and Talk |
 | nextcloud | nextcloud, web_search | kanban, nextcloud, web_search, talk, clarify | nextcloud, web_search, talk | Calendars, to-dos, notes, files; `morning-digest` |
-| finance | nextcloud, n8n | kanban, nextcloud, n8n, talk, clarify | nextcloud, n8n, talk | Payments calendar versus Firefly; `payments-unpaid` |
+| finance | firefly | kanban, firefly, talk, clock, clarify | firefly, talk, clock | Firefly III only: subscriptions (bills), transactions, accounts; no delete tools; `payments-unpaid` |
 | ai-news | web_search | kanban, web_search, talk, clarify | web_search, talk | r/LocalLLaMA; `ai-news` |
 | hf-models | web_search | kanban, web_search, talk, clarify | web_search, talk | New Hugging Face text models; `hf-models` |
 | llamacpp-vulkan | web_search | kanban, web_search, talk, clarify | web_search, talk | llama.cpp Vulkan changes; `llamacpp-vulkan` |
@@ -105,7 +105,7 @@ The public equivalents are `https://hermes.<DOMAIN>/v1` and `https://hermes.<DOM
 | llamacpp-vulkan | llamacpp-vulkan | 02:00 | `0 2 * * *` | fetch_url (GitHub search API) | Vulkan pull requests and commits since yesterday |
 | gpu-watch | gpu-watch | 02:30 | `30 2 * * *` | fetch_url, web_search | Lowest in-stock price per watched GPU; `ALERT` under `target_price` |
 | selfhosted | selfhosted | 03:00 | `0 3 * * *` | fetch_url, web_search | Top r/selfhosted and r/homelab posts |
-| payments-unpaid | finance | 03:30 | `30 3 * * *` | Nextcloud, n8n | Payments events due today without a Firefly match |
+| payments-unpaid | finance | 03:30 | `30 3 * * *` | Firefly | Active bills due this month up to today without a payment; silent when all are paid |
 | morning-digest | nextcloud | 07:00 | `0 7 * * *` | Nextcloud | Today's events, open to-dos, pointer to the night digests |
 | calories-report | calories | 22:00 | `0 22 * * *` | wger | Day totals posted to the calories Talk room (silent when nothing was logged); no to-dos |
 

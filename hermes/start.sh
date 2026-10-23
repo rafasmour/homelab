@@ -173,7 +173,7 @@ ensure_profile() {
 ensure_profile nextcloud \
   "Manages calendars, tasks, notes, files, contacts, and Talk on the private Nextcloud through its MCP server."
 ensure_profile finance \
-  "Checks the Nextcloud Payments calendar against Firefly transactions through the Nextcloud and n8n MCP servers."
+  "Manages subscriptions (bills), transactions and accounts in Firefly III through the Firefly MCP."
 ensure_profile ai-news \
   "Reads hot r/LocalLLaMA posts through the web-search MCP."
 ensure_profile hf-models \
@@ -301,25 +301,46 @@ servers = {
     },
     # Official Hugging Face MCP; read-only Hub search works without a token.
     "huggingface": {"url": "https://huggingface.co/mcp"},
+    # firefly-iii/docker-compose.yml service "mcp"; private network, no auth.
+    "firefly": {"url": "http://firefly-mcp:3000/mcp"},
 }
 # The Nextcloud MCP exposes 124 tools (~75k tokens of schema). Loading them all
 # made every request slow and let the model pick look-alike tools, so each
 # profile only registers what its job needs (fnmatch globs).
 tool_filters = {
     ("default", "nextcloud"): {"include": [
+        "nc_calendar_list_calendars", "nc_calendar_list_events", "nc_calendar_get_event",
+        "nc_calendar_get_upcoming_events", "nc_calendar_create_event", "nc_calendar_update_event",
+        "nc_calendar_delete_event", "nc_calendar_create_todo", "nc_calendar_update_todo",
+        "nc_calendar_complete_todo", "nc_calendar_delete_todo", "nc_calendar_search_todos",
+        "nc_notes_create_note", "nc_notes_search_notes", "nc_notes_append_content",
+    ]},
+    # finance: bills, transactions and accounts it needs; no deletes or account edits.
+    ("finance", "firefly"): {"include": [
+        "list_bill", "get_bill", "store_bill", "update_bill", "list_transaction",
+        "list_transaction_by_bill", "store_transaction", "list_account", "get_basic_summary",
+    ]},
+    # Food logging needs 10 of wger's 30 tools; default also looks up exercises.
+    ("default", "wger"): {"include": ["search_ingredients", "get_ingredient", "list_ingredient_units", "list_nutrition_plans", "get_nutrition_plan", "create_meal", "log_ingredient", "list_log_items", "update_log_item", "nutrition_summary", "search_exercises"]},
+    ("calories", "wger"): {"include": ["search_ingredients", "get_ingredient", "list_ingredient_units", "list_nutrition_plans", "get_nutrition_plan", "create_meal", "log_ingredient", "list_log_items", "update_log_item", "nutrition_summary"]},
+    ("hf-models", "huggingface"): {"exclude": ["hf_fs", "hf_whoami"]},
+    ("nextcloud", "nextcloud"): {"include": [
         "nc_calendar_list_*", "nc_calendar_get_*", "nc_calendar_create_event", "nc_calendar_update_event",
         "nc_calendar_delete_event", "nc_calendar_create_todo", "nc_calendar_update_todo",
         "nc_calendar_complete_todo", "nc_calendar_delete_todo", "nc_calendar_search_todos", "nc_notes_*",
+        "nc_webdav_read_file", "nc_webdav_write_file", "nc_webdav_list_directory", "nc_webdav_search_files",
+        "nc_webdav_find_by_name", "nc_webdav_move_resource", "nc_webdav_create_directory",
+        "nc_webdav_delete_resource", "nc_contacts_search_contacts", "nc_contacts_list_addressbooks",
+        "nc_contacts_create_contact",
     ]},
-    ("finance", "nextcloud"): {"include": ["nc_calendar_list_*", "nc_calendar_get_*", "nc_calendar_search_todos"]},
-    ("nextcloud", "nextcloud"): {"exclude": ["nc_mail_*", "nc_shopping_*", "nc_news_*", "collectives_*"]},
 }
 mcp = {}
 for name in split(mcp_csv):
     entry = dict(servers[name])
     entry.update({"connect_timeout": 60, "timeout": 3600, "enabled": True})
-    if (profile, name) in tool_filters:
-        entry["tools"] = tool_filters[(profile, name)]
+    # Hermes adds list/read_resource and list/get_prompt helpers to every
+    # server; none of these servers serves useful resources or prompts.
+    entry["tools"] = {"resources": False, "prompts": False, **tool_filters.get((profile, name), {})}
     mcp[name] = entry
 data["mcp_servers"] = mcp
 
@@ -357,7 +378,10 @@ chat = split(chat_csv)
 cron = split(cron_csv)
 platforms = section("platform_toolsets")
 platforms["cli"] = chat
-platforms["api_server"] = chat
+# Kanban (12 tools, ~5k tokens plus its protocol text) is only needed by
+# profiles running as Kanban workers (cli). API chats answer directly; the
+# default profile points to the other profiles' rooms and models instead.
+platforms["api_server"] = [t for t in chat if t != "kanban"]
 platforms["cron"] = cron
 data["toolsets"] = chat
 
@@ -433,12 +457,13 @@ PY
 }
 export SPECIALISTS
 
-configure_profile default nextcloud,wger,web_search,n8n,drawio \
+configure_profile default nextcloud,wger,web_search \
   kanban,nextcloud,wger,web_search,talk,clock,clarify nextcloud,wger,web_search,talk,clock
 configure_profile nextcloud nextcloud,web_search \
   kanban,nextcloud,web_search,talk,clock,clarify nextcloud,web_search,talk,clock
-configure_profile finance nextcloud,n8n \
-  kanban,nextcloud,n8n,talk,clock,clarify nextcloud,n8n,talk,clock
+# finance works only in Firefly III.
+configure_profile finance firefly \
+  kanban,firefly,talk,clock,clarify firefly,talk,clock
 for profile in ai-news llamacpp-vulkan gpu-watch selfhosted; do
   configure_profile "${profile}" web_search \
     kanban,web_search,talk,clock,clarify web_search,talk,clock
@@ -524,7 +549,7 @@ Kanban workers: call kanban_complete only with the created object's id in the su
 
 Dates and times: the user lives in Europe/Athens. You have no clock of your own, so call clock_now before resolving "now", "in an hour", "tonight", "tomorrow" or a weekday, and repeat the full date (YYYY-MM-DD) and Athens time in every confirmation.
 
-Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Calendar apps show the UTC value in Athens time.
+Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Date-only fields stay calendar days: an all-day date is YYYY-MM-DD, and a Firefly bill date is "<YYYY-MM-DD>T12:00:00Z". Calendar apps show the UTC value in Athens time.
 EOF
 )
 export SOUL_CORE
@@ -587,11 +612,14 @@ To-do or reminder: mcp__nextcloud__nc_calendar_create_todo on the task list that
 
 ${CALENDAR_MAP}
 
-## Kanban hand-off
+## Other profiles
 
-Create one card with kanban_create and assign exactly one of: nextcloud (calendars, tasks, notes, files, contacts, Talk), finance (Payments calendar versus Firefly), calories (food log and day totals), ai-news (r/LocalLLaMA), hf-models (new Hugging Face text models), llamacpp-vulkan (llama.cpp Vulkan changes), gpu-watch (Greek GPU prices), selfhosted (r/selfhosted and r/homelab).
-
-Do simple calendar, to-do, and food requests yourself; do not hand them off. When you do hand off to nextcloud, the card body must contain the full structured request: title, date and time with time zone, duration, calendar URI, and whether it is a VEVENT or a VTODO. Never file a card with only a title. After kanban_create, reply with the card id and the assignee. Do not claim the specialist finished the work.
+Do calendar, to-do, note and food requests yourself. For the rest, tell the user which Hermes profile handles it and where: each has its own Nextcloud Talk room ("Hermes · <name>") and its own model in Open WebUI (hermes.<name>):
+- finance: Firefly III subscriptions, transactions and accounts
+- nextcloud: files, contacts and larger calendar or notes work
+- calories: the day's nutrition totals
+- ai-news (r/LocalLLaMA), hf-models (new Hugging Face models), llamacpp-vulkan (llama.cpp Vulkan changes), gpu-watch (Greek GPU prices), selfhosted (r/selfhosted and r/homelab)
+Answer what you can from your own tools first; never pretend another profile did something.
 
 ## Nextcloud Talk
 
@@ -616,11 +644,24 @@ After every write, re-read with mcp__nextcloud__nc_calendar_list_events or mcp__
 EOF
 
 write_soul finance <<'EOF'
-You are the finance profile of Hermes. You use the Nextcloud and n8n MCP servers.
+You are the finance profile of Hermes. You work only in Firefly III, through the firefly MCP tools (mcp__firefly__*). You have no Nextcloud, n8n or calendar tools, and you never delete anything.
 
-Firefly III subscriptions are placed on the Nextcloud calendar whose display name is Payments by an n8n workflow. That sync is not yours. Do not create or edit the n8n workflow.
+Vocabulary: what Firefly's web UI calls a subscription is a "bill" in its API. Subscriptions, recurring payments and bills all mean mcp__firefly__store_bill / list_bill / update_bill.
 
-When asked about payments, find the Payments calendar URI with mcp__nextcloud__nc_calendar_list_calendars, then list its events due today with mcp__nextcloud__nc_calendar_list_events. Today and the current period use the Europe/Athens calendar. An item is unpaid when it is due today and no Firefly transaction in the current Athens month matches its Firefly id, or otherwise its amount and title. Use the n8n MCP only when it already exposes a way to read Firefly transactions. Say when Firefly cannot be queried; do not guess paid or unpaid. Do not create Nextcloud items, delete events, or create Firefly transactions unless the user explicitly asks.
+Creating subscriptions (one store_bill call per item, never repeat a call that returned an id):
+- requestBody.name: only the item's name as the user wrote it (Greek is fine), without the amount or currency ("ψαλτική", not "ψαλτική 35€").
+- requestBody.amount_min and requestBody.amount_max: the amount as a string with a dot, both the same for a fixed price ("35.00").
+- requestBody.currency_code: "EUR" unless the user names another currency.
+- requestBody.repeat_freq: weekly, monthly, quarterly, half-year or yearly.
+- requestBody.date: the first expected payment day written as "<YYYY-MM-DD>T12:00:00Z" (noon UTC), for example "2026-10-31T12:00:00Z". The tool rejects a bare date, Firefly runs on UTC, and noon keeps the same calendar day everywhere; do not use clock_to_utc for it. "Last day of the month" is the last calendar day of the current month from clock_now. Firefly keeps monthly bills on that day.
+- requestBody.active: true.
+- update_bill: always send name and date again (same noon-UTC form) with the changed fields; Firefly moves a bill one day earlier when it is saved without a date.
+- Before creating, mcp__firefly__list_bill to skip names that already exist; say which ones you skipped.
+- Reply with one line per subscription: name, amount, frequency, first date, Firefly id.
+
+Transactions: mcp__firefly__store_transaction with requestBody.transactions[] (type withdrawal for spending, deposit for income; date from clock_to_utc or the user's date; amount as a string; description; source_name for the paying account, destination_name for the payee). For "what did I spend" questions use mcp__firefly__list_transaction with start and end (YYYY-MM-DD) and add up the amounts yourself, or mcp__firefly__get_basic_summary for totals.
+
+Ask one short question when the account, amount or date is missing. Never invent ids, accounts or amounts.
 EOF
 
 research_soul() {
@@ -846,13 +887,13 @@ EOF
 )"
 
 ensure_cron_job finance payments-unpaid "30 3 * * *" "$(cat <<EOF
-Nightly unpaid-payments check for the current Europe/Athens date. The current period is the Athens calendar month that contains that date.
+Nightly unpaid-subscriptions check in Firefly III for the current Europe/Athens date.
 
-1. mcp__nextcloud__nc_calendar_list_calendars and take the URI of the calendar whose display name is Payments.
-2. mcp__nextcloud__nc_calendar_list_events with that calendar_name, start_date today, and end_date today.
-3. For each event, look for a matching Firefly III transaction in the current period through the n8n MCP tools (same Firefly id when the event carries one, otherwise the same amount and a matching title). Use n8n only if it already exposes a way to read Firefly transactions. Do not create or edit workflows or transactions.
+1. clock_now for today's date.
+2. mcp__firefly__list_bill with start = the first day of the current month and end = today (YYYY-MM-DD). Each bill lists the dates it is expected to be paid in that range (pay_dates) and the payments already linked to it (paid_dates).
+3. A bill is unpaid when it is active and has a pay date on or before today in that range with no matching paid date.
 
-An item is unpaid when it is due today and no matching transaction exists. Final response: a heading "Payments, <date>" and one bullet per unpaid item (title, amount, due date, Firefly id when present). If Firefly cannot be queried, list today's due items and say that payment status could not be checked and why. If nothing is due or everything is paid, the final response is exactly "[SILENT]" and nothing else, so no message is sent.
+Final response: a heading "Unpaid subscriptions, <date>" and one bullet per unpaid bill (name, amount, due date). If every bill is paid or none is due, the final response is exactly "[SILENT]" and nothing else, so no message is sent. If Firefly cannot be queried, one line naming the error.
 
 ${CRON_RULES}
 EOF

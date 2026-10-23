@@ -61,6 +61,10 @@ def _room() -> str:
 
 
 def _available() -> bool:
+    # Inside a Talk-room run the bridge posts the reply itself; offering talk_send
+    # there only duplicated the answer and kept the run going.
+    if _env("HERMES_SOURCE") == "nextcloud-talk":
+        return False
     return bool(
         _env("NEXTCLOUD_TALK_DELIVER_URL")
         and _env("NEXTCLOUD_TALK_DELIVER_SECRET")
