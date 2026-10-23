@@ -133,6 +133,9 @@ wger/static/
 !hermes/plugins/talk_send/
 !hermes/plugins/talk_send/plugin.yaml
 !hermes/plugins/talk_send/__init__.py
+!hermes/plugins/clock/
+!hermes/plugins/clock/plugin.yaml
+!hermes/plugins/clock/__init__.py
 !hermes-nextcloud-bridge/patches/
 !hermes-nextcloud-bridge/patches/room_profiles.py
 !image-generation/.dockerignore

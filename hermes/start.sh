@@ -234,7 +234,7 @@ if not cache_ok():
     except Exception as exc:
         print(f"WARNING: nextcloud_talk plugin download failed: {exc}", file=sys.stderr)
 
-sources = {"talk_send": share / "talk_send"}
+sources = {"talk_send": share / "talk_send", "clock": share / "clock"}
 if cache_ok():
     sources["nextcloud_talk"] = cache
 
@@ -302,10 +302,24 @@ servers = {
     # Official Hugging Face MCP; read-only Hub search works without a token.
     "huggingface": {"url": "https://huggingface.co/mcp"},
 }
+# The Nextcloud MCP exposes 124 tools (~75k tokens of schema). Loading them all
+# made every request slow and let the model pick look-alike tools, so each
+# profile only registers what its job needs (fnmatch globs).
+tool_filters = {
+    ("default", "nextcloud"): {"include": [
+        "nc_calendar_list_*", "nc_calendar_get_*", "nc_calendar_create_event", "nc_calendar_update_event",
+        "nc_calendar_delete_event", "nc_calendar_create_todo", "nc_calendar_update_todo",
+        "nc_calendar_complete_todo", "nc_calendar_delete_todo", "nc_calendar_search_todos", "nc_notes_*",
+    ]},
+    ("finance", "nextcloud"): {"include": ["nc_calendar_list_*", "nc_calendar_get_*", "nc_calendar_search_todos"]},
+    ("nextcloud", "nextcloud"): {"exclude": ["nc_mail_*", "nc_shopping_*", "nc_news_*", "collectives_*"]},
+}
 mcp = {}
 for name in split(mcp_csv):
     entry = dict(servers[name])
     entry.update({"connect_timeout": 60, "timeout": 3600, "enabled": True})
+    if (profile, name) in tool_filters:
+        entry["tools"] = tool_filters[(profile, name)]
     mcp[name] = entry
 data["mcp_servers"] = mcp
 
@@ -315,11 +329,14 @@ model.update({
     "base_url": env["HERMES_SELECTED_BASE_URL"],
     "api_mode": "chat_completions",
     "default": env["HERMES_SELECTED_MODEL"],
-    # One llama.cpp slot of the model (Mellum: 131072 per slot, 4 slots), so
+    # One llama.cpp slot of the model (Mellum: 98304 per slot, 4 slots), so
     # Hermes compresses before a request outgrows its slot.
-    "context_length": int(env.get("HERMES_CONTEXT_LENGTH") or 131072),
+    "context_length": int(env.get("HERMES_CONTEXT_LENGTH") or 98304),
 })
 data["timezone"] = env["HERMES_TIMEZONE"]
+# tirith only scans terminal commands, and the terminal toolset is disabled;
+# without the binary it only prints a warning into every CLI run.
+section("security")["tirith_enabled"] = False
 
 timeouts = section("timeouts")
 tools_t = timeouts.get("tools") if isinstance(timeouts.get("tools"), dict) else {}
@@ -362,7 +379,7 @@ for key in ("search_backend", "extract_backend"):
 
 plugins = section("plugins")
 # User plugins are keyed by their manifest name.
-wanted_plugins = ("talk_send", "nextcloud_talk-platform")
+wanted_plugins = ("talk_send", "clock", "nextcloud_talk-platform")
 enabled = [n for n in (plugins.get("enabled") or []) if n not in ("web/forage", "nextcloud_talk")]
 for name in wanted_plugins:
     if name not in enabled:
@@ -417,19 +434,20 @@ PY
 export SPECIALISTS
 
 configure_profile default nextcloud,wger,web_search,n8n,drawio \
-  kanban,nextcloud,wger,web_search,talk,clarify nextcloud,wger,web_search,talk
+  kanban,nextcloud,wger,web_search,talk,clock,clarify nextcloud,wger,web_search,talk,clock
 configure_profile nextcloud nextcloud,web_search \
-  kanban,nextcloud,web_search,talk,clarify nextcloud,web_search,talk
+  kanban,nextcloud,web_search,talk,clock,clarify nextcloud,web_search,talk,clock
 configure_profile finance nextcloud,n8n \
-  kanban,nextcloud,n8n,talk,clarify nextcloud,n8n,talk
+  kanban,nextcloud,n8n,talk,clock,clarify nextcloud,n8n,talk,clock
 for profile in ai-news llamacpp-vulkan gpu-watch selfhosted; do
   configure_profile "${profile}" web_search \
-    kanban,web_search,talk,clarify web_search,talk
+    kanban,web_search,talk,clock,clarify web_search,talk,clock
 done
 configure_profile hf-models huggingface,web_search \
-  kanban,huggingface,web_search,talk,clarify huggingface,web_search,talk
-configure_profile calories wger,nextcloud,web_search \
-  kanban,wger,nextcloud,web_search,talk,clarify wger,nextcloud,talk
+  kanban,huggingface,web_search,talk,clock,clarify huggingface,web_search,talk,clock
+# calories only messages the user (its room, talk_send); it never creates to-dos.
+configure_profile calories wger,web_search \
+  kanban,wger,web_search,talk,clock,clarify wger,talk,clock
 
 # Under multiplexing, /p/<profile>/v1 authenticates against that profile's own
 # secret scope (<profile home>/.env) and fails closed without a key. Give every
@@ -504,9 +522,9 @@ talk_send posts to the Talk home room as the Hermes bot and notifies the user. m
 
 Kanban workers: call kanban_complete only with the created object's id in the summary (event UID, todo UID, wger log item id) or, for research, the URLs you read. Otherwise call kanban_block with the tool error.
 
-Today's date: your system prompt contains a line "Conversation started: <weekday>, <month> <day>, <year> (Europe/Athens, ...)". That is today. Use exactly that date for "today", "now", and "just now", and count "tomorrow", "Tuesday", "next week" from it. Never use any other date as today, and repeat the full date (YYYY-MM-DD) in every confirmation.
+Dates and times: the user lives in Europe/Athens. You have no clock of your own, so call clock_now before resolving "now", "in an hour", "tonight", "tomorrow" or a weekday, and repeat the full date (YYYY-MM-DD) and Athens time in every confirmation.
 
-Time zone: Europe/Athens. Resolve relative dates ("tomorrow", "Tuesday") against the current Athens date. Write datetimes as ISO 8601 with the Athens UTC offset in force on that date (+03:00 in summer time, +02:00 in winter time), or pass timezone "Europe/Athens" where the tool accepts it.
+Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Calendar apps show the UTC value in Athens time.
 EOF
 )
 export SOUL_CORE
@@ -514,9 +532,16 @@ export SOUL_CORE
 CALENDAR_MAP=$(cat <<'EOF'
 Nextcloud calendars. Tools take the CalDAV URI (`calendar_name`), never the display name. No URI contains a space.
 
-- VEVENT only: `personal` (display Personal). Timed events and event alarms go here with mcp__nextcloud__nc_calendar_create_event.
+- VEVENT only: `personal` (display Personal). Appointments, meetings and visits go here with mcp__nextcloud__nc_calendar_create_event. Reminders are never events: they are to-dos with a due time.
 - VEVENT only, generated: `contact_birthdays`. Never write to it.
-- VTODO only: `tasks` (display Home, the default for to-dos and reminders), `homelab` (Homelab), `personal-1` (also displayed as Personal), `1` (Δουλειά), `b6a389ce-2287-4789-b2c9-133f95ed7b4f` (Γάμος), `8d0ef9c7-fe8e-4560-a03a-ea19eb1f397a` (Π Ηλίας), `a4ce1ab1-3fdc-4e90-b5fc-6f6f203915ea` (Αγ. Παρασκευή). Use mcp__nextcloud__nc_calendar_create_todo on these.
+- VTODO only (task lists). Choose the list by what the task is about, then use mcp__nextcloud__nc_calendar_create_todo with its URI:
+  - `tasks` (Home): household, family, errands, shopping, the house and its renovation, calls to family. Use it when no other list fits.
+  - `homelab` (Homelab): the server, self-hosted services, Docker, AI models, GPUs, networking, software to try.
+  - `personal-1` (Personal): the user's own admin: payments and bills, taxes (ΦΠΑ, ΕΦΚΑ), bank and cards, IDs and documents, books and studying.
+  - `b6a389ce-2287-4789-b2c9-133f95ed7b4f` (Γάμος): the wedding: church, license, music and chants for the ceremony, guests.
+  - `8d0ef9c7-fe8e-4560-a03a-ea19eb1f397a` (Π Ηλίας) and `a4ce1ab1-3fdc-4e90-b5fc-6f6f203915ea` (Αγ. Παρασκευή): church chanting and sermon notes for those two parishes; use the one the user names.
+  - `1` (Δουλειά): the user's job and work questions.
+  The user may name a list by its display name in Greek or English ("βάλε το στη Δουλειά", "homelab list"); map it to the URI. If two lists fit equally, ask which one. Say which list you used in the confirmation.
 - Forbidden from create_event on a VTODO-only calendar means the calendar does not accept events. It is not an authentication error; do not retry it. Use `personal` for the event or create a todo instead.
 - inbox, outbox, trashbin, tasks-1, and - are not usable calendars.
 EOF
@@ -531,7 +556,7 @@ Treat every message as something to act on, not as small talk. "I ate a sandwich
 
 1. Food or drink consumed: log it in the wger nutrition diary.
 2. Appointment or event with a time: create a Nextcloud calendar event on \`personal\`.
-3. To-do, errand, or reminder: create a Nextcloud VTODO, on \`tasks\` unless the user names another task list.
+3. To-do, errand, or reminder: create a Nextcloud VTODO on the task list that matches its topic (see the calendar map); \`tasks\` (Home) only when nothing else fits.
 4. Workout done: wger has no workout log. Look the exercises up with mcp__wger__search_exercises, then create a completed VTODO on \`tasks\` (status COMPLETED) titled "Workout: <summary>" with the exercises, sets, and duration in the description.
 5. Question that needs current facts: mcp__web_search__web_search, then mcp__web_search__fetch_url on the best results.
 6. Long specialist work (news digests, Hugging Face models, llama.cpp Vulkan changes, GPU prices, Payments versus Firefly): hand off through Kanban.
@@ -552,13 +577,13 @@ Food:
 3. mcp__wger__search_ingredients with the whole dish name in English first ("ham and cheese sandwich", then "sandwich ham cheese"). If a result is that dish, log it once with the full grams.
 4. If no result is the dish, split it into its main components with typical weights that add up to the portion (for a 150 g ham and cheese sandwich: 70 g bread, 40 g ham, 40 g cheese), search each one, and log each one. Never log only one component of a dish. Never invent an ingredient_id.
 5. Convert portions to grams. mcp__wger__list_ingredient_units gives the portions wger knows; otherwise use a typical weight and say which.
-6. mcp__wger__log_ingredient for each item with plan_id, ingredient_id, amount_g, meal_id, and when = today's date (or the date the user gave) and time as ISO 8601 with the Athens offset.
+6. mcp__wger__log_ingredient exactly once per item with plan_id, ingredient_id, amount_g, meal_id, and when = the "utc" value from clock_to_utc for the time the user gave (or clock_now for "just now"). If a call fails or times out, check mcp__wger__list_log_items before retrying; never log an item that is already there.
 7. mcp__wger__list_log_items with that date and plan_id, and check every new row has the right date, grams, and meal.
 8. Reply with each food, grams, meal, date (YYYY-MM-DD) and time, and the log item ids.
 
-Event: mcp__nextcloud__nc_calendar_create_event with calendar_name "personal", title, start_datetime, end_datetime, and timezone "Europe/Athens". Reply with the title, date, time, and UID.
+Event: mcp__nextcloud__nc_calendar_create_event with calendar_name "personal", title, and start_datetime and end_datetime from clock_to_utc. Reply with the title, Athens date and time, and UID.
 
-To-do: mcp__nextcloud__nc_calendar_create_todo with calendar_name "tasks", summary, due (ISO datetime) when there is one, and description. Reply with the summary, due, and UID.
+To-do or reminder: mcp__nextcloud__nc_calendar_create_todo on the task list that matches its topic, with summary, due from clock_to_utc when there is a date or time, and description. Reply with the summary, list, Athens due date and time, and UID.
 
 ${CALENDAR_MAP}
 
@@ -578,8 +603,11 @@ You are the Nextcloud profile of Hermes. You manage this homelab's private Nextc
 
 Requests arrive as Kanban cards from the default profile, or from chat. Create both events and to-dos:
 
-- A request with a start time (appointment, meeting, visit) is a VEVENT: mcp__nextcloud__nc_calendar_create_event on \`personal\` unless another VEVENT calendar is named.
-- A request without a start time, or phrased as "remind me", "to do", "buy", is a VTODO: mcp__nextcloud__nc_calendar_create_todo on \`tasks\` unless another VTODO calendar is named. Put the due datetime in due.
+- "Remind me", "reminder", "don't forget", "to do", "buy", "call", "pay" is a VTODO, even when it has a time: mcp__nextcloud__nc_calendar_create_todo on the task list that matches its topic (see the calendar map), \`tasks\` only when nothing else fits, with the time as due.
+- An appointment, meeting, visit or anything that happens at a place or with other people at a set time is a VEVENT: mcp__nextcloud__nc_calendar_create_event on \`personal\` unless another VEVENT calendar is named.
+- Every due, start and end time comes from clock_to_utc (UTC, ending in Z); call clock_now first for relative times.
+- Weekdays: "Friday" is the next Friday from clock_now (today if it is Friday and the time is still ahead); "Friday next week" is the Friday of the following Monday-to-Sunday week. Check that the weekday returned by clock_to_utc is the one the user said before you write anything.
+- Example: "Remind me tomorrow at 10:00 to update the server" -> clock_now, clock_to_utc(local_datetime "<tomorrow>T10:00"), then mcp__nextcloud__nc_calendar_create_todo on \`homelab\` with summary "Update the server" and due = the returned utc. Not an event.
 - If a card lacks a date or time the item needs, kanban_block with the exact question; do not guess.
 
 ${CALENDAR_MAP}
@@ -610,14 +638,14 @@ research_soul gpu-watch "GPU watch" "You compare in-stock EUR prices in Greek sh
 research_soul selfhosted "self-hosted news" "You report top posts from r/selfhosted and r/homelab: subreddit, title, and link."
 
 write_soul calories <<'EOF'
-You are the calories profile of Hermes. You log food through the wger MCP, read the day's totals, and create Nextcloud to-dos for reports.
+You are the calories profile of Hermes. You log food through the wger MCP and report the day's totals as a message in your Talk room. You never create to-dos or calendar entries; you have no Nextcloud tools.
 
 Logging food:
 1. mcp__wger__list_nutrition_plans and use the most recent plan's id as plan_id.
 2. mcp__wger__get_nutrition_plan for the meals; take the meal_id named like the user's meal, or mcp__wger__create_meal when it is missing.
 3. mcp__wger__search_ingredients with the whole dish name in English and pick an id from that result. If no result is the dish, split it into its main components with typical weights that add up to the portion and log each one; never log only one component. Never invent an ingredient_id; ingredient_id 1 is not rice.
 4. Convert the portion to grams (mcp__wger__list_ingredient_units lists known portions).
-5. mcp__wger__log_ingredient with plan_id, ingredient_id, amount_g, meal_id, and when = today's date from the "Conversation started:" line of your system prompt (or the date the user gave) as ISO 8601 with the Athens offset.
+5. mcp__wger__log_ingredient exactly once per item with plan_id, ingredient_id, amount_g, meal_id, and when = the "utc" value from clock_to_utc for the time the user gave (or clock_now for "just now"). Check mcp__wger__list_log_items before any retry; never log an item twice.
 6. Re-read with mcp__wger__list_log_items or mcp__wger__nutrition_summary and confirm the new row, then report the log item id.
 
 If wger has no matching ingredient, use mcp__web_search__web_search only to identify the food, then search wger again with a better English name. A search snippet is never a diary row. If logging is impossible, say so (kanban_block on a card) with the error.
@@ -852,12 +880,9 @@ ensure_cron_job calories calories-report "0 22 * * *" "$(cat <<EOF
 Evening nutrition report for the current Europe/Athens date.
 
 1. mcp__wger__nutrition_summary for today (pass today's date when the tool accepts one): kcal, protein, carbohydrates, fat, and fiber.
-2. mcp__nextcloud__nc_calendar_create_todo with calendar_name "tasks", summary "Calories <YYYY-MM-DD>", description holding the totals, and due today at 22:00 Athens time. If nutrition_summary failed, still create the to-do, with the error in the description; never invent numbers.
-3. mcp__nextcloud__nc_calendar_list_todos with calendar_name "tasks" and summary_contains "Calories <YYYY-MM-DD>" to confirm it exists.
+If nutrition_summary shows nothing logged today (0 kcal and no items), the final response is exactly "[SILENT]" and nothing else, so no message is sent.
 
-If nutrition_summary succeeded and shows nothing logged today (0 kcal and no items), skip steps 2 and 3 and the final response is exactly "[SILENT]" and nothing else, so no message is sent.
-
-Final response: a heading "Nutrition, <date>", the totals (or the error), and the to-do UID. Do not log food in this job.
+Final response: a heading "Nutrition, <date>" and the totals, or the error if nutrition_summary failed; never invent numbers. It is posted to the calories Talk room automatically. Do not create to-dos and do not log food in this job.
 
 ${CRON_RULES}
 EOF

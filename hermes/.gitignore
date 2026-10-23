@@ -10,3 +10,6 @@
 !plugins/talk_send/
 !plugins/talk_send/plugin.yaml
 !plugins/talk_send/__init__.py
+!plugins/clock/
+!plugins/clock/plugin.yaml
+!plugins/clock/__init__.py

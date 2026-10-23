@@ -69,7 +69,7 @@ All profiles use `HERMES_MODEL`. Each platform toolset list names only `kanban`,
 | llamacpp-vulkan | web_search | kanban, web_search, talk, clarify | web_search, talk | llama.cpp Vulkan changes; `llamacpp-vulkan` |
 | gpu-watch | web_search | kanban, web_search, talk, clarify | web_search, talk | Greek GPU prices; `gpu-watch` |
 | selfhosted | web_search | kanban, web_search, talk, clarify | web_search, talk | r/selfhosted and r/homelab; `selfhosted` |
-| calories | wger, nextcloud, web_search | kanban, wger, nextcloud, web_search, talk, clarify | wger, nextcloud, talk | Food log; `calories-report` |
+| calories | wger, web_search | kanban, wger, web_search, talk, clock, clarify | wger, talk, clock | Food log and day totals as Talk messages; never creates to-dos; `calories-report` |
 
 The default profile also has the n8n and draw.io MCP servers registered, but they are not in its toolset lists.
 
@@ -107,7 +107,7 @@ The public equivalents are `https://hermes.<DOMAIN>/v1` and `https://hermes.<DOM
 | selfhosted | selfhosted | 03:00 | `0 3 * * *` | fetch_url, web_search | Top r/selfhosted and r/homelab posts |
 | payments-unpaid | finance | 03:30 | `30 3 * * *` | Nextcloud, n8n | Payments events due today without a Firefly match |
 | morning-digest | nextcloud | 07:00 | `0 7 * * *` | Nextcloud | Today's events, open to-dos, pointer to the night digests |
-| calories-report | calories | 22:00 | `0 22 * * *` | wger, Nextcloud | Day totals, plus a `Calories <date>` to-do due 22:00 on `tasks` |
+| calories-report | calories | 22:00 | `0 22 * * *` | wger | Day totals posted to the calories Talk room (silent when nothing was logged); no to-dos |
 
 The night jobs no longer store digests in a cron notepad for a morning publisher; each posts its own short digest to Talk. Without continuity, a job only removes duplicates within the run and limits itself to the last 24 hours.
 

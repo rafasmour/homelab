@@ -1,0 +1,7 @@
+name: clock
+version: 1.0.0
+description: "Current time and exact Europe/Athens to UTC conversion, so dates and reminders land at the right local time."
+author: homelab
+provides_tools:
+  - clock_now
+  - clock_to_utc
