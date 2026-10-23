@@ -21,6 +21,7 @@ services:
       WEB_SEARCH_FETCH_WORKERS: "${WEB_SEARCH_FETCH_WORKERS:-4}"
       WEB_FETCH_MAX_CHARS: "${WEB_FETCH_MAX_CHARS:-20000}"
       FETCH_ALLOW_PRIVATE: "${FETCH_ALLOW_PRIVATE:-false}"
+      FETCH_HOST_USER_AGENTS: "${FETCH_HOST_USER_AGENTS:-}"
       TZ: "${TZ:-Etc/UTC}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]

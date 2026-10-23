@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
 import subprocess
+from urllib.parse import urlsplit
 import uuid
 
 from app.fetch_headers import FetchConfig, FetchHeaders
@@ -79,7 +80,7 @@ class CurlFetchWebsite(FetchWebsite):
             "--max-filesize",
             str(config.max_filesize),
             "-A",
-            config.user_agent,
+            config.user_agent_for(urlsplit(url).hostname or ""),
             "-H",
             f"Accept: {config.accept}",
             "-H",

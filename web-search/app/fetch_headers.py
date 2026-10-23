@@ -12,6 +12,28 @@ class FetchConfig:
     max_redirs: int
     retry: int
     max_filesize: int
+    host_user_agents: tuple[tuple[str, str], ...] = ()
+
+    def user_agent_for(self, host: str) -> str:
+        host = host.lower().rstrip(".")
+        for suffix, agent in self.host_user_agents:
+            if host == suffix or host.endswith("." + suffix):
+                return agent
+        return self.user_agent
+
+
+# Reddit answers 403 to browser-like agents from this host but serves feeds to a
+# descriptive client agent, as its API rules ask for.
+_DEFAULT_HOST_USER_AGENTS = "reddit.com=homelab-web-search/1.0 (personal feed reader)"
+
+
+def _parse_host_user_agents(raw: str) -> tuple[tuple[str, str], ...]:
+    pairs = []
+    for entry in raw.split("|"):
+        host, sep, agent = entry.partition("=")
+        if sep and host.strip() and agent.strip():
+            pairs.append((host.strip().lower(), agent.strip()))
+    return tuple(pairs)
 
 
 class FetchHeaders(ABC):
@@ -35,4 +57,7 @@ class CurlRecommendedHeaders(FetchHeaders):
             max_redirs=int(os.environ.get("FETCH_MAX_REDIRS") or "5"),
             retry=int(os.environ.get("FETCH_RETRY") or "2"),
             max_filesize=int(os.environ.get("FETCH_MAX_FILESIZE") or "2000000"),
+            host_user_agents=_parse_host_user_agents(
+                os.environ.get("FETCH_HOST_USER_AGENTS") or _DEFAULT_HOST_USER_AGENTS
+            ),
         )

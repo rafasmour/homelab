@@ -4,11 +4,13 @@ import os
 import threading
 
 from app.extract_main import ExtractMainContent
+from app.feed_to_markdown import NotAFeed, feed_to_markdown
 from app.fetch_website import FetchWebsite
 from app.html_to_markdown import HTMLToMarkdown
 from app.search_engine import SearchEngine, SearchHit
 
 _HTML_TYPES = {"text/html", "application/xhtml+xml"}
+_FEED_TYPES = {"application/rss+xml", "application/atom+xml", "application/xml", "text/xml"}
 _TEXT_TYPES = {"text/plain", "text/markdown", "text/x-markdown", "application/json"}
 _MAX_BATCH = 20
 _PARSE_LOCK = threading.Lock()
@@ -48,12 +50,18 @@ class PageReader:
             with _PARSE_LOCK:
                 title = self._extractor.title(text)
                 body = self._markdown.format(self._extractor.extract(text))
+        elif media in _FEED_TYPES or media.endswith("+xml"):
+            try:
+                with _PARSE_LOCK:
+                    title, body = feed_to_markdown(result.body)
+            except NotAFeed:
+                title, body = "", text.strip()
         elif not media or media in _TEXT_TYPES or media.endswith("+json"):
             title = ""
             body = text.strip()
         else:
             raise UnsupportedContent(
-                f"unsupported content type {media!r}; only HTML, plain text, markdown and JSON can be read"
+                f"unsupported content type {media!r}; only HTML, plain text, markdown, JSON and RSS/Atom feeds can be read"
             )
         if not body:
             raise ValueError("empty page")
