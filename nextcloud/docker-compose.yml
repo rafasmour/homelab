@@ -71,6 +71,8 @@ services:
       - ./html:/var/www/html
     networks:
       - backend
+      # hermes-nextcloud-bridge: Talk bot webhooks and bot replies.
+      - hermes-mcp
       - webgateway
     labels:
       kuma.nextcloud.docker.name: "nextcloud"

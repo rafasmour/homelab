@@ -1,0 +1,101 @@
+services:
+  bridge:
+    # Upstream: https://github.com/robertlmann02/nextcloud-talk-hermes-bridge
+    # The upstream Dockerfile pip-installs an unpinned hermes-agent from PyPI,
+    # which lags the hermes-api image. This build reuses the exact Hermes Agent
+    # image that hermes-api runs and adds the bridge package (stdlib only) from
+    # the pinned commit.
+    build:
+      context: "https://github.com/robertlmann02/nextcloud-talk-hermes-bridge.git#${TALK_BRIDGE_REF:-b26267ff8ffb02b4e282b032815584163cff5021}"
+      args:
+        HERMES_AGENT_VERSION: "${HERMES_AGENT_VERSION:-latest}"
+        HERMES_UID: "${HERMES_UID:-1000}"
+        HERMES_GID: "${HERMES_GID:-1000}"
+      dockerfile_inline: |
+        ARG HERMES_AGENT_VERSION
+        FROM nousresearch/hermes-agent:$${HERMES_AGENT_VERSION}
+        ARG HERMES_UID
+        ARG HERMES_GID
+        COPY nextcloud_talk_hermes_bridge /opt/talk-bridge/nextcloud_talk_hermes_bridge
+        COPY LICENSE /opt/talk-bridge/LICENSE
+        RUN mkdir -p /home/hermes /data && chown -R $${HERMES_UID}:$${HERMES_GID} /home/hermes /data
+        ENV PYTHONPATH=/opt/talk-bridge
+        ENTRYPOINT ["/opt/hermes/.venv/bin/python", "-m", "nextcloud_talk_hermes_bridge.bridge"]
+    image: hermes-nextcloud-bridge:local
+    container_name: hermes-nextcloud-bridge
+    restart: unless-stopped
+    # Same UID/GID as the files on the shared Hermes data volume.
+    user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
+    environment:
+      HOME: /home/hermes
+      # Shared Hermes state: same profiles, SOULs, MCP servers, and model as hermes-api.
+      HERMES_HOME: /home/hermes/.hermes
+      HERMES_HOME_DIR: /home/hermes
+      HERMES_BIN: /opt/hermes/bin/hermes
+      HERMES_PROFILE: "${HERMES_PROFILE:-default}"
+      HERMES_TOOLSETS: "${HERMES_TOOLSETS:-kanban,nextcloud,wger,web_search,talk}"
+      HERMES_SKILLS: ""
+      HERMES_YOLO: "0"
+      HERMES_ACCEPT_HOOKS: "0"
+      HERMES_MAX_TURNS: "${HERMES_MAX_TURNS:-40}"
+      HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
+      HERMES_SOURCE: nextcloud-talk
+      NEXTCLOUD_URL: "${NEXTCLOUD_URL:-http://nextcloud}"
+      TALK_BRIDGE_BIND: 0.0.0.0
+      TALK_BRIDGE_PORT: "8788"
+      TALK_BOT_SECRET: "${TALK_BOT_SECRET:?Set TALK_BOT_SECRET in .env}"
+      TALK_DELIVER_SECRET: "${TALK_DELIVER_SECRET:?Set TALK_DELIVER_SECRET in .env}"
+      TALK_BOT_NAME: "${TALK_BOT_NAME:-Hermes}"
+      ASSISTANT_NAME: "${ASSISTANT_NAME:-Hermes}"
+      ASSISTANT_ROLE: "${ASSISTANT_ROLE:-You are Hermes, the user's private homelab assistant inside Nextcloud Talk. Follow your SOUL instructions. Be concise.}"
+      TALK_BRIDGE_SOFT_TIMEOUT: "${TALK_BRIDGE_SOFT_TIMEOUT:-180}"
+      TALK_BRIDGE_HARD_TIMEOUT: "${TALK_BRIDGE_HARD_TIMEOUT:-3600}"
+      TALK_BRIDGE_BACKGROUND_HEARTBEAT: "${TALK_BRIDGE_BACKGROUND_HEARTBEAT:-180}"
+      TALK_RECEIVED_REACTION: "${TALK_RECEIVED_REACTION:-}"
+      TALK_BRIDGE_SKILL_STATUS: "0"
+      TALK_APPROVAL_PROMPTS: "0"
+      TALK_LOCAL_MEMORY_CONTEXT: "0"
+      NEXTCLOUD_AI_CONTEXT: "0"
+      TALK_BRIDGE_LOG: /data/bridge.log
+      TALK_BRIDGE_STATE_DIR: /data/state
+      TALK_CONTEXT_DIR: /data/context
+      TALK_MEDIA_CACHE_DIR: /data/media-cache
+      # The talk_send tool inside bridge-run Hermes sessions posts back here.
+      NEXTCLOUD_TALK_DELIVER_URL: http://127.0.0.1:8788/deliver
+      NEXTCLOUD_TALK_DELIVER_SECRET: "${TALK_DELIVER_SECRET}"
+      NEXTCLOUD_TALK_HOME_ROOM: "${NEXTCLOUD_TALK_HOME_ROOM:?Set NEXTCLOUD_TALK_HOME_ROOM in .env}"
+    volumes:
+      - hermes-data:/home/hermes/.hermes
+      - ./data:/data
+    healthcheck:
+      test:
+        - CMD
+        - /opt/hermes/.venv/bin/python
+        - -c
+        - 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8788/heartbeat", timeout=5).read()'
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      traefik.enable: "false"
+    networks:
+      # Nextcloud (webhooks in, bot replies out), hermes-api (/deliver), and
+      # the MCP servers.
+      - hermes-mcp
+      # Egress only: the llama.cpp router (llama-cpp:8080) is reachable only
+      # on webgateway. No Traefik route.
+      - webgateway
+
+volumes:
+  hermes-data:
+    external: true
+    name: hermes_hermes-data
+
+networks:
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
+  webgateway:
+    external: true
+    name: webgateway

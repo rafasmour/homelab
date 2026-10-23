@@ -17,6 +17,7 @@
 !gitlab/
 !grafana/
 !hermes/
+!hermes-nextcloud-bridge/
 !deepseek-agent-harness/
 !home-assistant/
 !homepage/
@@ -66,6 +67,7 @@ gitlab/config/
 gitlab/data/
 gitlab/logs/
 grafana/data/
+hermes-nextcloud-bridge/data/
 homepage/config/
 home-assistant/config/
 home-assistant/piper/

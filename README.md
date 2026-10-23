@@ -16,7 +16,8 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [GitLab CE](gitlab/README.md) | Git hosting and CI/CD | `gitlab.${DOMAIN}` | Development |
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
 | [DeepSeek Agent Harness](deepseek-agent-harness/README.md) | DeepSeek agent harness Web UI with plugins | `deepseek-harness.${DOMAIN}` | AI |
-| [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent | `hermes.${DOMAIN}` | AI |
+| [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles | `hermes.${DOMAIN}` | AI |
+| [Hermes Nextcloud Talk bridge](hermes-nextcloud-bridge/README.md) | Nextcloud Talk bot and delivery endpoint for Hermes | Private only | Not listed |
 | [Home Assistant](home-assistant/README.md) | Assist pipeline with Whisper and Piper | `home-assistant.${DOMAIN}` | Home |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
 | [Image Generation](image-generation/README.md) | Vulkan Stable Diffusion WebUI and API | `stable-diffusion.${DOMAIN}` | Not configured |
