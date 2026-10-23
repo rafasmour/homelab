@@ -1,0 +1,24 @@
+services:
+  docker-state-exporter:
+    build:
+      context: .
+    image: docker-state-exporter:${DOCKER_STATE_EXPORTER_TAG:-local}
+    container_name: docker-state-exporter
+    restart: unless-stopped
+    # Read access to the Docker API through the socket group; the exporter
+    # only issues GET requests, but socket access is root-equivalent, so the
+    # container has no published port and no Traefik route.
+    group_add:
+      - "${DOCKER_SOCKET_GID:?Set DOCKER_SOCKET_GID in .env}"
+    environment:
+      CACHE_SECONDS: "${CACHE_SECONDS:-10}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    networks:
+      - webgateway
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway

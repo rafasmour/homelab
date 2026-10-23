@@ -2,7 +2,8 @@
 # talk-contact-point.yml. Thresholds follow the Ryzen 1800X Tdie limit
 # (Tjmax 95 °C; Tctl reads 20 °C high, so temp2/Tdie is used), the hardware's
 # own node_hwmon_temp_crit_celsius for GPU and NVMe, and common node_exporter
-# alert practice (disk < 10/5 %, memory < 10/5 %, swap > 80 %, OOM kills).
+# alert practice (disk < 10/5 %, memory < 10/5 %, swap > 80 %, OOM kills), plus container
+# state from docker-state-exporter (stopped, failed, restart loops, unhealthy).
 apiVersion: 1
 groups:
 - orgId: 1
@@ -677,6 +678,216 @@ groups:
       severity: warning
     annotations:
       summary: 15-minute load is {{ humanize $values.A.Value }}× the CPU thread count.
+- orgId: 1
+  name: Containers
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  - uid: container-down
+    title: Container stopped
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: (1 - docker_container_running) * on(name) group_left(policy) docker_container_restart_policy{policy=~"always|unless-stopped"}
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.name }} is not running although its restart policy is {{ $labels.policy }}. Check: docker logs {{ $labels.name }}'
+  - uid: container-failed
+    title: One-shot container failed
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: docker_container_exit_code != 0 and on(name) docker_container_running == 0 and on(name) docker_container_restart_policy{policy=~"no|on-failure"} == 1
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.name }} exited with code {{ humanize $values.A.Value }}.'
+  - uid: container-restarting
+    title: Container restart loop
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: increase(docker_container_restart_count[15m])
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 2
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.name }} restarted {{ humanize $values.A.Value }} times in 15 minutes. Check: docker logs {{ $labels.name }}'
+  - uid: container-unhealthy
+    title: Container unhealthy
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: docker_container_health_status{health="unhealthy"} and on(name) docker_container_running == 1
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 3m
+    labels:
+      severity: critical
+    annotations:
+      summary: '{{ $labels.name }} is running but its health check fails.'
+  - uid: container-oom
+    title: Container killed for memory
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: docker_container_oom_killed
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: warning
+    annotations:
+      summary: '{{ $labels.name }} was last stopped by the OOM killer; raise its memory limit or find the leak.'
 - orgId: 1
   name: Host and services
   folder: Homelab alerts

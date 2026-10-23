@@ -11,6 +11,7 @@
 # Supported service folders. Add a matching `!service-name/` entry when a new
 # stack is created. Files inside remain ignored unless allowlisted separately.
 !chartdb/
+!docker-state-exporter/
 !drawio/
 !excalidraw/
 !firefly-iii/
@@ -153,6 +154,9 @@ wger/static/
 !llama-cpp-classifier/models/downloads.md
 !openwebui/.gitignore
 !web-search/Dockerfile
+!docker-state-exporter/Dockerfile
+!docker-state-exporter/app/
+!docker-state-exporter/app/exporter.py
 !web-search/.dockerignore
 !web-search/requirements.txt
 !web-search/app/
