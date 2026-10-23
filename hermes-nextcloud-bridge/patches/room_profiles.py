@@ -3,8 +3,11 @@
 NEXTCLOUD_TALK_PROFILE_ROOMS="<profile>=<room-token>|..." (the same map hermes-api
 uses for cron delivery and talk_send) routes each room to its profile; unmapped
 rooms use HERMES_PROFILE. The toolsets for a mapped profile come from that
-profile's config.yaml (platform_toolsets.cli, without clarify, which a one-shot
-`hermes chat -q` cannot answer), so hermes/start.sh stays their only source.
+profile's config.yaml (platform_toolsets.cli without clarify, which a one-shot
+`hermes chat -q` cannot answer, and without talk: the bridge posts the reply
+itself, and talk_send in a room only duplicated it and kept the run going), so
+hermes/start.sh stays their only source. The patch also keeps two CLI
+diagnostics ("Unknown toolsets", tirith) out of the posted reply.
 
 Every replacement must match exactly once, so a bridge upgrade that moves this
 code fails the image build instead of shipping a bridge that ignores the map.
@@ -22,6 +25,7 @@ TALK_ROOM_PROFILES = {
     if sep and token.strip() and profile.strip()
 }
 _ROOM = threading.local()
+BRIDGE_EXCLUDED_TOOLSETS = {"clarify", "talk"}
 
 
 def room_profile(token: str) -> str:
@@ -34,22 +38,26 @@ def _profile() -> str:
 
 def _toolsets() -> str:
     profile = _profile()
-    if profile == HERMES_PROFILE:
-        return TOOLSETS
     try:
         import yaml
 
         home = Path(os.environ.get("HERMES_HOME") or Path(HERMES_HOME_DIR) / ".hermes")
-        config = yaml.safe_load((home / "profiles" / profile / "config.yaml").read_text()) or {}
+        path = home / "config.yaml" if profile == "default" else home / "profiles" / profile / "config.yaml"
+        config = yaml.safe_load(path.read_text()) or {}
         names = (config.get("platform_toolsets") or {}).get("cli") or []
-        names = [name for name in names if name != "clarify"]
-        return ",".join(names) or TOOLSETS
+        names = [name for name in names if name not in BRIDGE_EXCLUDED_TOOLSETS]
+        if names:
+            return ",".join(names)
     except Exception as exc:
         log(f"toolsets for profile {profile!r} unavailable, using HERMES_TOOLSETS: {exc!r}")
-        return TOOLSETS
+    return ",".join(n for n in TOOLSETS.split(",") if n.strip() not in BRIDGE_EXCLUDED_TOOLSETS)
 '''
 
 REPLACEMENTS = [
+    (
+        '        "Model:",\n    )\n',
+        '        "Model:",\n        "Warning: Unknown toolsets:",\n        "⚠ tirith",\n    )\n',
+    ),
     ('HERMES_PROFILE = os.environ.get("HERMES_PROFILE", "default")\n', ROUTING),
     ('f"• Hermes profile: {HERMES_PROFILE}\\n"', 'f"• Hermes profile: {_profile()}\\n"'),
     ('f"• Toolsets: {TOOLSETS}"', 'f"• Toolsets: {_toolsets()}"'),

@@ -42,7 +42,7 @@ services:
       # "<profile>=<room-token>|..." — each Talk room talks to its own profile, and
       # talk_send in bridge-run sessions posts to that profile's room.
       NEXTCLOUD_TALK_PROFILE_ROOMS: "${NEXTCLOUD_TALK_PROFILE_ROOMS:-}"
-      HERMES_TOOLSETS: "${HERMES_TOOLSETS:-kanban,nextcloud,wger,web_search,talk}"
+      HERMES_TOOLSETS: "${HERMES_TOOLSETS:-kanban,nextcloud,wger,web_search}"
       HERMES_SKILLS: ""
       HERMES_YOLO: "0"
       HERMES_ACCEPT_HOOKS: "0"
@@ -56,9 +56,9 @@ services:
       TALK_DELIVER_SECRET: "${TALK_DELIVER_SECRET:?Set TALK_DELIVER_SECRET in .env}"
       TALK_BOT_NAME: "${TALK_BOT_NAME:-Hermes}"
       ASSISTANT_NAME: "${ASSISTANT_NAME:-Hermes}"
-      ASSISTANT_ROLE: "${ASSISTANT_ROLE:-You are Hermes, the user's private homelab assistant inside Nextcloud Talk. Follow your SOUL instructions. Be concise.}"
+      ASSISTANT_ROLE: "${ASSISTANT_ROLE:-You are Hermes, the user's private homelab assistant inside Nextcloud Talk. Follow your SOUL instructions. Your final answer is posted to this room automatically. Be concise.}"
       TALK_BRIDGE_SOFT_TIMEOUT: "${TALK_BRIDGE_SOFT_TIMEOUT:-180}"
-      TALK_BRIDGE_HARD_TIMEOUT: "${TALK_BRIDGE_HARD_TIMEOUT:-3600}"
+      TALK_BRIDGE_HARD_TIMEOUT: "${TALK_BRIDGE_HARD_TIMEOUT:-1200}"
       TALK_BRIDGE_BACKGROUND_HEARTBEAT: "${TALK_BRIDGE_BACKGROUND_HEARTBEAT:-180}"
       TALK_RECEIVED_REACTION: "${TALK_RECEIVED_REACTION:-}"
       TALK_BRIDGE_SKILL_STATUS: "0"
