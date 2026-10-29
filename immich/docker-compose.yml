@@ -13,10 +13,6 @@ services:
       IMMICH_ALLOW_SETUP: "${IMMICH_ALLOW_SETUP:-true}"
     volumes:
       - ./library:/data
-      - /mnt/htd/fedora-backup/Pictures:/mnt/external/fedora-pictures:ro
-      - /mnt/htd/windows-users-backup/rafas:/mnt/external/windows-rafas:ro
-      - /mnt/htd/windows-users-backup/Public:/mnt/external/windows-public:ro
-      - /mnt/htd/windows-users-backup/Default:/mnt/external/windows-default:ro
       - /etc/localtime:/etc/localtime:ro
     depends_on:
       database:
