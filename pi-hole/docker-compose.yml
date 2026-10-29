@@ -1,7 +1,7 @@
 services:
   pihole:
     container_name: pihole
-    image: pihole/pihole:2025.11.1@sha256:91dc91ddd413bf461c283204558f8f21839851e9824799075a7ceff7c77eea40
+    image: pihole/pihole:2026.10.0@sha256:d34134716fc32038b052a8674c7c6879e0ff21f0e6d8af345166fffa2c27c113
     dns:
       - "${UPSTREAM_DNS_1:-1.1.1.1}"
       - "${UPSTREAM_DNS_2:-1.0.0.1}"
@@ -30,6 +30,12 @@ services:
       - "${PIHOLE_WIREGUARD_BIND_IP:?Set PIHOLE_WIREGUARD_BIND_IP in .env}:53:53/udp"
     cap_add:
       - SYS_NICE
+    # DNS for every WireGuard client depends on this container. When a large
+    # model load pushes the host into memory pressure, make the kernel OOM
+    # killer pick model servers first and keep a small reservation so FTL's
+    # cache is not reclaimed ahead of bulk workloads.
+    oom_score_adj: -500
+    mem_reservation: 64m
     restart: unless-stopped
     networks:
       - webgateway
