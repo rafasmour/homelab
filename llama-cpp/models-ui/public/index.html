@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Model downloads</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="appbar">
+    <div class="wrap appbar-in">
+      <span class="brand"><img class="brand-mark" src="/favicon.svg" alt=""> Model downloads</span>
+      <span class="grow"></span>
+      <span id="live" class="pill" title="Router event stream">events: connecting</span>
+      <form method="post" action="/logout"><button class="btn btn-ghost btn-sm" type="submit">Sign out</button></form>
+    </div>
+  </header>
+
+  <main class="wrap layout">
+    <section class="col">
+      <div class="card">
+        <form id="search-form" class="search" role="search">
+          <label class="sr-only" for="q">Search GGUF models on Hugging Face</label>
+          <input id="q" class="input" type="search" placeholder="Search GGUF repositories on Hugging Face, e.g. qwen3 or unsloth/gemma" autocomplete="off" maxlength="100">
+          <button class="btn btn-primary" type="submit">Search</button>
+        </form>
+        <p class="note">Pulled models run with the <code>[*]</code> default preset of <code>router-config.ini</code> until a measured preset is added for them. Multimodal projectors (mmproj) are downloaded automatically with a quant when the repository has one.</p>
+      </div>
+
+      <div id="results" class="card" hidden>
+        <h2>Results <span id="results-count" class="muted"></span></h2>
+        <ul id="results-list" class="results"></ul>
+      </div>
+
+      <div id="repo" class="card" hidden>
+        <div class="repo-head">
+          <div>
+            <h2 id="repo-title" class="mono"></h2>
+            <p id="repo-meta" class="muted small"></p>
+          </div>
+          <a id="repo-link" class="btn btn-sm" target="_blank" rel="noopener noreferrer">Open on Hugging Face</a>
+        </div>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Quant</th><th class="r">Size</th><th>Files</th><th class="r"></th></tr></thead>
+            <tbody id="quant-rows"></tbody>
+          </table>
+        </div>
+        <div id="repo-extra" class="small muted"></div>
+      </div>
+    </section>
+
+    <aside class="col">
+      <div class="card">
+        <div class="card-head">
+          <h2>Local models</h2>
+          <button id="refresh" class="btn btn-sm" type="button">Refresh</button>
+        </div>
+        <p id="models-error" class="error" hidden></p>
+        <ul id="models" class="models"></ul>
+      </div>
+      <div class="card">
+        <h2>Activity</h2>
+        <ul id="activity" class="activity"><li class="muted">No router events yet.</li></ul>
+      </div>
+    </aside>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

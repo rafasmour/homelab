@@ -11,14 +11,27 @@ version = 1
 ;   KV cache      = q8_0, or q4_0 where q8_0 does not fit
 ;   fit = off     the explicit n-gpu-layers / n-cpu-moe values below are the
 ;                 measured budget; --fit would grow into all free VRAM
-;   n-cpu-moe     MoE presets keep the experts of the first N layers in RAM;
-;                 CPU-resident experts stay at or below ~6 GB of the 15 GB RAM
+;   n-cpu-moe     every MoE preset keeps attention, KV cache and the experts
+;                 of the later layers on the GPU and the experts of the first
+;                 N layers in RAM. N is the smallest value that brings the
+;                 measured VRAM (N = 0, or the old N) under ~17.6 GiB of the
+;                 19.98 GiB card (mem_info_vram_total), i.e. >= 2.4 GiB free.
+;                 RAM side: 15 GiB total, swap (4 GiB) already full, ~7 GiB
+;                 used by the other stacks. CPU experts (page cache with mmap)
+;                 count too, so per preset the router's RSS is about
+;                 CPU experts + token_embd (always on the CPU) + cache-ram
+;                 (2 GiB) + ~1 GiB runtime/compute buffers, kept <= ~5.5 GiB;
+;                 CPU experts stay <= ~2 GiB. Per-layer expert sizes come
+;                 from the GGUF tensor table (gguf-py).
+;   thinking      on for every model that can think: reasoning = on, which
+;                 also sets the template's enable_thinking (the old
+;                 chat-template-kwargs switch is deprecated since b11957).
 ; Small dense models also use draftless n-gram speculation (spec-type =
 ; ngram-mod): when the context repeats (code edits, quotes) one weight read
 ; yields several tokens. Vision presets skip it.
 ;
 ; The router lists models alphabetically in /v1/models, not in file order, so
-; clients must name the model explicitly (Hermes: mellum-2.1-12b-a2.5b).
+; clients must name the model explicitly (Hermes: qwen-3.6-35b-a3b).
 
 [*]
 flash-attn = on
@@ -37,36 +50,16 @@ repeat-penalty = 1.0
 ; Host-RAM prompt cache (default 8192 MiB); kept small because CPU-resident
 ; experts and the other stacks already share the 15 GB of RAM.
 cache-ram = 2048
-; Read GGUFs with Direct I/O instead of mmap: the models are larger than the
-; 15 GB of RAM, so page-cached mmap loads thrash and crawl.
+; Direct I/O (dio) for every preset (no section overrides this), since
+; 2026-10-29. With mmap the weights must stay in the page cache while they are
+; uploaded; with 15 GB of RAM and swap in use the kernel evicted them mid-load
+; and the loader re-read them: gemma-4-31b-it-vision read 23 GB from disk for
+; an 11.8 GB file and gemma-4-26b-a4b hung for 7 h, blocking every queued
+; request behind it. dio reads the file once into the upload buffers. The
+; CPU-side MoE experts become anonymous memory, bounded at ~2 GiB per preset
+; (see "memory" above). No mlock: it would pin the whole GGUF in RAM. In this
+; build (b11957) mmap/mlock/dio are all values of load-mode.
 load-mode = dio
-
-[mellum-2.1-12b-a2.5b]
-; JetBrains Mellum 2.1 (12B MoE, 2.5B active), thinking variant, Q6_K, fully
-; on the GPU. Native context is 131072 (8192 with YaRN x16 built in). It serves
-; Hermes chat, Talk rooms, cron and Open WebUI at once: 4 slots of 96k with f16
-; KV (kv-unified off). Measured 16.65 GiB and ~102 tok/s; q8_0 KV with 6 x 128k
-; used 18.36 GiB and ran at ~44 tok/s, because ROCm flash attention is much
-; slower on a quantized KV cache.
-model = /models/mellum/mellum-2.1-12b-a2.5b/Mellum2.1-12B-A2.5B-Thinking-Q6_K.gguf
-; plan: f16 KV, 96k per slot x 4 slot(s)
-ctx-size = 393216
-parallel = 4
-kv-unified = false
-cache-type-k = f16
-cache-type-v = f16
-; Mellum is a thinking model: it reasoned 500-2800 tokens before every tool
-; call (44 tok/s, 30-60 s per step), so a food log took 3-5 minutes. Cap it;
-; 512 cut thoughts off mid-sentence and they leaked into the reply.
-reasoning-budget = 1024
-reasoning-budget-message = Enough thinking. Act now: call the next tool or answer.
-spec-type = ngram-mod
-spec-ngram-mod-n-match = 24
-spec-ngram-mod-n-min = 48
-spec-ngram-mod-n-max = 64
-temp = 0.6
-top-p = 0.95
-top-k = 20
 
 [flint-40b-a2.5b]
 ; RecursiveSI Flint (40B MoE, 2.5B active, 256 experts), Unsloth UD-Q3_K_XL.
@@ -79,7 +72,15 @@ parallel = 1
 kv-unified = true
 cache-type-k = q8_0
 cache-type-v = q8_0
-n-cpu-moe = 4
+; n-cpu-moe 7: blocks 0-1 are dense, so N = 7 moves the experts of blocks
+; 2-6 (300+332+356+356+356 MiB = 1.66 GiB) to RAM. Measured 18.50 GiB with
+; N = 4 (blocks 2-3, 0.62 GiB); N = 7 frees 1.04 GiB more -> ~17.46 GiB VRAM
+; (estimate; N = 6 would be ~17.81). RAM: 1.66 GiB experts + 0.30 GiB
+; token_embd + 2 GiB cache-ram + ~1 GiB runtime = ~5.0 GiB.
+n-cpu-moe = 7
+; Thinking: the chat template has no thinking switch (it only replays
+; reasoning_content as <think>); reasoning = auto parses <think> blocks if the
+; model emits them, so nothing is forced here.
 spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
@@ -95,12 +96,18 @@ model = /models/gemma/gemma-4-12b-it-qat/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
 ctx-size = 524288
 parallel = 4
 kv-unified = false
+; Keep all state on the GPU: no host-RAM prompt cache, no SWA checkpoints.
+; Each slot state is 2.7-6.7 GiB; copying it to RAM OOM-killed the instance.
+cache-ram = 0
+ctx-checkpoints = 0
 cache-type-k = f16
 cache-type-v = f16
 spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
 spec-ngram-mod-n-max = 64
+; Thinking: the Gemma 4 template defaults enable_thinking to false.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 64
@@ -112,8 +119,14 @@ mmproj = /models/gemma/gemma-4-12b-it-qat/mmproj-F16.gguf
 ctx-size = 524288
 parallel = 4
 kv-unified = false
+; Keep all state on the GPU: no host-RAM prompt cache, no SWA checkpoints.
+; Each slot state is 2.7-6.7 GiB; copying it to RAM OOM-killed the instance.
+cache-ram = 0
+ctx-checkpoints = 0
 cache-type-k = f16
 cache-type-v = f16
+; Thinking: the Gemma 4 template defaults enable_thinking to false.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 64
@@ -126,10 +139,17 @@ parallel = 2
 kv-unified = false
 cache-type-k = q8_0
 cache-type-v = q8_0
+; n-cpu-moe 2: 30 MoE layers of 408 MiB experts each. Measured 18.22 GiB
+; fully on the GPU; N = 2 moves 0.80 GiB to RAM -> ~17.42 GiB VRAM (N = 1
+; would be ~17.82). RAM: 0.80 GiB experts + 0.73 GiB token_embd + 2 GiB
+; cache-ram + ~1 GiB runtime = ~4.5 GiB.
+n-cpu-moe = 2
 spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
 spec-ngram-mod-n-max = 64
+; Thinking: the Gemma 4 template defaults enable_thinking to false.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 64
@@ -143,6 +163,13 @@ parallel = 2
 kv-unified = false
 cache-type-k = q8_0
 cache-type-v = q8_0
+; n-cpu-moe 4: measured 19.16 GiB fully on the GPU (projector included);
+; N = 4 moves 4 x 408 MiB = 1.59 GiB to RAM -> ~17.57 GiB VRAM (N = 3 would
+; be ~17.96). RAM: 1.59 GiB experts + 0.73 GiB token_embd + 2 GiB cache-ram
+; + ~1 GiB runtime = ~5.3 GiB.
+n-cpu-moe = 4
+; Thinking: the Gemma 4 template defaults enable_thinking to false.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 64
@@ -154,8 +181,14 @@ model = /models/gemma/gemma-4-31b-it/gemma-4-31B-it-UD-IQ3_XXS.gguf
 ctx-size = 131072
 parallel = 1
 kv-unified = true
+; Keep all state on the GPU: no host-RAM prompt cache, no SWA checkpoints.
+; Each slot state is 2.7-6.7 GiB; copying it to RAM OOM-killed the instance.
+cache-ram = 0
+ctx-checkpoints = 0
 cache-type-k = q8_0
 cache-type-v = q8_0
+; Thinking: the Gemma 4 template defaults enable_thinking to false.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 64
@@ -167,84 +200,282 @@ mmproj = /models/gemma/gemma-4-31b-it/mmproj-F16.gguf
 ctx-size = 98304
 parallel = 1
 kv-unified = true
+; Keep all state on the GPU: no host-RAM prompt cache, no SWA checkpoints.
+; Each slot state is 2.7-6.7 GiB; copying it to RAM OOM-killed the instance.
+cache-ram = 0
+ctx-checkpoints = 0
 cache-type-k = q8_0
 cache-type-v = q8_0
+; Thinking: the Gemma 4 template defaults enable_thinking to false.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 64
 
-[hy-memory-30b-a3b]
-; Tencent Hy-Memory (30B MoE, 3B active, 48 full-attention layers). Q3_K_M:
-; the KV cache at 262144 tokens is large, so Q4_K_M would need ~9 GB of
-; experts in RAM. Vendor settings: no-think, temp 0.7, top-k 0, top-p 1.0.
-model = /models/hy/hy-memory-30b-a3b/Hy-Memory-30B-A3B-Q3_K_M.gguf
-; plan: q8_0 KV, 96k per slot x 1 slot(s)
-ctx-size = 98304
-parallel = 1
-kv-unified = true
-cache-type-k = q8_0
-cache-type-v = q8_0
-n-cpu-moe = 8
-chat-template-kwargs = {"reasoning_effort":"no_think"}
-temp = 0.7
-top-k = 0
-top-p = 1.0
-
-[lfm-2.5-8b-a1b]
-model = /models/lfm/lfm-2.5-8b-a1b/LFM2.5-8B-A1B-Q4_K_M.gguf
-; plan: f16 KV, 125k per slot x 8 slot(s)
-ctx-size = 1024000
+[lfm-3-1.7b]
+; Liquid AI LFM3-1.7B (LFM Open License v1.0; lfm3 tri-hybrid: 24 layers = 13
+; gated short convolutions, 5 sliding-window attention, 6 global attention;
+; 1.73B dense, 256K native context), official LiquidAI/LFM3-1.7B-GGUF Q8_0
+; (1.72 GiB). Post-trained for agent harnesses; the card warns against
+; agentic coding and complex multi-step reasoning. Only the 6 global layers
+; keep a full-length KV cache: f16 = 6 x 4 KV heads x 128 dims x 2 x 2 B =
+; 12 KiB per token -> 0.75 GiB per 64k slot, plus the small sliding-window
+; and convolution state per slot. 64k per slot matches the 9B presets and the
+; Hermes benchmark; 8 slots = 6 GiB of KV, so the preset stays far under the
+; 17 GiB budget even after HIP pool growth (see the measured VRAM in
+; models/model-eval.md). The GGUF has no MTP layer.
+; Vendor sampling for chat, tool use and agents: temperature 0.1, top-k 50,
+; repetition penalty 1.1 (math and science: temp 1.0 / top-p 0.95 / top-k 20).
+model = /models/lfm/lfm-3-1.7b/LFM3-1.7B-Q8_0.gguf
+; plan: f16 KV, 64k per slot x 8 slot(s)
+ctx-size = 524288
 parallel = 8
 kv-unified = false
+cache-ram = 1024
 cache-type-k = f16
 cache-type-v = f16
 spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
 spec-ngram-mod-n-max = 64
-temp = 0.2
-top-k = 80
-repeat-penalty = 1.05
+; Thinking: reasoning is on by default; the template maps enable_thinking.
+reasoning = on
+temp = 0.1
+top-k = 50
+repeat-penalty = 1.1
 
-[lfm-2.5-24b-a2b]
-; Official LiquidAI GGUF. 24B MoE (2B active), 40 layers: 30 short-conv + 10 GQA.
-model = /models/lfm/lfm-2.5-24b-a2b/LFM2.5-24B-A2B-Q4_K_M.gguf
-; plan: f16 KV, 96k per slot x 2 slot(s)
-ctx-size = 196608
+[ling-3.0-tiny]
+; inclusionAI Ling-3.0-tiny (MIT; bailingmoe3: 7.9B MoE, 1.3B active, 128
+; experts; 24 layers, 3 Kimi Delta Attention (linear) : 1 MLA), official
+; Q8_0 (7.83 GiB). Fits fully on the GPU, so no n-cpu-moe. The GGUF has no
+; MTP layer. Only the 6 MLA layers keep a KV cache, and MLA stores a
+; 576-value latent: f16 = 6 x 576 x 2 B = ~7 KiB per token -> ~0.84 GiB per
+; 128k slot, plus a small fixed KDA state per slot. Native context 131072.
+; 8 slots: 15.32 GiB after load, 15.42 GiB peak; ~103 tok/s for one request,
+; 393 tok/s total with 8. Vendor sampling: temp 1.0 / top-p 0.95 / top-k 20.
+model = /models/ling/ling-3.0-tiny/Ling-3.0-tiny-Q8_0.gguf
+; plan: f16 KV, 128k per slot x 8 slot(s)
+ctx-size = 1048576
+parallel = 8
+kv-unified = false
+cache-ram = 1024
+cache-type-k = f16
+cache-type-v = f16
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+; Thinking: the template maps enable_thinking to its thinking option.
+reasoning = on
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0.0
+
+[ocr-xiaomi-0]
+; OCR for paperless-gpt (stable alias: keep this name). Xiaomi-OCR-0
+; (SeerRay-Lab, Apache-2.0; 0.8B, qwen35 on Qwen3.5-0.8B) Q6_K + BF16 vision
+; projector from prithivMLmods/Xiaomi-OCR-0-GGUF, 0.78 GiB together. Picked
+; over Surya OCR 2, PaddleOCR-VL-1.6 and Chandra OCR 2 on a rendered Greek
+; bill: 0.4 % character error rate with any prompt and every amount, date and
+; IBAN right. Small enough to sit next to a <= 12B agent model with
+; --models-max 2. f16 KV = 6 attention layers x 2 KV heads x 256 dims x 2 x
+; 2 B = 12 KiB per token; 16k per slot covers a page image plus its text.
+; Greedy decoding as in the vendor example; no n-gram speculation (vision).
+; Thinking: with enable_thinking false the template pre-closes an empty
+; <think> block and the model then printed only the table (70 % CER); with
+; true it closes the block itself at once (no reasoning tokens) and
+; transcribes the whole page. reasoning = on strips that empty block.
+model = /models/ocr/xiaomi-ocr-0/Xiaomi-OCR-0.Q6_K.gguf
+mmproj = /models/ocr/xiaomi-ocr-0/Xiaomi-OCR-0.mmproj-bf16.gguf
+; plan: f16 KV, 16k per slot x 2 slot(s)
+ctx-size = 32768
 parallel = 2
 kv-unified = false
 cache-type-k = f16
 cache-type-v = f16
-spec-type = ngram-mod
-spec-ngram-mod-n-match = 24
-spec-ngram-mod-n-min = 48
-spec-ngram-mod-n-max = 64
-; LiquidAI recommended sampling.
-temp = 0.1
-top-k = 50
-repeat-penalty = 1.05
+cache-ram = 0
+reasoning = on
+temp = 0.0
+top-k = 1
 
-[minicpm5-2b]
-model = /models/minicpm/minicpm5-2b/MiniCPM5-2B-Q8_0.gguf
-; plan: f16 KV, 96k per slot x 4 slot(s)
-ctx-size = 393216
-parallel = 4
+[ornith-1.5-9b]
+; Ornith 1.5 9B (ornith-ai, MIT; qwen35 hybrid: 32 layers, every 4th is full
+; attention, the rest Gated DeltaNet), official Q6_K (7.04 GiB). The file also
+; holds the MTP layer that the -mtp preset drafts with. Concurrency preset:
+; f16 KV = 8 attention layers x 4 KV heads x 256 dims x 2 x 2 B = 32 KiB per
+; token -> 2 GiB per 64k slot, plus a small recurrent state per slot.
+; 3 slots: 12.74 GiB after load, 13.01 GiB peak with 3 x 30k-token prompts in
+; parallel. 4 slots plateaued at 17.22 GiB under load (HIP buffer pool grows
+; ~2 GiB during long prefills), over the 17 GiB post-crash limit.
+; Vendor sampling for general tasks: temp 1.0 / top-p 0.95 / top-k 20 /
+; presence-penalty 1.5.
+model = /models/ornith/ornith-1.5-9b/Ornith-1.5-9B-Q6_K.gguf
+; plan: f16 KV, 64k per slot x 3 slot(s)
+ctx-size = 196608
+parallel = 3
 kv-unified = false
+; Host-RAM prompt cache 1024 MiB instead of 2048: each 64k slot state is
+; 0.8-1.5 GiB and swap is nearly full (crash-report recommendation, 10-27).
+cache-ram = 1024
 cache-type-k = f16
 cache-type-v = f16
-batch-size = 2048
-ubatch-size = 1024
 spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
 spec-ngram-mod-n-max = 64
-; Vendor (openbmb/MiniCPM5-2B) recommended: temp 1.0, top_p 0.95, min_p 0.0.
-; min_p 0.0 is explicit: llama.cpp's default 0.05 can cause repetitive output.
+; Thinking: the template thinks unless enable_thinking is false.
+reasoning = on
 temp = 1.0
 top-p = 0.95
+top-k = 20
 min-p = 0.0
+presence-penalty = 1.5
+
+[ornith-1.5-9b-dflash]
+; Same model with the DFlash block-diffusion drafter (abenzerps GGUF of the
+; official ornith-ai/Ornith-1.5-9B-DFlash, Q8_0, 1.28 GiB; 6 layers, 5 of
+; them 4096-token sliding window, 8 KV heads x 128 dims). f16 KV, 2 slots:
+; 14.12 GiB after load, 14.42 GiB peak; ~64 tok/s for one request (base ~60).
+; f16 with 3 slots used 16.71 GiB after load and grew past 17 GiB under load;
+; 4 slots with n-max 7 used 19.88 GiB. Hermes' model since 2026-10-29: q8_0 KV
+; with 4 x 64k slots measured 16.35 GiB after load on b11957 (expected peak
+; ~16.7 GiB, not yet stress-tested). Fall back to 3 slots (ctx-size 196608)
+; if it passes 17 GiB under load.
+model = /models/ornith/ornith-1.5-9b/Ornith-1.5-9B-Q6_K.gguf
+model-draft = /models/ornith/ornith-1.5-9b/Ornith-1.5-9B-DFlash-Q8_0.gguf
+; plan: q8_0 KV, 64k per slot x 4 slot(s) (trial 2026-10-29)
+ctx-size = 262144
+parallel = 4
+kv-unified = false
+; Host-RAM prompt cache 1024 MiB instead of 2048: each 64k slot state is
+; 0.8-1.5 GiB and swap is nearly full (crash-report recommendation, 10-27).
+cache-ram = 1024
+cache-type-k = q8_0
+cache-type-v = q8_0
+spec-type = draft-dflash
+spec-draft-n-max = 4
+spec-draft-ngl = all
+; Thinking: the template thinks unless enable_thinking is false.
+reasoning = on
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0.0
+presence-penalty = 1.5
+
+[ornith-1.5-9b-mtp]
+; Same model drafting with its own built-in MTP layer (nextn_predict_layers =
+; 1 in the official GGUF; no separate draft file). The MTP layer adds one
+; attention layer of KV per slot. 3 slots: 14.23 GiB after load, 14.74 GiB
+; peak; ~66 tok/s for one request (base ~60), 93 tok/s total with 3 (base 110).
+model = /models/ornith/ornith-1.5-9b/Ornith-1.5-9B-Q6_K.gguf
+; plan: f16 KV, 64k per slot x 3 slot(s)
+ctx-size = 196608
+parallel = 3
+kv-unified = false
+; Host-RAM prompt cache 1024 MiB instead of 2048: each 64k slot state is
+; 0.8-1.5 GiB and swap is nearly full (crash-report recommendation, 10-27).
+cache-ram = 1024
+cache-type-k = f16
+cache-type-v = f16
+spec-type = draft-mtp
+spec-draft-n-max = 3
+spec-draft-ngl = all
+; Thinking: the template thinks unless enable_thinking is false.
+reasoning = on
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0.0
+presence-penalty = 1.5
+
+[qwen-3.5-9b]
+; Stand-in for the requested "Qwen 3.6 9B": Qwen 3.6 has no 9B model (only
+; 27B and 35B-A3B), so this is the official Qwen3.5-9B (Apache-2.0), the base
+; of Ornith 1.5 9B. Unsloth Q6_K from unsloth/Qwen3.5-9B-MTP-GGUF (7.16 GiB),
+; which keeps the MTP layer that the -mtp preset drafts with. Same qwen35
+; layout and sizing as ornith-1.5-9b: f16 KV = 32 KiB per token -> 2 GiB per
+; 64k slot. 3 slots: 12.85 GiB after load, 13.12 GiB peak (4 slots
+; plateaued at 17.22 GiB under load). Vendor sampling (thinking, general):
+; temp 1.0 / top-p 0.95 / top-k 20 / presence-penalty 1.5.
+model = /models/qwen/qwen-3.5-9b/Qwen3.5-9B-Q6_K.gguf
+; plan: f16 KV, 64k per slot x 3 slot(s)
+ctx-size = 196608
+parallel = 3
+kv-unified = false
+; Host-RAM prompt cache 1024 MiB instead of 2048: each 64k slot state is
+; 0.8-1.5 GiB and swap is nearly full (crash-report recommendation, 10-27).
+cache-ram = 1024
+cache-type-k = f16
+cache-type-v = f16
+spec-type = ngram-mod
+spec-ngram-mod-n-match = 24
+spec-ngram-mod-n-min = 48
+spec-ngram-mod-n-max = 64
+; Thinking: the template thinks unless enable_thinking is false.
+reasoning = on
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0.0
+presence-penalty = 1.5
+
+[qwen-3.5-9b-dflash]
+; Same model with the z-lab Qwen3.5-9B-DFlash block-diffusion drafter
+; (AtomicChat GGUF, Q8_0, 1.29 GiB), sized like ornith-1.5-9b-dflash.
+; 2 slots: 14.23 GiB after load, 14.53 GiB peak; ~77 tok/s for one request
+; (base ~59).
+model = /models/qwen/qwen-3.5-9b/Qwen3.5-9B-Q6_K.gguf
+model-draft = /models/qwen/qwen-3.5-9b/Qwen3.5-9B-DFlash.Q8_0.gguf
+; plan: f16 KV, 64k per slot x 2 slot(s)
+ctx-size = 131072
+parallel = 2
+kv-unified = false
+; Host-RAM prompt cache 1024 MiB instead of 2048: each 64k slot state is
+; 0.8-1.5 GiB and swap is nearly full (crash-report recommendation, 10-27).
+cache-ram = 1024
+cache-type-k = f16
+cache-type-v = f16
+spec-type = draft-dflash
+spec-draft-n-max = 4
+spec-draft-ngl = all
+; Thinking: the template thinks unless enable_thinking is false.
+reasoning = on
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0.0
+presence-penalty = 1.5
+
+[qwen-3.5-9b-mtp]
+; Same model drafting with its built-in MTP layer (no separate draft file).
+; 3 slots: 14.34 GiB after load, 14.87 GiB peak; ~78 tok/s for one request
+; (base ~59), 97 tok/s total with 3 (base 107).
+model = /models/qwen/qwen-3.5-9b/Qwen3.5-9B-Q6_K.gguf
+; plan: f16 KV, 64k per slot x 3 slot(s)
+ctx-size = 196608
+parallel = 3
+kv-unified = false
+; Host-RAM prompt cache 1024 MiB instead of 2048: each 64k slot state is
+; 0.8-1.5 GiB and swap is nearly full (crash-report recommendation, 10-27).
+cache-ram = 1024
+cache-type-k = f16
+cache-type-v = f16
+spec-type = draft-mtp
+spec-draft-n-max = 3
+spec-draft-ngl = all
+; Thinking: the template thinks unless enable_thinking is false.
+reasoning = on
+temp = 1.0
+top-p = 0.95
+top-k = 20
+min-p = 0.0
+presence-penalty = 1.5
 
 [qwen-3.6-35b-a3b]
+; Hermes default. 40 MoE layers + the MTP layer, 356 MiB of experts per
+; layer in the first 34.
 model = /models/qwen/qwen-3.6-35b-a3b/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf
 ; plan: q8_0 KV, 128k per slot x 1 slot(s)
 ctx-size = 131072
@@ -252,6 +483,13 @@ parallel = 1
 kv-unified = true
 cache-type-k = q8_0
 cache-type-v = q8_0
+; n-cpu-moe 3: measured 18.39 GiB fully on the GPU; N = 3 moves 3 x 356 MiB
+; = 1.04 GiB to RAM -> ~17.35 GiB VRAM (N = 2 would be ~17.69). RAM: 1.04 GiB
+; experts + 0.50 GiB token_embd + 2 GiB cache-ram + ~1 GiB runtime = ~4.5 GiB.
+n-cpu-moe = 3
+; Thinking: the template thinks unless enable_thinking is false; set it
+; explicitly so a client default cannot turn it off by omission.
+reasoning = on
 spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
@@ -281,6 +519,9 @@ kv-unified = true
 cache-type-k = q8_0
 cache-type-v = q8_0
 n-gpu-layers = all
+; Thinking: the template thinks unless enable_thinking is false and defaults
+; reasoning_effort to xhigh.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 20
@@ -309,6 +550,9 @@ spec-draft-n-max = 3
 spec-draft-ngl = all
 spec-draft-type-k = q8_0
 spec-draft-type-v = q8_0
+; Thinking: the template thinks unless enable_thinking is false and defaults
+; reasoning_effort to xhigh.
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 20
@@ -354,6 +598,9 @@ spec-type = ngram-mod
 spec-ngram-mod-n-match = 24
 spec-ngram-mod-n-min = 48
 spec-ngram-mod-n-max = 64
+; Thinking: the template defaults enable_thinking to true and
+; reasoning_effort to high (high or low only).
+reasoning = on
 temp = 1.0
 top-p = 0.95
 top-k = 0

@@ -39,6 +39,9 @@ services:
     restart: unless-stopped
     networks:
       - webgateway
+      # Internal-only network for the Hermes coding sandboxes; reach the router
+      # there as http://llama-cpp:8080 (the Compose service name).
+      - hermes-llm
     labels:
       - traefik.enable=true
       - traefik.http.routers.llama-server.rule=Host(`ai.${DOMAIN}`)
@@ -73,7 +76,48 @@ services:
     networks:
       - backend
 
+  # Web UI to search Hugging Face for GGUF quants and pull/delete them through
+  # the router's model API (POST/GET/DELETE /models, /models/sse). The API key
+  # stays server-side; the UI has its own login.
+  llama-models-ui:
+    build:
+      context: ./models-ui
+    image: homelab-llama-models-ui:local
+    container_name: llama-models-ui
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      LLAMA_URL: http://llama-server:8080
+      LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
+      MODELS_UI_USERNAME: "${MODELS_UI_USERNAME:?Set MODELS_UI_USERNAME in .env}"
+      MODELS_UI_PASSWORD: "${MODELS_UI_PASSWORD:?Set MODELS_UI_PASSWORD in .env}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+    networks:
+      - webgateway
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.llama-models.rule: "Host(`models.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.llama-models.entrypoints: websecure
+      traefik.http.routers.llama-models.tls.certresolver: myresolver
+      traefik.http.services.llama-models.loadbalancer.server.port: "8080"
+      homepage.group: AI
+      homepage.name: Model downloads
+      homepage.icon: si-huggingface
+      homepage.href: "https://models.${DOMAIN}"
+      homepage.description: Search Hugging Face for GGUF quants and pull or delete llama.cpp router models.
+
 networks:
   backend:
+  # Internal (no internet egress) network shared with the Hermes coding sandboxes.
+  hermes-llm:
+    name: hermes-llm
+    internal: true
   webgateway:
     external: true
+    name: webgateway
