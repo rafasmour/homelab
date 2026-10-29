@@ -9,9 +9,12 @@ services:
     restart: unless-stopped
     command:
       - --path.rootfs=/host
+      - --collector.textfile.directory=/textfile
     pid: host
     volumes:
       - /:/host:ro,rslave
+      # Prometheus textfile metrics written by host scripts (runtime data, ignored).
+      - ./textfile:/textfile:ro
     networks:
       - webgateway
 
