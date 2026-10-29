@@ -1,21 +1,19 @@
-# Greek GPU price watchlist for the Hermes gpu-watch job.
+# Greek GPU price watchlist for the n8n workflow "Hermes digest – gpu-watch"
+# (n8n/workflows/hermes-digest-gpu-watch.json), which posts to the gpu-watch
+# Talk room at 08:22 Europe/Athens.
 #
-# The tracked example stays empty of real product names. The running job
-# reads /home/hermes/.hermes/gpu-watchlist.yml inside hermes-api, which is
-# seeded from this file. Add names there. An empty products list keeps the
-# job silent.
+# n8n mounts this file read-only at /home/node/.n8n-files/gpu-watchlist.yml
+# and reads it on every run, so edits apply without a restart. An empty
+# products list keeps the workflow silent.
 #
-# Shops searched on every run:
-#   skroutz.gr, public.gr, plaisio.gr
-#   plus web-search MCP / SearXNG for other Greek shops such as kotsovolos.gr and
-#   bestprice.gr
+# Each product is a name, or a mapping:
+#   - name: RTX 5070 Ti      # search string sent to the shops
+#     target_price: 800      # optional EUR ceiling; the bullet gets ALERT below it
 #
-# Each product:
-#   name: search string sent to those shops
-#   target_price: optional EUR ceiling; when set, alert only under this price
-#
-# Alert when today's lowest in-stock price is below the last price stored
-# in that job's notepad. A first observation is stored and does not alert.
+# Shops: plaisio.gr (schema.org offers on its search page). skroutz.gr and
+# bestprice.gr sit behind a bot challenge and public.gr / you.gr answer 403,
+# so they are not read. Only in-stock graphics cards whose name matches count
+# (a 5070 never counts as a 5070 Ti; laptops and desktops are ignored).
 
 products: [
   'RTX 5070 Ti',

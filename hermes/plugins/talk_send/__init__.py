@@ -6,6 +6,10 @@ The bridge URL, bearer secret and room tokens come from the process
 environment and are never part of the tool schema or the model prompt. The room
 is the profile's entry in NEXTCLOUD_TALK_PROFILE_ROOMS ("profile=token|...") or,
 without one, NEXTCLOUD_TALK_HOME_ROOM.
+
+Benchmark runs (HERMES_BENCHMARK=1, set per `docker exec` by the benchmark
+runner) post only to HERMES_BENCHMARK_TALK_ROOM, the mock user's room. Without
+that room the tool is unavailable; it never falls back to the real rooms.
 """
 
 from __future__ import annotations
@@ -52,7 +56,13 @@ def _profile() -> str:
     return home.name if home.parent.name == "profiles" else "default"
 
 
+def _benchmark() -> bool:
+    return _env("HERMES_BENCHMARK") not in ("", "0")
+
+
 def _room() -> str:
+    if _benchmark():
+        return _env("HERMES_BENCHMARK_TALK_ROOM")
     for entry in _env("NEXTCLOUD_TALK_PROFILE_ROOMS").split("|"):
         profile, sep, token = entry.partition("=")
         if sep and profile.strip() == _profile() and token.strip():
@@ -68,15 +78,24 @@ def _available() -> bool:
     return bool(
         _env("NEXTCLOUD_TALK_DELIVER_URL")
         and _env("NEXTCLOUD_TALK_DELIVER_SECRET")
-        and _env("NEXTCLOUD_TALK_HOME_ROOM")
+        and (_room() if _benchmark() else _env("NEXTCLOUD_TALK_HOME_ROOM"))
     )
 
 
 def _handle_talk_send(args: dict, **kw) -> str:
+    # Cron jobs deliver their final answer to the profile's room automatically;
+    # a model calling talk_send there posted the digest again (8 times once).
+    if str(kw.get("session_id") or "").startswith("cron_"):
+        return json.dumps({
+            "ok": False,
+            "error": "Scheduled job: do not call talk_send. Your final answer is posted to Talk automatically; just give it.",
+        })
     message = str((args or {}).get("message") or "").strip()
     if not message:
         return json.dumps({"ok": False, "error": "message is required"})
     if not _available():
+        if _benchmark():
+            return json.dumps({"ok": False, "error": "Benchmark run without a mock Talk room (HERMES_BENCHMARK_TALK_ROOM): nothing was sent"})
         return json.dumps({"ok": False, "error": "Talk delivery is not configured (NEXTCLOUD_TALK_* env)"})
     payload = {
         "room_token": _room(),

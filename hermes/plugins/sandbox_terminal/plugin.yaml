@@ -1,0 +1,6 @@
+name: sandbox_terminal
+version: 1.0.0
+description: "Per-profile SSH sandboxes (hermes-sandboxes stack) as the terminal/file backend, with pinned host keys, plus owner approval of risky commands from Nextcloud Talk."
+author: homelab
+provides_hooks:
+  - pre_tool_call

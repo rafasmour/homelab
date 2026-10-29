@@ -1,0 +1,4 @@
+name: local_only
+version: 1.0.0
+description: "Keeps every auxiliary LLM call on the local llama.cpp router: removes the OpenRouter, Nous and API-key providers from Hermes' fallback chain."
+author: homelab

@@ -1,0 +1,13 @@
+# Opt-in override: joins the self-heal stack's network. Use it only while the
+# self-heal stack runs (it creates the network):
+#   docker compose --env-file hermes/.env -f hermes/docker-compose.yml -f hermes/docker-compose.self-heal.yml up -d
+# Self-heal controller -> devops-diagnose, and devops-diagnose -> the diagnose MCP.
+services:
+  api:
+    networks:
+      - self-heal-agent
+
+networks:
+  self-heal-agent:
+    external: true
+    name: self-heal-agent

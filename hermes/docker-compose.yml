@@ -5,10 +5,12 @@ services:
     restart: unless-stopped
     command: ["sh", "/usr/local/bin/start.sh"]
     volumes:
-      - hermes-data:/home/hermes/.hermes
+      # Profiles, SOULs, sessions and sandbox client keys (shared with
+      # hermes-nextcloud-bridge and the hermes-sandbox CLI). Runtime data,
+      # never commit.
+      - ./data:/home/hermes/.hermes
       - hermes-agent-src:/opt/hermes
       - ./start.sh:/usr/local/bin/start.sh:ro
-      - ./gpu-watchlist.example.yml:/usr/local/share/hermes/gpu-watchlist.example.yml:ro
       - ./plugins:/usr/local/share/hermes/plugins:ro
     environment:
       HERMES_HOME: /home/hermes/.hermes
@@ -17,8 +19,14 @@ services:
       HERMES_INFERENCE_BASE_URL: "${HERMES_INFERENCE_BASE_URL:-http://llama-cpp:8080/v1}"
       # Same value as LLAMA_API_KEY in llama-cpp/.env.
       LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
-      HERMES_MODEL: "${HERMES_MODEL:-mellum-2.1-12b-a2.5b}"
+      HERMES_MODEL: "${HERMES_MODEL:-ornith-1.5-9b}"
+      # Per-slot context of that preset (llama.cpp ctx-size / parallel); Hermes
+      # must not plan prompts larger than one slot.
+      HERMES_CONTEXT_LENGTH: "${HERMES_CONTEXT_LENGTH:-65536}"
       HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
+      # write_file/patch path allowlist. Profiles with an SSH sandbox write
+      # these paths inside their sandbox (hermes-sandboxes), never in here.
+      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_PORT: "8642"
@@ -27,6 +35,18 @@ services:
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
+      # Self-heal: the devops-diagnose profile's own API key (start.sh writes
+      # it into that profile's .env; the shared API_SERVER_KEY cannot reach
+      # it) and the bearer token of the self-heal diagnose MCP. Optional like
+      # HERMES_VOICE_KEY: without a usable key start.sh does not serve the profile.
+      SELF_HEAL_HERMES_KEY: "${SELF_HEAL_HERMES_KEY:-}"
+      DIAGNOSE_MCP_TOKEN: "${DIAGNOSE_MCP_TOKEN:-}"
+      # Optional: bearer token of benchmark-mcp (models profile). Empty: no benchmark tools.
+      BENCHMARK_MCP_TOKEN: "${BENCHMARK_MCP_TOKEN:-}"
+      # Optional: the voice profile's own API key (Home Assistant Assist). Without
+      # a usable value (16+ characters, not API_SERVER_KEY) /p/voice/v1 is not
+      # served; start.sh writes it into that profile's .env.
+      HERMES_VOICE_KEY: "${HERMES_VOICE_KEY:-}"
       # Cron delivery (--deliver nextcloud_talk) and the talk_send tool post
       # through hermes-nextcloud-bridge.
       NEXTCLOUD_TALK_DELIVER_URL: "${NEXTCLOUD_TALK_DELIVER_URL:-http://hermes-nextcloud-bridge:8788/deliver}"
@@ -49,10 +69,11 @@ services:
     networks:
       - backend
       - hermes-mcp
+      # SSH to the per-profile sandboxes (hermes-sandboxes stack, start it first).
+      - hermes-sandbox
       - webgateway
 
 volumes:
-  hermes-data:
   hermes-agent-src:
 
 networks:
@@ -60,6 +81,9 @@ networks:
     internal: true
   hermes-mcp:
     name: hermes-mcp
+  hermes-sandbox:
+    external: true
+    name: hermes-sandbox
   webgateway:
     external: true
     name: webgateway
