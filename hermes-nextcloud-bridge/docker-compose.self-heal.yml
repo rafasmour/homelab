@@ -1,0 +1,13 @@
+# Opt-in override: joins the self-heal stack's network. Use it only while the
+# self-heal stack runs (it creates the network):
+#   docker compose --env-file hermes-nextcloud-bridge/.env -f hermes-nextcloud-bridge/docker-compose.yml -f hermes-nextcloud-bridge/docker-compose.self-heal.yml up -d
+# /heal commands from the self-heal Talk room to the controller.
+services:
+  bridge:
+    networks:
+      - self-heal-ingress
+
+networks:
+  self-heal-ingress:
+    external: true
+    name: self-heal-ingress

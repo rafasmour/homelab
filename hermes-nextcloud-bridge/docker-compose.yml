@@ -24,13 +24,28 @@ services:
         COPY --from=patches room_profiles.py /tmp/room_profiles.py
         RUN /opt/hermes/.venv/bin/python /tmp/room_profiles.py /opt/talk-bridge/nextcloud_talk_hermes_bridge/bridge.py \
           && rm /tmp/room_profiles.py
+        # A failed run replies with a short, redacted reason instead of only a generic error.
+        COPY --from=patches error_reason.py /tmp/error_reason.py
+        RUN /opt/hermes/.venv/bin/python /tmp/error_reason.py /opt/talk-bridge/nextcloud_talk_hermes_bridge/bridge.py \
+          && /opt/hermes/.venv/bin/python -m py_compile /opt/talk-bridge/nextcloud_talk_hermes_bridge/bridge.py \
+          && rm /tmp/error_reason.py
+        # The self-heal room (TALK_SELF_HEAL_ROOM) never runs Hermes: /heal
+        # commands go to the self-heal controller. Fails the build if it no longer applies.
+        COPY --from=patches heal_forward.py /tmp/heal_forward.py
+        RUN /opt/hermes/.venv/bin/python /tmp/heal_forward.py /opt/talk-bridge/nextcloud_talk_hermes_bridge/bridge.py \
+          && /opt/hermes/.venv/bin/python -m py_compile /opt/talk-bridge/nextcloud_talk_hermes_bridge/bridge.py \
+          && rm /tmp/heal_forward.py
+        # ssh (the sandbox profiles' terminal) refuses to run for a uid without a
+        # passwd entry; base images differ in which uid "hermes" gets (1000 vs 10000).
+        RUN getent group $${HERMES_GID} >/dev/null || echo "hermesbridge:x:$${HERMES_GID}:" >> /etc/group \
+          && getent passwd $${HERMES_UID} >/dev/null || echo "hermesbridge:x:$${HERMES_UID}:$${HERMES_GID}::/home/hermes:/bin/sh" >> /etc/passwd
         RUN mkdir -p /home/hermes /data && chown -R $${HERMES_UID}:$${HERMES_GID} /home/hermes /data
         ENV PYTHONPATH=/opt/talk-bridge
         ENTRYPOINT ["/opt/hermes/.venv/bin/python", "-m", "nextcloud_talk_hermes_bridge.bridge"]
     image: hermes-nextcloud-bridge:local
     container_name: hermes-nextcloud-bridge
     restart: unless-stopped
-    # Same UID/GID as the files on the shared Hermes data volume.
+    # Same UID/GID as the files in the shared Hermes data folder (hermes/data).
     user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
     environment:
       HOME: /home/hermes
@@ -42,12 +57,14 @@ services:
       # "<profile>=<room-token>|..." — each Talk room talks to its own profile, and
       # talk_send in bridge-run sessions posts to that profile's room.
       NEXTCLOUD_TALK_PROFILE_ROOMS: "${NEXTCLOUD_TALK_PROFILE_ROOMS:-}"
-      HERMES_TOOLSETS: "${HERMES_TOOLSETS:-kanban,nextcloud,wger,web_search}"
+      HERMES_TOOLSETS: "${HERMES_TOOLSETS:-nextcloud,wger,web_search,clock}"
       HERMES_SKILLS: ""
       HERMES_YOLO: "0"
       HERMES_ACCEPT_HOOKS: "0"
       HERMES_MAX_TURNS: "${HERMES_MAX_TURNS:-40}"
       HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
+      # Same as hermes-api: sandbox profiles write these paths over SSH.
+      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier
       HERMES_SOURCE: nextcloud-talk
       NEXTCLOUD_URL: "${NEXTCLOUD_URL:-http://nextcloud}"
       TALK_BRIDGE_BIND: 0.0.0.0
@@ -62,7 +79,11 @@ services:
       TALK_BRIDGE_BACKGROUND_HEARTBEAT: "${TALK_BRIDGE_BACKGROUND_HEARTBEAT:-180}"
       TALK_RECEIVED_REACTION: "${TALK_RECEIVED_REACTION:-}"
       TALK_BRIDGE_SKILL_STATUS: "0"
-      TALK_APPROVAL_PROMPTS: "0"
+      # Risky terminal commands of the sandbox profiles (models, hf-models,
+      # llamacpp-rocm) ask the owner in the room: reply /approve once,
+      # /approve session or /deny. No answer within the timeout denies.
+      TALK_APPROVAL_PROMPTS: "${TALK_APPROVAL_PROMPTS:-1}"
+      TALK_APPROVAL_TIMEOUT: "${TALK_APPROVAL_TIMEOUT:-600}"
       TALK_LOCAL_MEMORY_CONTEXT: "0"
       # Room history turns inlined into each message (upstream default 24).
       TALK_CONTEXT_TURNS: "${TALK_CONTEXT_TURNS:-8}"
@@ -75,8 +96,14 @@ services:
       NEXTCLOUD_TALK_DELIVER_URL: http://127.0.0.1:8788/deliver
       NEXTCLOUD_TALK_DELIVER_SECRET: "${TALK_DELIVER_SECRET}"
       NEXTCLOUD_TALK_HOME_ROOM: "${NEXTCLOUD_TALK_HOME_ROOM:?Set NEXTCLOUD_TALK_HOME_ROOM in .env}"
+      # Self-heal approvals (patches/heal_forward.py). Messages in this room
+      # never run Hermes; "/heal approve|deny ..." is forwarded to the
+      # controller. Empty turns the feature off.
+      TALK_SELF_HEAL_ROOM: "${TALK_SELF_HEAL_ROOM:-}"
+      SELF_HEAL_APPROVE_URL: "${SELF_HEAL_APPROVE_URL:-http://self-heal:8790/approve}"
+      SELF_HEAL_APPROVE_SECRET: "${SELF_HEAL_APPROVE_SECRET:-}"
     volumes:
-      - hermes-data:/home/hermes/.hermes
+      - ../hermes/data:/home/hermes/.hermes
       - ./data:/data
     healthcheck:
       test:
@@ -94,19 +121,19 @@ services:
       # Nextcloud (webhooks in, bot replies out), hermes-api (/deliver), and
       # the MCP servers.
       - hermes-mcp
+      # Talk turns of the sandbox profiles SSH into hermes-sandboxes.
+      - hermes-sandbox
       # Egress only: the llama.cpp router (llama-cpp:8080) is reachable only
       # on webgateway. No Traefik route.
       - webgateway
-
-volumes:
-  hermes-data:
-    external: true
-    name: hermes_hermes-data
 
 networks:
   hermes-mcp:
     external: true
     name: hermes-mcp
+  hermes-sandbox:
+    external: true
+    name: hermes-sandbox
   webgateway:
     external: true
     name: webgateway

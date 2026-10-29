@@ -6,8 +6,7 @@ rooms use HERMES_PROFILE. The toolsets for a mapped profile come from that
 profile's config.yaml (platform_toolsets.cli without clarify, which a one-shot
 `hermes chat -q` cannot answer, and without talk: the bridge posts the reply
 itself, and talk_send in a room only duplicated it and kept the run going), so
-hermes/start.sh stays their only source; rooms also drop kanban (~5k tokens
-per call). The patch keeps two CLI diagnostics ("Unknown toolsets",
+hermes/start.sh stays their only source (default keeps kanban, its work queue). The patch keeps two CLI diagnostics ("Unknown toolsets",
 tirith) out of the posted reply and limits the inlined room history to
 TALK_CONTEXT_TURNS (default 8; upstream sends 24).
 
@@ -28,8 +27,8 @@ TALK_ROOM_PROFILES = {
 }
 _ROOM = threading.local()
 # Rooms answer directly: no clarify (one-shot run), no talk (the bridge posts
-# the reply) and no kanban (~5k tokens; each profile has its own room).
-BRIDGE_EXCLUDED_TOOLSETS = {"clarify", "talk", "kanban"}
+# the reply). kanban stays: only default lists it, as its own work queue.
+BRIDGE_EXCLUDED_TOOLSETS = {"clarify", "talk"}
 
 
 def room_profile(token: str) -> str:
