@@ -50,6 +50,25 @@ Calendar tools take the CalDAV URI, the `name` returned by `nc_calendar_list_cal
 
 `hermes/start.sh` rewrites the Hermes SOULs on every start, including this calendar map. Add local changes under the `## Local notes` heading of a live `SOUL.md`; that section is kept. The auto-generated Hermes skill for this profile that mentions calendar names is not loaded, because the `skills` toolset is disabled.
 
+## Paperless consume folder
+
+`Scans/` of user `pi.hole` is the Paperless-ngx consume folder. The paperless stack bind-mounts `html/data/pi.hole/files/Scans` directly (no external-storage app, no change to this stack) and runs as `www-data` (33:33). Paperless imports every file dropped or scanned into `Scans/` within about 30 seconds and then deletes it; the document lives on in Paperless.
+
+Create the folder once, before starting Paperless:
+
+```bash
+docker exec -u www-data nextcloud mkdir -p /var/www/html/data/pi.hole/files/Scans
+docker exec -u www-data nextcloud php occ files:scan --path="pi.hole/files/Scans"
+```
+
+Nextcloud does not notice the deletions by itself, so a crontab entry of the repository owner rescans only that folder every 5 minutes:
+
+```cron
+*/5 * * * * docker exec -u www-data nextcloud php occ files:scan --path="pi.hole/files/Scans" --quiet
+```
+
+Keep server-side encryption disabled, or Paperless would read encrypted files. Details are in [paperless/README.md](../paperless/README.md).
+
 ## Backup and important notes
 
 Back up `.env`, `html`, `mcp-data`, and a consistent MariaDB dump or stopped copy of `database`. `redis` is a cache and is not a substitute for the database backup.
