@@ -1,0 +1,9 @@
+# Keep secrets, run output and the database out of the build context.
+test/
+mcp/
+.env
+ui-credentials.txt
+data/
+reports/
+ui/
+**/__pycache__/

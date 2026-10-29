@@ -1,0 +1,15 @@
+{
+  "name": "homelab-benchmark",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Benchmarks llama.cpp router models as the brain of the Hermes agent profiles.",
+  "type": "commonjs",
+  "scripts": {
+    "benchmark": "node --disable-warning=ExperimentalWarning main.js",
+    "import": "node --disable-warning=ExperimentalWarning main.js import",
+    "rescore": "node --disable-warning=ExperimentalWarning main.js rescore"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

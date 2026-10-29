@@ -1,0 +1,136 @@
+services:
+  benchmark:
+    build:
+      context: .
+      args:
+        DOCKER_VERSION: ${DOCKER_CLI_VERSION:-29.0.0}
+    image: homelab-benchmark:local
+    container_name: benchmark
+    restart: unless-stopped
+    # Job API for benchmark-mcp (api.js); `docker exec benchmark npm run benchmark -- ...` still works.
+    command: ["node", "--disable-warning=ExperimentalWarning", "api.js"]
+    init: true
+    # Reports are written as this user so the host owner can manage them.
+    user: "${BENCH_UID:-1000}:${BENCH_GID:-1000}"
+    # Access to the Docker socket is root-equivalent on the host. The runner
+    # uses it only for `docker exec` into hermes-api and llama-server.
+    group_add:
+      - "${DOCKER_SOCKET_GID:?Set DOCKER_SOCKET_GID in .env}"
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      LLAMA_URL: "${LLAMA_URL:-http://llama-server:8080}"
+      # Same value as LLAMA_API_KEY in llama-cpp/.env.
+      LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
+      # Same value as MCP_STATIC_TOKEN in wger/.env (wger MCP bearer token).
+      MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
+      WGER_MCP_URL: "${WGER_MCP_URL:-http://wger-mcp:8765/mcp}"
+      NEXTCLOUD_MCP_URL: "${NEXTCLOUD_MCP_URL:-http://nextcloud-mcp:8000/mcp}"
+      FIREFLY_MCP_URL: "${FIREFLY_MCP_URL:-http://firefly-mcp:3000/mcp}"
+      PRODUCTION_MODEL: "${PRODUCTION_MODEL:-qwen-3.6-35b-a3b}"
+      # Mock Nextcloud user's Talk room (README "Talk isolation"). Empty: cases
+      # with the talk toolset are refused; nothing ever goes to the real rooms.
+      BENCHMARK_TALK_ROOM: "${BENCHMARK_TALK_ROOM:-}"
+      # SQLite source of truth (lib/db.js); the UI reads the same file read-only.
+      BENCH_DB: /app/data/benchmark.db
+      # Bearer token of the job API (port 8780, networks benchmark-api and hermes-mcp); only benchmark-mcp uses it.
+      BENCH_API_TOKEN: "${BENCH_API_TOKEN:?Set BENCH_API_TOKEN in .env}"
+      # Model metadata (file, quant, ctx, KV type) for the models table.
+      ROUTER_CONFIG: /app/router-config.ini
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./reports:/app/reports
+      - ./data:/app/data
+      - "${ROUTER_CONFIG_FILE:-../llama-cpp/models/router-config.ini}:/app/router-config.ini:ro"
+    networks:
+      - webgateway
+      - hermes-mcp
+      - benchmark-api
+
+  # MCP server for the Hermes `models` profile (start/status/results/cancel of
+  # runs). No Docker socket, no mounts: it only calls the runner's job API.
+  benchmark-mcp:
+    build:
+      context: ./mcp
+    image: benchmark-mcp:local
+    container_name: benchmark-mcp
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      # Same value as BENCHMARK_MCP_TOKEN in hermes/.env.
+      BENCHMARK_MCP_TOKEN: "${BENCHMARK_MCP_TOKEN:?Set BENCHMARK_MCP_TOKEN in .env}"
+      BENCH_API_TOKEN: "${BENCH_API_TOKEN:?Set BENCH_API_TOKEN in .env}"
+      BENCH_API_URL: http://benchmark:8780
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cpus: "0.5"
+    mem_limit: 256m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8793/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      benchmark:
+        condition: service_started
+    labels:
+      traefik.enable: "false"
+    networks:
+      - hermes-mcp
+      - benchmark-api
+
+  # Read-only results browser: static UI + JSON API over data/benchmark.db,
+  # behind its own login page. No Docker socket, read-only mounts.
+  benchmark-ui:
+    build:
+      context: ./ui
+    image: homelab-benchmark-ui:local
+    container_name: benchmark-ui
+    restart: unless-stopped
+    user: "${BENCH_UID:-1000}:${BENCH_GID:-1000}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      BENCH_DB: /data/benchmark.db
+      REPORTS_DIR: /reports
+      BENCHMARK_UI_USERNAME: "${BENCHMARK_UI_USERNAME:?Set BENCHMARK_UI_USERNAME in .env}"
+      BENCHMARK_UI_PASSWORD: "${BENCHMARK_UI_PASSWORD:?Set BENCHMARK_UI_PASSWORD in .env}"
+    volumes:
+      - ./data:/data:ro
+      - ./reports:/reports:ro
+    networks:
+      - webgateway
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.benchmark.rule: "Host(`benchmark.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.benchmark.entrypoints: websecure
+      traefik.http.routers.benchmark.tls.certresolver: myresolver
+      traefik.http.services.benchmark.loadbalancer.server.port: "8080"
+      homepage.group: AI
+      homepage.name: Benchmarks
+      homepage.icon: mdi-chart-box
+      homepage.href: "https://benchmark.${DOMAIN}"
+      homepage.description: Leaderboard and drill-down of the llama.cpp model benchmarks.
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway
+  hermes-mcp:
+    external: true
+    name: hermes-mcp
+  # benchmark <-> benchmark-mcp (job API).
+  benchmark-api:
+    internal: true
