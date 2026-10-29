@@ -35,35 +35,75 @@ services:
       homepage.name: Home Assistant
       homepage.icon: home-assistant
       homepage.href: "https://home-assistant.${DOMAIN}"
-      homepage.description: Assist pipeline with Whisper STT and Piper TTS.
+      homepage.description: Assist voice pipeline with Whisper, Hermes and Kokoro.
 
-  wyoming-whisper:
+  # One-shot job: downloads the Whisper model into ./whisper and exits. It is
+  # the only Whisper container with internet access (model-downloads). The
+  # long-running server below stays on the internal backend network and
+  # loads the model from ./whisper only.
+  wyoming-whisper-download:
     image: rhasspy/wyoming-whisper:${WHISPER_VERSION:-3.8.1}
-    container_name: wyoming-whisper
-    restart: unless-stopped
-    command:
+    container_name: wyoming-whisper-download
+    restart: "no"
+    # Start the server on a private port so it downloads and loads the model,
+    # wait until it listens, then stop. Exits non-zero if the download fails.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        bash /usr/src/docker_run.sh "$$@" --uri tcp://127.0.0.1:10399 &
+        pid=$$!
+        until /usr/src/.venv/bin/python3 -c "import socket; socket.create_connection(('127.0.0.1', 10399), 2).close()" 2>/dev/null; do
+          kill -0 "$$pid" 2>/dev/null || exit 1
+          sleep 2
+        done
+        echo "Whisper model is in /data"
+      - whisper-download
+    command: &whisper-args
+      - --stt-library
+      - ${WHISPER_STT_LIBRARY:-faster-whisper}
       - --model
-      - ${WHISPER_MODEL:-tiny-int8}
+      - ${WHISPER_MODEL:-base.en}
       - --language
       - ${WHISPER_LANGUAGE:-en}
+      - --compute-type
+      - ${WHISPER_COMPUTE_TYPE:-int8}
+      - --beam-size
+      - ${WHISPER_BEAM_SIZE:-1}
+      - --cpu-threads
+      - ${WHISPER_CPU_THREADS:-8}
       - --download-dir
       - /data
     volumes:
       - ./whisper:/data
     networks:
-      - backend
       - model-downloads
+    mem_limit: 2g
+
+  wyoming-whisper:
+    image: rhasspy/wyoming-whisper:${WHISPER_VERSION:-3.8.1}
+    container_name: wyoming-whisper
+    restart: unless-stopped
+    entrypoint: ["bash", "/usr/src/docker_run.sh", "--local-files-only"]
+    command: *whisper-args
+    environment:
+      # Never reach for the Hugging Face hub: on the internal network the
+      # tokenizer lookup of the rhasspy int8 models would only stall.
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - ./whisper:/data
+    networks:
+      - backend
+    depends_on:
+      wyoming-whisper-download:
+        condition: service_completed_successfully
+    mem_limit: 2g
     healthcheck:
-      test:
-        [
-          "CMD",
-          "/usr/src/.venv/bin/python3",
-          "-c",
-          "import socket; socket.create_connection(('127.0.0.1', 10300), 5).close()",
-        ]
+      # The image's own check: a Wyoming Describe/Info round trip.
+      test: ["CMD", "/usr/src/.venv/bin/python3", "-m", "wyoming_faster_whisper.health_check"]
       interval: 30s
-      timeout: 10s
-      retries: 10
+      timeout: 20s
+      retries: 5
       start_period: 180s
 
   wyoming-piper:
@@ -93,12 +133,72 @@ services:
       retries: 10
       start_period: 180s
 
+  # Kokoro-82M text-to-speech (OpenAI-compatible HTTP API, CPU image). The
+  # model is baked into the pinned image, so it needs no download and no
+  # internet; its web player and API stay on the internal backend network.
+  kokoro-tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:${KOKORO_VERSION:-v0.9.0}
+    container_name: kokoro-tts
+    restart: unless-stopped
+    environment:
+      USE_GPU: "false"
+      DEVICE_TYPE: cpu
+      # Use the weights inside the image; never fetch them at start.
+      DOWNLOAD_MODEL: "false"
+      DEFAULT_VOICE: "${KOKORO_DEFAULT_VOICE:-af_heart}"
+      OMP_NUM_THREADS: "${KOKORO_CPU_THREADS:-8}"
+      API_LOG_LEVEL: INFO
+    networks:
+      - backend
+    # About 1.5 GiB in use after warm-up.
+    mem_limit: 2560m
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8880/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # Wyoming front end for Kokoro: Home Assistant's built-in Wyoming
+  # integration connects here (wyoming-kokoro:10300) and gets sentence-by-
+  # sentence streaming, so speech starts after the first sentence.
+  wyoming-kokoro:
+    image: ghcr.io/roryeckel/wyoming_openai:${WYOMING_OPENAI_VERSION:-0.8.0}
+    container_name: wyoming-kokoro
+    restart: unless-stopped
+    environment:
+      WYOMING_URI: tcp://0.0.0.0:10300
+      WYOMING_LOG_LEVEL: INFO
+      WYOMING_LANGUAGES: en
+      TTS_OPENAI_URL: http://kokoro-tts:8880/v1
+      TTS_STREAMING_MODELS: kokoro
+      TTS_BACKEND: KOKORO_FASTAPI
+      TTS_VOICES: "${KOKORO_VOICES:-af_heart af_bella bf_emma am_michael bm_george}"
+    networks:
+      - backend
+    depends_on:
+      kokoro-tts:
+        condition: service_healthy
+    mem_limit: 256m
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; socket.create_connection(('127.0.0.1', 10300), 5).close()",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 networks:
   backend:
     internal: true
-  # Whisper and Piper download a model and a voice on first start. This
-  # network is outbound-only for those downloads. It is not webgateway, and
-  # neither container publishes a host port.
+  # Outbound-only network for the one-shot Whisper model download and for
+  # Piper's voice download. It is not webgateway, and no container publishes
+  # a host port. The long-running Whisper and Kokoro servers are not on it.
   model-downloads:
   webgateway:
     external: true
