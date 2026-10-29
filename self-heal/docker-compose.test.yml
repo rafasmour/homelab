@@ -1,0 +1,39 @@
+# Opt-in test target for the self-heal flow. Separate project, so it never
+# shows up as an orphan of the self-heal stack:
+#   docker compose -f self-heal/docker-compose.test.yml up -d
+# Break it (health check fails, Grafana alert `container-unhealthy` after ~3 min):
+#   docker exec self-heal-test touch /tmp/broken
+# A restart clears the /tmp tmpfs, which is what the approved restart does.
+# Remove: docker compose -f self-heal/docker-compose.test.yml down
+name: self-heal-test
+
+services:
+  self-heal-test:
+    image: busybox:${BUSYBOX_VERSION:-1.37.0}
+    container_name: self-heal-test
+    restart: unless-stopped
+    # Logs the fault so a read-only diagnosis can see it (the health check
+    # output itself is not in the container logs).
+    command:
+      - sh
+      - -c
+      - 'while true; do if [ -e /tmp/broken ]; then echo "ERROR health check failing: /tmp/broken exists (simulated fault kept in the tmpfs; a container restart clears it)"; else echo "ok"; fi; sleep 20; done'
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
+    cpus: "0.1"
+    mem_limit: 16m
+    pids_limit: 16
+    labels:
+      traefik.enable: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "test ! -e /tmp/broken"]
+      interval: 15s
+      timeout: 3s
+      retries: 1
+      start_period: 5s

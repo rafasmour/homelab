@@ -1,0 +1,227 @@
+# Self-heal: Grafana alert -> read-only diagnosis by the Hermes profile
+# `devops-diagnose` -> report in a dedicated Talk room -> restart of an
+# allowlisted container after the owner approves with a TOTP code.
+# Nothing here is published on the host or routed by Traefik. See README.md
+# for the trust boundaries.
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  labels:
+    traefik.enable: "false"
+
+services:
+  # Controller: the only container that can execute an action. Reachable by
+  # Grafana and the Talk bridge (self-heal-ingress), calls hermes-api
+  # (self-heal-agent) and the restart proxy (self-heal-exec).
+  self-heal:
+    <<: *hardening
+    build:
+      context: ./app
+      args:
+        PYTHON_VERSION: "${PYTHON_VERSION:-3.13.17}"
+    image: self-heal-controller:local
+    container_name: self-heal
+    user: "${SELF_HEAL_UID:-1000}:${SELF_HEAL_GID:-1000}"
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      SELF_HEAL_ENABLED: "${SELF_HEAL_ENABLED:-1}"
+      SELF_HEAL_WEBHOOK_SECRET: "${SELF_HEAL_WEBHOOK_SECRET:?Set SELF_HEAL_WEBHOOK_SECRET in .env}"
+      SELF_HEAL_APPROVE_SECRET: "${SELF_HEAL_APPROVE_SECRET:?Set SELF_HEAL_APPROVE_SECRET in .env}"
+      SELF_HEAL_HERMES_KEY: "${SELF_HEAL_HERMES_KEY:?Set SELF_HEAL_HERMES_KEY in .env}"
+      SELF_HEAL_HERMES_MODEL: "${SELF_HEAL_HERMES_MODEL:-hermes-agent}"
+      SELF_HEAL_DIAGNOSE_TIMEOUT: "${SELF_HEAL_DIAGNOSE_TIMEOUT:-900}"
+      SELF_HEAL_GRAFANA_TOKEN: "${SELF_HEAL_GRAFANA_TOKEN:?Set SELF_HEAL_GRAFANA_TOKEN in .env}"
+      SELF_HEAL_TOTP_SECRET: "${SELF_HEAL_TOTP_SECRET:?Set SELF_HEAL_TOTP_SECRET in .env}"
+      SELF_HEAL_REQUIRE_TOTP: "${SELF_HEAL_REQUIRE_TOTP:-1}"
+      SELF_HEAL_OWNER_ACTOR: "${SELF_HEAL_OWNER_ACTOR:?Set SELF_HEAL_OWNER_ACTOR in .env}"
+      SELF_HEAL_RESTART_ALLOWLIST: "${SELF_HEAL_RESTART_ALLOWLIST:?Set SELF_HEAL_RESTART_ALLOWLIST in .env}"
+      SELF_HEAL_COOLDOWN_SECONDS: "${SELF_HEAL_COOLDOWN_SECONDS:-3600}"
+      SELF_HEAL_MAX_RUNS_PER_HOUR: "${SELF_HEAL_MAX_RUNS_PER_HOUR:-4}"
+      SELF_HEAL_APPROVAL_TTL_SECONDS: "${SELF_HEAL_APPROVAL_TTL_SECONDS:-900}"
+      TALK_DELIVER_SECRET: "${TALK_DELIVER_SECRET:?Set TALK_DELIVER_SECRET in .env}"
+      TALK_SELF_HEAL_ROOM: "${TALK_SELF_HEAL_ROOM:?Set TALK_SELF_HEAL_ROOM in .env}"
+      SELF_HEAL_STATE_FILE: /data/state.json
+    volumes:
+      - ./data:/data
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    cpus: "0.5"
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8790/healthz', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      self-heal-restart-proxy:
+        condition: service_healthy
+    networks:
+      - self-heal-ingress
+      - self-heal-agent
+      - self-heal-exec
+
+  # Read-only MCP server for the devops-diagnose profile. It parses
+  # LLM-controlled arguments, so it gets no host mounts and no Docker socket:
+  # only the GET-only proxies and host-probe on self-heal-diag.
+  self-heal-diagnose-mcp:
+    <<: *hardening
+    build:
+      context: ./diagnose-mcp
+    image: self-heal-diagnose-mcp:local
+    container_name: self-heal-diagnose-mcp
+    user: "65534:65534"
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      DIAGNOSE_MCP_TOKEN: "${DIAGNOSE_MCP_TOKEN:?Set DIAGNOSE_MCP_TOKEN in .env}"
+      HOST_PROBE_TOKEN: "${HOST_PROBE_TOKEN:?Set HOST_PROBE_TOKEN in .env}"
+      DIAG_LOG_CONTAINERS: "${DIAG_LOG_CONTAINERS:?Set DIAG_LOG_CONTAINERS in .env}"
+      DOCKER_PROXY_URL: http://self-heal-docker-ro-proxy:2375
+      QUERY_PROXY_URL: http://self-heal-query-proxy:8080
+      HOST_PROBE_URL: http://self-heal-host-probe:8792
+      REPO_GIT_DIR: /repo.git
+    volumes:
+      # Committed compose files only (git objects, not the working tree).
+      - ../.git:/repo.git:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cpus: "1"
+    mem_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8791/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      self-heal-docker-ro-proxy:
+        condition: service_healthy
+      self-heal-query-proxy:
+        condition: service_healthy
+      self-heal-host-probe:
+        condition: service_healthy
+    networks:
+      - self-heal-agent
+      - self-heal-diag
+
+  # GET-only Docker API: list, version, logs of DIAG_LOG_CONTAINERS.
+  # No inspect (it exposes container environments).
+  self-heal-docker-ro-proxy:
+    <<: *hardening
+    image: haproxy:${HAPROXY_VERSION:-3.2.26-alpine}
+    container_name: self-heal-docker-ro-proxy
+    # Root without capabilities: enough to open the root-owned socket.
+    user: "0:0"
+    environment:
+      DIAG_LOG_CONTAINERS: "${DIAG_LOG_CONTAINERS:?Set DIAG_LOG_CONTAINERS in .env}"
+    volumes:
+      - ./docker-ro-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    cpus: "0.25"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2375/_ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - self-heal-diag
+
+  # GET-only Prometheus/Loki query endpoints. Joins webgateway only to reach
+  # prometheus:9090 and loki:3100; Traefik is disabled for it.
+  self-heal-query-proxy:
+    <<: *hardening
+    image: haproxy:${HAPROXY_VERSION:-3.2.26-alpine}
+    container_name: self-heal-query-proxy
+    volumes:
+      - ./query-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    cpus: "0.25"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8080 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - self-heal-diag
+      - webgateway
+
+  # Restart-only Docker API for the controller (POST restart of
+  # SELF_HEAL_RESTART_ALLOWLIST, GET /_ping). Enforces the allowlist on its own.
+  self-heal-restart-proxy:
+    <<: *hardening
+    image: haproxy:${HAPROXY_VERSION:-3.2.26-alpine}
+    container_name: self-heal-restart-proxy
+    user: "0:0"
+    environment:
+      SELF_HEAL_RESTART_ALLOWLIST: "${SELF_HEAL_RESTART_ALLOWLIST:?Set SELF_HEAL_RESTART_ALLOWLIST in .env}"
+    volumes:
+      - ./restart-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    cpus: "0.25"
+    mem_limit: 64m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2375/_ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - self-heal-exec
+
+  # Fixed host memory/swap/PSI/GPU snapshots. The only container with host
+  # /proc and /sys; runs as nobody so it cannot read other users' process
+  # environments, and takes no free-form parameters.
+  self-heal-host-probe:
+    <<: *hardening
+    build:
+      context: ./host-probe
+    image: self-heal-host-probe:local
+    container_name: self-heal-host-probe
+    user: "65534:65534"
+    environment:
+      HOST_PROBE_TOKEN: "${HOST_PROBE_TOKEN:?Set HOST_PROBE_TOKEN in .env}"
+      HOST_PROC: /host/proc
+      HOST_SYS: /host/sys
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    cpus: "0.25"
+    mem_limit: 64m
+    pids_limit: 32
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8792/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - self-heal-diag
+
+networks:
+  # self-heal <-> grafana (webhook, alert re-fetch) and hermes-nextcloud-bridge
+  # (/approve in, /deliver out). The other stacks join it as external.
+  self-heal-ingress:
+    name: self-heal-ingress
+    internal: true
+  # self-heal -> hermes-api -> self-heal-diagnose-mcp. hermes joins as external.
+  self-heal-agent:
+    name: self-heal-agent
+    internal: true
+  # diagnose-mcp <-> docker-ro-proxy, query-proxy, host-probe.
+  self-heal-diag:
+    internal: true
+  # controller <-> restart proxy only.
+  self-heal-exec:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway
