@@ -10,7 +10,8 @@ services:
       ENABLE_PERSISTENT_CONFIG: "${ENABLE_PERSISTENT_CONFIG:-false}"
 
       # Connections by index: 0 llama-server, 1 llama-classifier,
-      # 2 Hermes default profile, 3-10 Hermes specialist profiles.
+      # 2 Hermes default profile, 3-17 Hermes specialist profiles (append new
+      # profiles at the end so existing indexes keep their settings).
       OPENAI_API_BASE_URLS: >-
         http://llama-server:8080/v1;
         http://llama-classifier:8080/v1;
@@ -22,10 +23,24 @@ services:
         http://hermes-api:8642/p/hf-models/v1;
         http://hermes-api:8642/p/llamacpp-vulkan/v1;
         http://hermes-api:8642/p/gpu-watch/v1;
-        http://hermes-api:8642/p/selfhosted/v1
+        http://hermes-api:8642/p/selfhosted/v1;
+        http://hermes-api:8642/p/llamacpp-rocm/v1;
+        http://hermes-api:8642/p/coding/v1;
+        http://hermes-api:8642/p/devops/v1;
+        http://hermes-api:8642/p/models/v1;
+        http://hermes-api:8642/p/planner/v1;
+        http://hermes-api:8642/p/n8n/v1;
+        http://hermes-api:8642/p/web-search/v1
       OPENAI_API_KEYS: >-
         ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};
         ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
+        ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
         ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
         ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
         ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
@@ -46,7 +61,14 @@ services:
         "7": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
         "8": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
         "9": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "10": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]}
+        "10": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "11": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "12": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "13": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "14": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "15": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "16": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
+        "17": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]}
         }
       ENABLE_OPENAI_API: "true"
       ENABLE_OLLAMA_API: "false"
