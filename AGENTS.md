@@ -110,7 +110,7 @@ them into labels, and never put a credential directly in Compose.
 The tracked `.env.example` is the source of truth for every variable needed by
 the stack.
 
-- Include `DOMAIN=tomandjerry.mourou.dev`.
+- Include `DOMAIN=lab.rafasmour.com`.
 - Expose configurable database names, usernames, passwords, application
   secrets, administrator usernames, and administrator passwords when the
   upstream application supports them.
@@ -130,6 +130,9 @@ the stack.
   first-run account creation in `.env.example` and `README.md` instead.
 - A local `service-name/.env` may mirror the template with placeholder values,
   but it must remain ignored and must not be staged.
+- `scripts/setup-env.sh` builds `.env` files from `.env.example`; classify each new
+  secret, prompted login, UI-created token, or cross-stack shared secret in its
+  tables when you add a variable of that kind.
 
 ## Authentication and exposure
 

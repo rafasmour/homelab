@@ -1,0 +1,37 @@
+# ripgrep ignore rules for agents searching this repository (Hermes devops
+# sandbox, editors). .gitignore already denies everything that is not
+# allowlisted, but ripgrep still descended into some bind-mounted data
+# folders; these are never useful to search and can be huge or unreadable.
+*/data/
+*/postgres/
+*/database/
+*/redis/
+*/valkey/
+*/config/
+!grafana/provisioning/
+!homepage/config/
+immich/library/
+immich/model-cache/
+llama-cpp/models/*/
+llama-cpp-classifier/models/*/
+llama.cpp/
+unsloth-studio/work/
+nextcloud/html/
+nextcloud/mcp-data/
+gitlab/logs/
+benchmark/reports/
+firefly-iii/uploads/
+firefly-iii/import-archive/
+tandoor-recipes/mediafiles/
+tandoor-recipes/staticfiles/
+wger/media/
+wger/static/
+wger/celery-beat/
+home-assistant/piper/
+home-assistant/whisper/
+pi-hole/etc-pihole/
+silverbullet/space/
+hermes/workspace/
+hermes-sandboxes/keys/
+*.gguf
+*.safetensors

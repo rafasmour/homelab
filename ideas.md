@@ -2,7 +2,7 @@
 
 Collected on 2026-10-23 from a scan of every stack in this repo and from web research. Each idea has a rough **effort / value** and the reason it takes something off your plate. RAM is the real limit on this host (15 GB, about 25 stacks), not the GPU, so new services are listed with a RAM estimate.
 
-Guiding rule for agents on a small local model (Mellum 2.1, 12B MoE): **deterministic steps (n8n, scripts, Paperless workflows) fetch, filter, do dates and maths; the LLM only extracts, classifies or summarises into a fixed schema; a human confirms anything that writes money or deletes data.** Keep each Hermes profile at about 5–10 tools ([over-tooled agents](https://tianpan.co/blog/2026/04/19/over-tooled-agent-problem), [reliable tool calls](https://unified.to/blog/how_to_build_reliable_tool_calls_for_ai_agents)).
+Guiding rule for agents on a small local model (Qwen 3.6 35B-A3B MoE, 3B active): **deterministic steps (n8n, scripts, Paperless workflows) fetch, filter, do dates and maths; the LLM only extracts, classifies or summarises into a fixed schema; a human confirms anything that writes money or deletes data.** Keep each Hermes profile at about 5–10 tools ([over-tooled agents](https://tianpan.co/blog/2026/04/19/over-tooled-agent-problem), [reliable tool calls](https://unified.to/blog/how_to_build_reliable_tool_calls_for_ai_agents)).
 
 ## 0. Fix first (risk, not features)
 
