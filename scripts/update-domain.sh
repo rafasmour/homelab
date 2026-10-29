@@ -12,7 +12,7 @@ if (( $# < 1 || $# > 2 )); then
 fi
 
 new_domain=$1
-search_root=${2:-.}
+search_root=${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 
 if [[ -z $new_domain || $new_domain == .* || $new_domain == *. ]] ||
   (( ${#new_domain} > 253 )); then
@@ -68,11 +68,14 @@ while IFS= read -r -d '' env_file; do
     rm -f -- "$temporary_file"
     ((failed += 1))
   fi
-done < <(find "$search_root" -type d -name .git -prune -o -type f -name .env -print0)
+# Only the stack folders' own env files (ROOT/.env* and ROOT/service/.env*);
+# deeper folders hold application data and upstream checkouts.
+done < <(find "$search_root" -maxdepth 2 -type d -name .git -prune -o \
+  -type f \( -name .env -o -name .env.example \) -print0)
 
-printf 'Updated %d .env file(s).\n' "$updated"
+printf 'Updated %d env file(s).\n' "$updated"
 
 if (( failed > 0 )); then
-  printf 'Failed to update %d .env file(s).\n' "$failed" >&2
+  printf 'Failed to update %d env file(s).\n' "$failed" >&2
   exit 1
 fi
