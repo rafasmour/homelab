@@ -9,6 +9,10 @@ services:
     environment:
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       SEARXNG_URL: "${SEARXNG_URL:-http://searxng:8080}"
+      SEARXNG_TIMEOUT_LIMIT: "${SEARXNG_TIMEOUT_LIMIT:-3}"
+      SEARXNG_ENGINES: "${SEARXNG_ENGINES:-}"
+      SEARXNG_CATEGORIES: "${SEARXNG_CATEGORIES:-}"
+      SEARXNG_DISABLED_ENGINES: "${SEARXNG_DISABLED_ENGINES:-duckduckgo,brave,startpage,wikidata}"
       SEARCH_ENGINE: "${SEARCH_ENGINE:-searxng}"
       FETCH_HEADERS: "${FETCH_HEADERS:-curl_recommended}"
       FETCH_WEBSITE: "${FETCH_WEBSITE:-curl}"
@@ -16,12 +20,13 @@ services:
       HTML_TO_MARKDOWN: "${HTML_TO_MARKDOWN:-markdownify}"
       WEB_SEARCH_RESULT_COUNT: "${WEB_SEARCH_RESULT_COUNT:-5}"
       WEB_SEARCH_MAX_RESULTS: "${WEB_SEARCH_MAX_RESULTS:-8}"
-      WEB_SEARCH_PAGE_CHARS: "${WEB_SEARCH_PAGE_CHARS:-8000}"
-      WEB_SEARCH_TOTAL_CHARS: "${WEB_SEARCH_TOTAL_CHARS:-40000}"
-      WEB_SEARCH_FETCH_WORKERS: "${WEB_SEARCH_FETCH_WORKERS:-4}"
+      WEB_SEARCH_EXCERPT_CHARS: "${WEB_SEARCH_EXCERPT_CHARS:-1200}"
+      WEB_SEARCH_FETCH_DEADLINE: "${WEB_SEARCH_FETCH_DEADLINE:-4}"
+      WEB_SEARCH_FETCH_WORKERS: "${WEB_SEARCH_FETCH_WORKERS:-8}"
       WEB_FETCH_MAX_CHARS: "${WEB_FETCH_MAX_CHARS:-20000}"
       FETCH_ALLOW_PRIVATE: "${FETCH_ALLOW_PRIVATE:-false}"
       FETCH_HOST_USER_AGENTS: "${FETCH_HOST_USER_AGENTS:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       TZ: "${TZ:-Etc/UTC}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
@@ -32,8 +37,14 @@ services:
     networks:
       - hermes-mcp
       - webgateway
+      - hermes-websearch
 
 networks:
+  # Internal network that gives sandboxed agents (pi-sandbox, module
+  # websearch) this MCP server and nothing else from hermes-mcp.
+  hermes-websearch:
+    internal: true
+    name: hermes-websearch
   hermes-mcp:
     external: true
     name: hermes-mcp

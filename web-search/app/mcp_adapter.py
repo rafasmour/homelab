@@ -1,5 +1,6 @@
 import hmac
 import json
+import logging
 import os
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -53,28 +54,33 @@ def _create_mcp(tools: WebTools) -> FastMCP:
 
     @mcp.tool()
     async def web_search(query: str, n: int = 0) -> str:
-        """Discover web pages for a search query.
+        """Search the web and return the top results with short excerpts.
 
-        Use this when you do not yet know which page has the answer. It runs a
-        web search, reads the top results, and returns each result's title, URL,
-        snippet and main-text markdown. To read one page whose URL you already
-        know, use fetch_url instead.
+        Use this to discover pages when you do not yet know which one has the
+        answer. Each result has its title, URL, search snippet and a short
+        excerpt of the page's main text, marked "[excerpt — call fetch_url for
+        the full page]" (or "[complete page text ...]" when the page is that
+        short). Often the excerpts already answer the question. To read one
+        result in full, call fetch_url with its URL, but only when its excerpt
+        is not enough; never call fetch_url just to re-read an excerpt.
 
         Args:
             query: Search terms, as you would type them into a search engine.
-            n: Number of results to read; 0 uses the server default.
+            n: Number of results; 0 uses the server default.
         """
         return await run_in_threadpool(tools.search.run, query, None if n < 1 else n)
 
     @mcp.tool()
     async def fetch_url(url: str, max_chars: int = 0) -> str:
-        """Read one known web page and return its main content as markdown.
+        """Read one known web page in full and return its main content as markdown.
 
-        Use this when you already have a URL, for example from the user or
-        from a web_search result, and need the full page text. It does not
-        search. The result starts with "# <title>" and "URL: <final URL>".
-        HTML, plain text, markdown and JSON are supported; PDFs, images and
-        other binary files are not.
+        Use this when you already have a URL (from the user, or a web_search
+        result whose excerpt was not enough) and need the whole page. Do not
+        call it for a web_search result whose excerpt already answers the
+        question or is marked complete. It does not search. The result starts
+        with "# <title>" and "URL: <final URL>". HTML, plain text, markdown,
+        JSON and RSS/Atom feeds are supported; PDFs, images and other binary
+        files are not.
 
         Args:
             url: Absolute http:// or https:// URL to read.
@@ -143,6 +149,10 @@ def create_app():
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=(os.environ.get("LOG_LEVEL") or "INFO").upper(),
+        format="%(levelname)s:     %(name)s: %(message)s",
+    )
     uvicorn.run(
         create_app(),
         host="0.0.0.0",

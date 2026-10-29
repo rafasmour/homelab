@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import json
 import subprocess
+import time
 from urllib.parse import urlsplit
 import uuid
 
@@ -37,7 +38,8 @@ class FetchResult:
 
 class FetchWebsite(ABC):
     @abstractmethod
-    def fetch(self, url: str) -> FetchResult:
+    def fetch(self, url: str, time_budget: float | None = None) -> FetchResult:
+        """Fetch url. A time_budget (seconds) bounds the whole fetch, redirects included, and disables retries."""
         raise NotImplementedError
 
 
@@ -48,15 +50,24 @@ class CurlFetchWebsite(FetchWebsite):
         self._headers = headers
         self._guard = guard
 
-    def fetch(self, url: str) -> FetchResult:
+    def fetch(self, url: str, time_budget: float | None = None) -> FetchResult:
         config = self._headers.headers()
+        deadline = None if time_budget is None else time.monotonic() + time_budget
         current = url
         for _ in range(config.max_redirs + 1):
+            max_time: float = config.max_time
+            retry = config.retry
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining < 0.2:
+                    raise FetchError(f"timed out after {time_budget:g}s for {url}")
+                max_time = min(max_time, remaining)
+                retry = 0
             try:
                 target = self._guard.check(current)
             except UrlRefused as exc:
                 raise FetchError(str(exc)) from exc
-            info, body = self._curl(current, target, config)
+            info, body = self._curl(current, target, config, max_time, retry)
             status = int(info.get("http_code") or 0)
             location = info.get("redirect_url") or ""
             if 300 <= status < 400 and location:
@@ -65,16 +76,18 @@ class CurlFetchWebsite(FetchWebsite):
             return FetchResult(url=current, content_type=info.get("content_type") or "", body=body)
         raise FetchError(f"too many redirects for {url}")
 
-    def _curl(self, url: str, target: Target, config: FetchConfig) -> tuple[dict, bytes]:
+    def _curl(
+        self, url: str, target: Target, config: FetchConfig, max_time: float, retry: int
+    ) -> tuple[dict, bytes]:
         marker = f"\n--web-search-{uuid.uuid4().hex}--\n"
         command = [
             "curl",
             "-fsS",
             "--compressed",
             "--max-time",
-            str(config.max_time),
+            f"{max_time:.1f}",
             "--retry",
-            str(config.retry),
+            str(retry),
             "--proto",
             "=http,https",
             "--max-filesize",
@@ -97,7 +110,7 @@ class CurlFetchWebsite(FetchWebsite):
                 command,
                 check=False,
                 capture_output=True,
-                timeout=config.max_time + 10,
+                timeout=max_time + 10,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise FetchError(f"curl failed for {url}: {exc}") from exc

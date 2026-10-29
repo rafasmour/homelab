@@ -10,8 +10,8 @@ There is no Traefik route and no Homepage entry.
 
 | Interface | Purpose |
 | --- | --- |
-| MCP `web_search(query: str, n: int = 0)` | Discover pages: search, read the top `n` hits in parallel, return title, URL, snippet and markdown per hit. |
-| MCP `fetch_url(url: str, max_chars: int = 0)` | Read one known URL. Returns `# {title}`, `URL: {final_url}`, then markdown. |
+| MCP `web_search(query: str, n: int = 0)` | Discover pages: search, read the top `n` hits in parallel, return title, URL, snippet and a short main-text excerpt per hit. |
+| MCP `fetch_url(url: str, max_chars: int = 0)` | Read one known URL in full. Returns `# {title}`, `URL: {final_url}`, then markdown. |
 | `POST /search` `{"query": str, "count": int}` | Returns `[{"link", "title", "snippet"}]` without fetching pages (at most 20). |
 | `POST /fetch` `{"urls": [str]}` | Returns `[{"page_content", "metadata": {"source", "title"}}]` (at most 20 URLs; failed URLs are omitted). |
 | `GET /healthz` | Unauthenticated health check. |
@@ -19,9 +19,28 @@ There is no Traefik route and no Homepage entry.
 HTML is converted to markdown. `text/plain`, `text/markdown` and JSON are
 returned as-is. PDFs, images and other binary types return an error.
 `fetch_url` and `/fetch` documents are capped at `WEB_FETCH_MAX_CHARS`
-(default 20000); `max_chars` can only lower that cap. `web_search` keeps the
-`WEB_SEARCH_PAGE_CHARS` and `WEB_SEARCH_TOTAL_CHARS` caps and fetches up to
-`WEB_SEARCH_FETCH_WORKERS` pages at once.
+(default 20000); `max_chars` can only lower that cap.
+
+`web_search` returns only excerpts, so a model does not receive a page twice
+when it later calls `fetch_url`. Each result carries the first
+`WEB_SEARCH_EXCERPT_CHARS` (default 1200) characters of its main text, with
+link targets and images removed, followed by
+`[excerpt — call fetch_url for the full page]`, or by
+`[complete page text, links omitted — no need to call fetch_url]` when the
+page is that short. `WEB_SEARCH_EXCERPT_CHARS=0` skips reading pages and
+returns snippets only.
+
+Latency is bounded. SearXNG is queried with `timeout_limit` (default
+`SEARXNG_TIMEOUT_LIMIT=3` seconds), so a hanging or rate-limited engine cannot
+hold a search for the full `outgoing.request_timeout`. Result pages are read in
+parallel (`WEB_SEARCH_FETCH_WORKERS`, default 8) with a single attempt and a
+shared `WEB_SEARCH_FETCH_DEADLINE` (default 4 seconds, redirects included).
+A page that misses the deadline is listed with its snippet and
+`[page not read: ...]`. A `web_search` call therefore takes at most about
+`SEARXNG_TIMEOUT_LIMIT + WEB_SEARCH_FETCH_DEADLINE + 1` seconds. `fetch_url`
+and `/fetch` keep the normal `FETCH_MAX_TIME` and `FETCH_RETRY` settings.
+`SEARXNG_ENGINES` and `SEARXNG_CATEGORIES` optionally restrict which SearXNG
+engines are queried.
 
 ### Open WebUI built-in web search
 
@@ -48,6 +67,10 @@ Pages that need JavaScript will fail; this image has no browser.
 - Docker Engine with Docker Compose
 - The Compose-managed `hermes-mcp` network (start Hermes first)
 - The external `webgateway` network
+- Nothing for `hermes-websearch`: this stack creates that internal network.
+  `pi-sandbox` (module `websearch`, in `~/docker/hermes-sandbox`) joins it to
+  reach only this server, with the same bearer token, without seeing the
+  other MCP servers on `hermes-mcp`.
 - SearXNG running as container `searxng` on `webgateway`
 
 SearXNG must allow JSON responses. Merge `json` into the existing user-owned
@@ -62,6 +85,16 @@ search:
 
 Then restart SearXNG. This repository does not edit that ignored runtime
 configuration automatically.
+
+Engines that keep answering with CAPTCHAs or rate limits are suspended by
+SearXNG, but each time a suspension expires the next search waits for them
+again (up to `SEARXNG_TIMEOUT_LIMIT`). Check the `unresponsive_engines` field of
+`/search?format=json` and add persistent offenders to
+`SEARXNG_DISABLED_ENGINES` (default `duckduckgo,brave,startpage,wikidata`),
+which turns them off for this service's queries only, or disable them in
+`settings.yml`. Every `web_search` call logs one
+`search …s, pages …s, n/m pages read` line; `LOG_LEVEL=DEBUG` adds one line per
+page read.
 
 ## Configure and start
 
@@ -111,7 +144,7 @@ URLs.
 
 ### SSRF guard
 
-The container sits on `hermes-mcp` and `webgateway`, so it can reach other
+The container sits on `hermes-mcp`, `hermes-websearch` and `webgateway`, so it can reach other
 internal services. With `FETCH_ALLOW_PRIVATE=false` (the default), every URL
 is resolved before fetching and refused if any address is private, loopback,
 link-local, CGNAT, multicast, reserved or otherwise not globally routable.
