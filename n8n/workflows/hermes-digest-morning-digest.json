@@ -1,0 +1,614 @@
+{
+  "id": "hermes-digest-morning-digest",
+  "name": "Hermes digest – morning-digest",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Hermes digest – morning-digest\n08:00 Europe/Athens → Talk room of profile nextcloud.\n\nNextcloud MCP server (http://nextcloud-mcp:8000/mcp, no auth, stateful session): nc_calendar_list_events on `personal` for today and nc_calendar_search_todos for the open to-dos of every live task list, grouped by list with due/overdue first. (The HTTP Request node does not send a body with PROPFIND/REPORT, so CalDAV is not called directly.) Template only, no LLM. No events and no open to-dos = no message.\n\nManual run = dry run: the result is returned, nothing is posted. Another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. The workflow is its own error workflow: a failed scheduled run posts one line to the room. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
+        "height": 300,
+        "width": 520
+      },
+      "id": "db0a32b8-855c-551f-a474-e1c865d76f9f",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "0eca1478-1702-50a9-ad27-e83c79299d1c",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e1bba030-3b7b-5ef2-98f3-d5a5154d4ae9",
+      "name": "Manual run (dry run)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "4c24063c-fa93-56f2-a225-bfd6fac11b75",
+      "name": "Called by workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Normalises the three entry points. The schedule always delivers. A manual\n// run or a call from another workflow is a dry run unless it passes\n// dry_run: false. Optional inputs: use_llm (default true) and date\n// (YYYY-MM-DD, replaces today's Europe/Athens date for testing).\nconst input = $input.first()?.json ?? {};\nconst scheduled = Object.prototype.hasOwnProperty.call(input, 'timestamp')\n  || Object.prototype.hasOwnProperty.call(input, 'Readable date');\nconst zone = 'Europe/Athens';\nlet now = DateTime.now().setZone(zone);\nif (!scheduled && typeof input.date === 'string' && /^\\d{4}-\\d{2}-\\d{2}$/.test(input.date)) {\n  now = DateTime.fromISO(input.date, { zone }).set({ hour: now.hour, minute: now.minute, second: now.second });\n}\nreturn [{\n  json: {\n    job: \"morning-digest\",\n    scheduled,\n    dry_run: scheduled ? false : input.dry_run !== false,\n    use_llm: scheduled ? true : input.use_llm !== false,\n    now: now.toISO(),\n    today: now.toISODate(),\n    yesterday: now.minus({ days: 1 }).toISODate(),\n    month_start: now.startOf('month').toISODate(),\n    weekday: now.setLocale('en').toFormat('cccc'),\n  },\n}];\n"
+      },
+      "id": "e15d4354-c568-515a-93b6-a21da06d0765",
+      "name": "Run options",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://nextcloud-mcp:8000/mcp",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/event-stream"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jsonrpc: \"2.0\", id: 1, method: \"initialize\", params: { protocolVersion: \"2025-03-26\", capabilities: {}, clientInfo: { name: \"n8n-hermes-digest\", version: \"1.0\" } } }) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "9090e2f3-9aaa-5cda-a11c-d242086c4a8b",
+      "name": "MCP initialize",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// The Nextcloud MCP server is stateful: later calls carry the session id\n// returned by initialize.\nconst res = $input.first().json;\nconst headers = res.headers || {};\nconst sid = headers['mcp-session-id'] || headers['Mcp-Session-Id'];\nif (!sid) throw new Error(`Nextcloud MCP: initialize returned no session id (HTTP ${res.statusCode ?? '?'})`);\nreturn [{ json: { sid } }];\n"
+      },
+      "id": "b62b9d6e-f6ed-58fc-b35b-be09153f21d2",
+      "name": "MCP session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://nextcloud-mcp:8000/mcp",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/event-stream"
+            },
+            {
+              "name": "mcp-session-id",
+              "value": "={{ $('MCP session').first().json.sid }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jsonrpc: \"2.0\", method: \"notifications/initialized\" }) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "6e72344d-865b-52b0-8a6f-c8ac0d081d98",
+      "name": "MCP initialized",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://nextcloud-mcp:8000/mcp",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/event-stream"
+            },
+            {
+              "name": "mcp-session-id",
+              "value": "={{ $('MCP session').first().json.sid }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'nc_calendar_list_events', arguments: { calendar_name: 'personal', start_date: $('Run options').first().json.today, end_date: $('Run options').first().json.today, limit: 50 } } }) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "594ebd01-c01a-5316-a4e9-3c6914f06992",
+      "name": "Today's events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://nextcloud-mcp:8000/mcp",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json, text/event-stream"
+            },
+            {
+              "name": "mcp-session-id",
+              "value": "={{ $('MCP session').first().json.sid }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'nc_calendar_search_todos', arguments: {} } }) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "3d7d918a-c157-5920-94a4-9ec382ee72c4",
+      "name": "Open to-dos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const MAX_MESSAGE = 3500;\n\nfunction decodeEntities(text) {\n  return String(text ?? '')\n    .replace(/&#(\\d+);/g, (_, n) => String.fromCodePoint(Number(n)))\n    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&quot;/g, '\"')\n    .replace(/&apos;/g, \"'\")\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&');\n}\n\nfunction oneLine(text, max) {\n  let s = String(text ?? '').replace(/\\s+/g, ' ').trim();\n  if (max && s.length > max) s = `${s.slice(0, max - 1).replace(/\\s+\\S*$/, '')}…`;\n  return s;\n}\n\n// Link text must not break the Markdown link.\nfunction linkText(text) {\n  return oneLine(text, 160).replace(/\\[/g, '(').replace(/\\]/g, ')');\n}\n\nfunction errorText(error) {\n  if (!error) return 'unknown error';\n  if (typeof error === 'string') return oneLine(error, 200);\n  return oneLine(error.message || error.description || JSON.stringify(error), 200);\n}\n\n// Joins a heading and bullet lines, dropping trailing bullets that would\n// exceed the Talk message budget.\nfunction buildMessage(head, lines, footer) {\n  let out = head;\n  let dropped = 0;\n  for (const line of lines) {\n    if (out.length + line.length + 1 + (footer ? footer.length + 2 : 0) > MAX_MESSAGE) {\n      dropped += 1;\n      continue;\n    }\n    out += `\\n${line}`;\n  }\n  if (dropped) out += `\\n- …and ${dropped} more`;\n  if (footer) out += `\\n\\n${footer}`;\n  return out;\n}\n\n// Morning digest template from two Nextcloud MCP calls. No LLM.\nconst opt = $('Run options').first().json;\nconst zone = 'Europe/Athens';\nconst MAX = 2500;\n\nfunction toolResult(nodeName) {\n  const raw = $(nodeName).first().json;\n  if (raw.error) throw new Error(`${nodeName}: ${errorText(raw.error)}`);\n  const text = String(raw.data ?? '');\n  const dataLines = text.split(/\\r?\\n/).filter((l) => l.startsWith('data:'));\n  let rpc;\n  try { rpc = JSON.parse(dataLines.length ? dataLines[dataLines.length - 1].slice(5) : text); } catch (e) { rpc = null; }\n  if (!rpc) throw new Error(`${nodeName}: unreadable response: ${oneLine(text, 120)}`);\n  if (rpc.error) throw new Error(`${nodeName}: ${errorText(rpc.error)}`);\n  const result = rpc.result || {};\n  let payload = result.structuredContent;\n  if (!payload || payload.result !== undefined) {\n    try { payload = JSON.parse(result.content?.[0]?.text ?? ''); } catch (e) { payload = null; }\n  }\n  if (result.isError || !payload || payload.success === false) {\n    throw new Error(`${nodeName}: ${oneLine(result.content?.[0]?.text || JSON.stringify(result), 200)}`);\n  }\n  return payload;\n}\n\nconst eventsRes = toolResult(\"Today's events\");\nconst todosRes = toolResult('Open to-dos');\n\nconst events = (eventsRes.events || [])\n  .filter((e) => String(e.status || '').toUpperCase() !== 'CANCELLED')\n  .map((e) => {\n    const title = oneLine(e.summary || '(no title)', 120);\n    if (e.all_day) return { sort: '', line: `- All day: ${title}` };\n    const s = DateTime.fromISO(String(e.start || '')).setZone(zone);\n    const en = DateTime.fromISO(String(e.end || '')).setZone(zone);\n    if (!s.isValid) return { sort: '', line: `- ${title}` };\n    return { sort: s.toFormat('HH:mm'), line: `- ${s.toFormat('HH:mm')}${en.isValid ? `–${en.toFormat('HH:mm')}` : ''} ${title}` };\n  })\n  .sort((a, b) => a.sort.localeCompare(b.sort));\n\nconst dueDate = (t) => {\n  const v = t.current_due || t.due;\n  if (!v) return null;\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(v)) return v;\n  const d = DateTime.fromISO(String(v)).setZone(zone);\n  return d.isValid ? d.toISODate() : null;\n};\nconst lists = {};\nfor (const t of todosRes.todos || []) {\n  const status = String(t.status || '').toUpperCase();\n  if (status === 'COMPLETED' || status === 'CANCELLED' || t.completed || Number(t.percent_complete) >= 100) continue;\n  const name = oneLine(t.calendar_display_name || t.calendar_name || 'Tasks');\n  (lists[name] ||= []).push({\n    title: oneLine(t.summary || '(no title)', 100),\n    dueDate: dueDate(t),\n    priority: Number(t.priority) || 10,\n  });\n}\n\nconst bySoonest = (a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999') || a.priority - b.priority;\nconst due = [];\nconst perList = [];\nfor (const name of Object.keys(lists).sort((a, b) => a.localeCompare(b))) {\n  const todos = lists[name].sort(bySoonest);\n  for (const t of todos) if (t.dueDate && t.dueDate <= opt.today) due.push({ ...t, list: name });\n  const top = todos.slice(0, 3).map((t) => t.title.replace(/;/g, ',')).join('; ');\n  perList.push(`- **${linkText(name)}** (${todos.length}): ${top}`);\n}\ndue.sort(bySoonest);\nconst openCount = Object.values(lists).reduce((n, l) => n + l.length, 0);\nconst warnings = [...(eventsRes.errors || []), ...(todosRes.errors || [])].map((e) => errorText(e));\n\nlet message = '';\nif (events.length || openCount) {\n  const sections = [`### Good morning, ${opt.weekday} ${opt.today}`];\n  if (events.length) sections.push('', '**Today**', ...events.map((e) => e.line));\n  if (due.length) {\n    sections.push('', '**Due or overdue**', ...due.slice(0, 12).map((t) => `- ${t.title} (${t.list}, ${t.dueDate === opt.today ? 'due today' : `due ${t.dueDate}`})`));\n    if (due.length > 12) sections.push(`- …and ${due.length - 12} more`);\n  }\n  if (perList.length) sections.push('', '**Open per list**', ...perList);\n  if (warnings.length) sections.push('', `_Not read: ${warnings.slice(0, 3).join('; ')}_`);\n  message = sections.join('\\n');\n  while (message.length > MAX && sections.length > 2) {\n    sections.splice(sections.length - 1, 1);\n    message = `${sections.join('\\n')}\\n- …`;\n  }\n}\nreturn [{ json: { message, deliver: Boolean(message) && !opt.dry_run, dry_run: opt.dry_run, events: events.length, open_todos: openCount, due: due.length } }];\n"
+      },
+      "id": "6e869e8c-79a3-57b6-aeed-18ee6fd25e1f",
+      "name": "Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0e039c8e-20f7-5643-9881-5e7f40612de0",
+              "leftValue": "={{ $json.deliver }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8c63dcf2-e6bb-5773-825d-1f0721270faf",
+      "name": "Deliver?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://hermes-nextcloud-bridge:8788/deliver",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "f7f0c024-3c99-5f17-9cbc-7228ada805f4",
+      "name": "Deliver to Talk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        200
+      ],
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "hdTalkNextcloud1",
+          "name": "Hermes digest – Talk room nextcloud"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Not delivered: a dry run, or nothing to report. Returned to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'dry run' : 'nothing to report' } }];\n"
+      },
+      "id": "0ef239ba-b505-56bd-910b-cbf0615c48ed",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        420
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "7e8ae484-ebd0-5b78-b8aa-7f1ac72b35ee",
+      "name": "On failure",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// This workflow is its own error workflow. Only failures of scheduled runs\n// are posted; manual runs and dry runs show the error in n8n instead.\nconst e = $input.first().json;\nconst execution = e.execution || {};\nconst mode = String(execution.mode || '');\nconst node = execution.lastNodeExecuted || execution.error?.node?.name || 'unknown node';\nconst reason = String(execution.error?.message || execution.error?.description || 'unknown error').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst message = `**${\"morning-digest\"} digest failed** (n8n, node \"${node}\"): ${reason}`;\nreturn [{ json: { message, deliver: mode === 'trigger' || mode === 'webhook', mode } }];\n"
+      },
+      "id": "7d93ead0-12b3-5664-909d-b23acded4ca8",
+      "name": "Failure notice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b422993e-6618-5297-9c31-f670adadf9cc",
+              "leftValue": "={{ $json.deliver }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "56ff04c6-a113-5298-8e20-5aab5f7546ef",
+      "name": "Scheduled run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://hermes-nextcloud-bridge:8788/deliver",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "c3db35e4-71df-5766-b623-d922aedb4266",
+      "name": "Post failure to Talk",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        900
+      ],
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "hdTalkNextcloud1",
+          "name": "Hermes digest – Talk room nextcloud"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Run options",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual run (dry run)": {
+      "main": [
+        [
+          {
+            "node": "Run options",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Called by workflow": {
+      "main": [
+        [
+          {
+            "node": "Run options",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run options": {
+      "main": [
+        [
+          {
+            "node": "MCP initialize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP initialize": {
+      "main": [
+        [
+          {
+            "node": "MCP session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP session": {
+      "main": [
+        [
+          {
+            "node": "MCP initialized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP initialized": {
+      "main": [
+        [
+          {
+            "node": "Today's events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Today's events": {
+      "main": [
+        [
+          {
+            "node": "Open to-dos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open to-dos": {
+      "main": [
+        [
+          {
+            "node": "Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format": {
+      "main": [
+        [
+          {
+            "node": "Deliver?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deliver?": {
+      "main": [
+        [
+          {
+            "node": "Deliver to Talk",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On failure": {
+      "main": [
+        [
+          {
+            "node": "Failure notice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failure notice": {
+      "main": [
+        [
+          {
+            "node": "Scheduled run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scheduled run?": {
+      "main": [
+        [
+          {
+            "node": "Post failure to Talk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "errorWorkflow": "hermes-digest-morning-digest",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}

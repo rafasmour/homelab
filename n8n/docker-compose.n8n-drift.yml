@@ -1,0 +1,12 @@
+# Override: lets the n8n-drift-runner reach the n8n API. Use it only while the
+# n8n-drift-runner stack runs (it creates the network):
+#   docker compose --env-file n8n/.env -f n8n/docker-compose.yml -f n8n/docker-compose.n8n-drift.yml up -d
+services:
+  n8n:
+    networks:
+      - n8n-drift
+
+networks:
+  n8n-drift:
+    external: true
+    name: n8n-drift

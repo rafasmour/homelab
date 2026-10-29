@@ -49,8 +49,8 @@ services:
       N8N_EDITOR_BASE_URL: "https://n8n.${DOMAIN}"
       WEBHOOK_URL: "https://n8n.${DOMAIN}/"
       N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}"
-      GENERIC_TIMEZONE: "${TZ:-Etc/UTC}"
-      TZ: "${TZ:-Etc/UTC}"
+      GENERIC_TIMEZONE: "${TZ:-Europe/Athens}"
+      TZ: "${TZ:-Europe/Athens}"
       PIRAEUS_ZIP_PASSWORD: "${PIRAEUS_ZIP_PASSWORD:-}"
       AUTO_IMPORT_SECRET: "${AUTO_IMPORT_SECRET:-}"
       FIREFLY_IMPORT_DEFAULT_ACCOUNT_ID: "${FIREFLY_IMPORT_DEFAULT_ACCOUNT_ID:-}"
@@ -63,8 +63,11 @@ services:
       - ./scripts/piraeus-import.cjs:/scripts/piraeus-import.cjs:ro
       - ../firefly-iii/imports:/firefly-import
       - ../firefly-iii/import-archive:/firefly-import-archive
+      # Read by the "Hermes digest – gpu-watch" workflow.
+      - ../hermes/gpu-watchlist.example.yml:/home/node/.n8n-files/gpu-watchlist.yml:ro
     networks:
       - backend
+      - hermes-mcp
       - webgateway
     labels:
       kuma.n8n.docker.name: "n8n"
