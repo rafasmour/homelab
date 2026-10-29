@@ -1,0 +1,53 @@
+# Runs n8n/scripts/check-workflow-drift.sh when Grafana's "n8n drift check not
+# running" alert posts to /run. Nothing here is published on the host or routed
+# by Traefik, and there is no Docker socket. The runner reads n8n only through
+# its REST API (read-only key) on the internal n8n-drift network, which only
+# n8n, Grafana and this container join (see the docker-compose.n8n-drift.yml
+# overrides in n8n/ and grafana/).
+services:
+  n8n-drift-runner:
+    build:
+      context: .
+      args:
+        PYTHON_VERSION: "${PYTHON_VERSION:-3.13.17}"
+    image: n8n-drift-runner:local
+    container_name: n8n-drift-runner
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      N8N_DRIFT_WEBHOOK_SECRET: "${N8N_DRIFT_WEBHOOK_SECRET:?Set N8N_DRIFT_WEBHOOK_SECRET in .env}"
+      N8N_DRIFT_API_KEY: "${N8N_DRIFT_API_KEY:?Set N8N_DRIFT_API_KEY in .env}"
+      N8N_API_URL: http://n8n:5678
+      # 1 = export a drifted workflow draft over its file in n8n/workflows
+      # (working tree only, never committed); 0 = only report drift.
+      N8N_DRIFT_AUTO_EXPORT: "${N8N_DRIFT_AUTO_EXPORT:-1}"
+    volumes:
+      - ../n8n/scripts/check-workflow-drift.sh:/app/check-workflow-drift.sh:ro
+      # Read-write for N8N_DRIFT_AUTO_EXPORT; files are written as PUID:PGID.
+      - ../n8n/workflows:/workflows
+      - ../node-exporter/textfile:/textfile
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cpus: "0.5"
+    mem_limit: 128m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8791/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - n8n-drift
+
+networks:
+  # n8n <-> runner <-> grafana. n8n and Grafana join it as external.
+  n8n-drift:
+    name: n8n-drift
+    internal: true
