@@ -1,0 +1,53 @@
+{
+  "logger": {
+    "level": "info",
+    "timestamp": false
+  },
+  "esclient": {
+    "apiVersion": "7.5",
+    "requestTimeout": 120000,
+    "hosts": [
+      { "host": "maps-pelias-elasticsearch", "port": 9200 }
+    ]
+  },
+  "elasticsearch": {
+    "settings": {
+      "index": {
+        "refresh_interval": "10s",
+        "number_of_replicas": "0",
+        "number_of_shards": "1"
+      }
+    }
+  },
+  "api": {
+    "services": {
+      "placeholder": { "url": "http://maps-pelias-placeholder:4100" },
+      "libpostal": { "url": "http://maps-web:4400" }
+    },
+    "defaultParameters": {
+      "focus.point.lat": 37.98,
+      "focus.point.lon": 23.73
+    }
+  },
+  "imports": {
+    "adminLookup": {
+      "enabled": true
+    },
+    "whosonfirst": {
+      "datapath": "/data/pelias/whosonfirst",
+      "countryCode": "GR",
+      "importPostalcodes": true
+    },
+    "openstreetmap": {
+      "datapath": "/data/sources",
+      "leveldbpath": "/data/tmp/pelias-osm-leveldb",
+      "import": [
+        { "filename": "greece-latest.osm.pbf" }
+      ]
+    },
+    "polyline": {
+      "datapath": "/data/pelias/polylines",
+      "files": ["extract.0sv"]
+    }
+  }
+}

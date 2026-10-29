@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maps</title>
+<link rel="stylesheet" href="/assets/lib/maplibre-gl.css">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde5;
+    --accent: #2563eb; --hover: #eef2fb; --shadow: 0 2px 10px rgba(0,0,0,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1d2330; --fg: #e8ebf1; --muted: #a2aabb; --line: #39414f; --hover: #283041; }
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  #panel { position: absolute; top: 10px; left: 10px; width: min(360px, calc(100vw - 20px));
+    max-height: calc(100vh - 20px); overflow: auto; background: var(--bg);
+    border-radius: 10px; box-shadow: var(--shadow); z-index: 2; }
+  .row { display: flex; gap: 6px; padding: 8px 10px; align-items: center; }
+  input, select, button { font: inherit; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  input { flex: 1; min-width: 0; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  #results li, #steps li { padding: 7px 10px; border-top: 1px solid var(--line); }
+  #results li { cursor: pointer; }
+  #results li:hover { background: var(--hover); }
+  .sub { color: var(--muted); font-size: 12px; }
+  #summary { padding: 4px 10px 8px; font-weight: 600; }
+  #status { padding: 6px 10px; color: var(--muted); font-size: 12px; }
+  #status:empty, #summary:empty { display: none; }
+  .label { width: 34px; color: var(--muted); font-size: 12px; }
+  .popup-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .maplibregl-popup-content { background: var(--bg); color: var(--fg); }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <div class="row">
+    <input id="q" type="search" placeholder="Search places in Greece" autocomplete="off" aria-label="Search">
+  </div>
+  <ul id="results"></ul>
+  <div class="row"><span class="label">From</span><input id="from" readonly placeholder="Pick a result or right-click the map"></div>
+  <div class="row"><span class="label">To</span><input id="to" readonly placeholder="Pick a result or right-click the map"></div>
+  <div class="row">
+    <select id="mode" aria-label="Travel mode">
+      <option value="auto">Car</option>
+      <option value="bicycle">Bicycle</option>
+      <option value="pedestrian">Walk</option>
+    </select>
+    <button id="route" class="primary">Route</button>
+    <button id="clear">Clear</button>
+  </div>
+  <div id="summary"></div>
+  <ul id="steps"></ul>
+  <div id="status"></div>
+</div>
+
+<script src="/assets/lib/maplibre-gl.js"></script>
+<script src="/assets/lib/pmtiles.js"></script>
+<script>
+"use strict";
+const ORIGIN = location.origin;
+const PELIAS = ORIGIN + "/pelias/v1";
+const VALHALLA = ORIGIN + "/valhalla/route";
+const $ = (id) => document.getElementById(id);
+const status = (msg) => { $("status").textContent = msg || ""; };
+const points = { from: null, to: null };
+const markers = { from: null, to: null, place: null };
+
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol("pmtiles", protocol.tile);
+
+// Make the relative URLs in style.json absolute for this host.
+async function loadStyle() {
+  const style = await (await fetch("/style.json")).json();
+  style.sprite = ORIGIN + "/" + style.sprite;
+  style.glyphs = ORIGIN + "/" + style.glyphs;
+  style.sources.openmaptiles.url = "pmtiles://" + ORIGIN + "/tiles/greece.pmtiles";
+  return style;
+}
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+
+function labelOf(f) {
+  const p = f.properties || {};
+  return { name: p.name || p.label || "Unnamed", detail: p.label && p.label !== p.name ? p.label : (p.layer || "") };
+}
+
+(async () => {
+  const head = await fetch("/tiles/greece.pmtiles", { method: "HEAD" }).catch(() => null);
+  if (!head || !head.ok) status("Map tiles are not built yet (maps/build/build-greece.sh). Search and routing may still work.");
+
+  const map = new maplibregl.Map({
+    container: "map",
+    style: await loadStyle(),
+    center: [23.7, 38.3],
+    zoom: 6,
+    maxBounds: [[17.5, 33.5], [31.0, 42.5]],
+    hash: true,
+    attributionControl: { compact: true }
+  });
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.GeolocateControl({ trackUserLocation: true }), "top-right");
+  map.addControl(new maplibregl.ScaleControl({ unit: "metric" }));
+
+  map.on("load", () => {
+    map.addSource("route", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({ id: "route-casing", type: "line", source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "#ffffff", "line-width": 9 } });
+    map.addLayer({ id: "route-line", type: "line", source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "#2563eb", "line-width": 5 } });
+  });
+
+  function setPoint(which, lngLat, name) {
+    points[which] = { lon: lngLat[0], lat: lngLat[1], name };
+    $(which).value = name;
+    if (markers[which]) markers[which].remove();
+    markers[which] = new maplibregl.Marker({ color: which === "from" ? "#16a34a" : "#dc2626" })
+      .setLngLat(lngLat).addTo(map);
+    if (points.from && points.to) route();
+  }
+
+  function popupFor(lngLat, title, detail) {
+    const box = el("div");
+    box.appendChild(el("strong", title));
+    if (detail) box.appendChild(el("div", detail, "sub"));
+    const actions = el("div", undefined, "popup-actions");
+    const popup = new maplibregl.Popup({ offset: 12 }).setLngLat(lngLat).setDOMContent(box).addTo(map);
+    for (const which of ["from", "to"]) {
+      const b = el("button", which === "from" ? "From here" : "To here");
+      b.onclick = () => { setPoint(which, lngLat, title); popup.remove(); };
+      actions.appendChild(b);
+    }
+    box.appendChild(actions);
+  }
+
+  // Search (Pelias autocomplete, biased to the visible map centre).
+  let timer = null, seq = 0;
+  $("q").addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(search, 250);
+  });
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTimeout(timer); search(); } });
+
+  async function search() {
+    const text = $("q").value.trim();
+    const list = $("results");
+    if (text.length < 2) { list.replaceChildren(); return; }
+    const mine = ++seq;
+    const c = map.getCenter();
+    const url = `${PELIAS}/autocomplete?text=${encodeURIComponent(text)}&size=8` +
+      `&focus.point.lat=${c.lat.toFixed(5)}&focus.point.lon=${c.lng.toFixed(5)}`;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      if (mine !== seq) return;
+      list.replaceChildren();
+      for (const f of data.features || []) {
+        const { name, detail } = labelOf(f);
+        const li = el("li");
+        li.appendChild(el("div", name));
+        li.appendChild(el("div", detail, "sub"));
+        li.onclick = () => {
+          const ll = f.geometry.coordinates;
+          if (markers.place) markers.place.remove();
+          markers.place = new maplibregl.Marker().setLngLat(ll).addTo(map);
+          map.flyTo({ center: ll, zoom: Math.max(map.getZoom(), 15) });
+          popupFor(ll, name, detail);
+          list.replaceChildren();
+        };
+        list.appendChild(li);
+      }
+      if (!list.children.length) list.appendChild(el("li", "No results", "sub"));
+      status("");
+    } catch (err) {
+      status("Search failed: " + err.message);
+    }
+  }
+
+  // Right-click (long-press on touch) asks Pelias what is here.
+  map.on("contextmenu", async (e) => {
+    const ll = [e.lngLat.lng, e.lngLat.lat];
+    let title = `${ll[1].toFixed(5)}, ${ll[0].toFixed(5)}`, detail = "";
+    try {
+      const r = await fetch(`${PELIAS}/reverse?point.lat=${ll[1]}&point.lon=${ll[0]}&size=1`);
+      const f = (await r.json()).features?.[0];
+      if (f) ({ name: title, detail } = labelOf(f));
+    } catch (_) { /* coordinates are good enough */ }
+    popupFor(ll, title, detail);
+  });
+
+  // Valhalla encodes shapes as polyline6.
+  function decode(str) {
+    const coords = []; let i = 0, lat = 0, lon = 0;
+    while (i < str.length) {
+      for (const axis of [0, 1]) {
+        let b, shift = 0, result = 0;
+        do { b = str.charCodeAt(i++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+        const d = (result & 1) ? ~(result >> 1) : (result >> 1);
+        if (axis === 0) lat += d; else lon += d;
+      }
+      coords.push([lon / 1e6, lat / 1e6]);
+    }
+    return coords;
+  }
+
+  function fmtTime(s) {
+    const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+    return h ? `${h} h ${m} min` : `${m} min`;
+  }
+
+  async function route() {
+    if (!points.from || !points.to) { status("Set both From and To."); return; }
+    const body = {
+      locations: [points.from, points.to].map(p => ({ lat: p.lat, lon: p.lon })),
+      costing: $("mode").value,
+      units: "kilometers",
+      language: "en-US"
+    };
+    status("Routing...");
+    try {
+      const r = await fetch(VALHALLA, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || ("HTTP " + r.status));
+      const legs = data.trip.legs;
+      const coords = legs.flatMap(l => decode(l.shape));
+      map.getSource("route").setData({ type: "Feature", geometry: { type: "LineString", coordinates: coords } });
+      const b = coords.reduce((acc, c) => acc.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]));
+      const left = window.innerWidth > 760 ? 400 : 40;
+      map.fitBounds(b, { padding: { top: 60, bottom: 60, left, right: 60 }, maxZoom: 16 });
+      const s = data.trip.summary;
+      $("summary").textContent = `${s.length.toFixed(1)} km, ${fmtTime(s.time)}`;
+      const steps = $("steps"); steps.replaceChildren();
+      for (const m of legs.flatMap(l => l.maneuvers)) {
+        const li = el("li", m.instruction);
+        if (m.length) li.appendChild(el("div", `${m.length.toFixed(2)} km`, "sub"));
+        steps.appendChild(li);
+      }
+      status("");
+    } catch (err) {
+      status("Routing failed: " + err.message);
+    }
+  }
+
+  $("route").onclick = route;
+  $("mode").onchange = () => { if (points.from && points.to) route(); };
+  $("clear").onclick = () => {
+    for (const k of ["from", "to", "place"]) { if (markers[k]) markers[k].remove(); markers[k] = null; }
+    points.from = points.to = null;
+    $("from").value = $("to").value = "";
+    $("summary").textContent = ""; $("steps").replaceChildren();
+    if (map.getSource("route")) map.getSource("route").setData({ type: "FeatureCollection", features: [] });
+  };
+})();
+</script>
+</body>
+</html>

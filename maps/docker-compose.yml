@@ -1,0 +1,200 @@
+# Self-hosted maps for Greece: vector tiles + web map, Valhalla routing and a
+# minimal Pelias search, all under https://maps.${DOMAIN}. The data comes from
+# build/build-greece.sh (nothing is downloaded or built at runtime).
+#
+# Path layout (Headway-compatible, which is what Cardinal Maps expects):
+#   /                  web map (nginx), /style.json, /assets/...
+#   /tiles/greece.pmtiles   vector tiles (HTTP range requests)
+#   /pelias/v1/...     Pelias API (autocomplete, search, reverse, nearby)
+#   /valhalla/route    Valhalla (and every other Valhalla endpoint)
+name: maps
+
+services:
+  web:
+    # Static web map, style, fonts, sprites and the PMTiles archive.
+    container_name: maps-web
+    image: nginx:${MAPS_NGINX_VERSION:-1.30.6-alpine-slim}
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web:/srv/web:ro
+      - ./data/tiles:/srv/tiles:ro
+      - ./data/web-assets:/srv/assets:ro
+    networks:
+      # backend: the empty libpostal stand-in on port 4400 for pelias-api.
+      - backend
+      - webgateway
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: ${MAPS_WEB_MEM_LIMIT:-32m}
+    labels:
+      kuma.maps-web.docker.name: "maps-web"
+      kuma.maps-web.docker.docker_host_name: local-docker-host
+      kuma.maps-web.docker.docker_container: maps-web
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.maps-web.rule: "Host(`maps.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.maps-web.entrypoints: websecure
+      traefik.http.routers.maps-web.tls.certresolver: myresolver
+      traefik.http.services.maps-web.loadbalancer.server.port: "8080"
+      homepage.group: Home
+      homepage.name: Maps
+      homepage.icon: openstreetmap
+      homepage.href: "https://maps.${DOMAIN}"
+      homepage.description: Greece map, search and routing (also the Cardinal Maps backend).
+
+  valhalla:
+    # Routing engine. Reads the prebuilt tiles.tar (memory-mapped); never builds.
+    container_name: maps-valhalla
+    image: ghcr.io/valhalla/valhalla:${MAPS_VALHALLA_VERSION:-3.9.1}
+    restart: unless-stopped
+    user: "${MAPS_UID:-1000}:${MAPS_GID:-1000}"
+    command: ["valhalla_service", "/data/valhalla/valhalla.json", "${MAPS_VALHALLA_THREADS:-2}"]
+    volumes:
+      - ./data/valhalla:/data/valhalla:ro
+    networks:
+      - backend
+      - webgateway
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8002/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: ${MAPS_VALHALLA_MEM_LIMIT:-384m}
+    labels:
+      kuma.maps-valhalla.docker.name: "maps-valhalla"
+      kuma.maps-valhalla.docker.docker_host_name: local-docker-host
+      kuma.maps-valhalla.docker.docker_container: maps-valhalla
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.maps-valhalla.rule: "Host(`maps.${DOMAIN:?Set DOMAIN in .env}`) && PathPrefix(`/valhalla/`)"
+      traefik.http.routers.maps-valhalla.entrypoints: websecure
+      traefik.http.routers.maps-valhalla.tls.certresolver: myresolver
+      traefik.http.routers.maps-valhalla.middlewares: maps-valhalla-strip
+      traefik.http.middlewares.maps-valhalla-strip.stripprefix.prefixes: /valhalla
+      traefik.http.services.maps-valhalla.loadbalancer.server.port: "8002"
+
+  pelias-api:
+    # Pelias search API. No real libpostal: autocomplete always uses
+    # pelias/parser, and /v1/search gets an empty parse from maps-web:4400 so
+    # it falls back to pelias/parser too (it errors with no libpostal URL).
+    container_name: maps-pelias-api
+    image: pelias/api:${MAPS_PELIAS_API_VERSION:-v7.11.0}
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      CPUS: "1"
+      PELIAS_CONFIG: /config/pelias.json
+    volumes:
+      - ./pelias/pelias.json:/config/pelias.json:ro
+    depends_on:
+      pelias-elasticsearch:
+        condition: service_healthy
+      pelias-placeholder:
+        condition: service_started
+    networks:
+      - backend
+      - webgateway
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:4000/v1',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: ${MAPS_PELIAS_API_MEM_LIMIT:-256m}
+    labels:
+      kuma.maps-pelias-api.docker.name: "maps-pelias-api"
+      kuma.maps-pelias-api.docker.docker_host_name: local-docker-host
+      kuma.maps-pelias-api.docker.docker_container: maps-pelias-api
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.maps-pelias.rule: "Host(`maps.${DOMAIN:?Set DOMAIN in .env}`) && PathPrefix(`/pelias/`)"
+      traefik.http.routers.maps-pelias.entrypoints: websecure
+      traefik.http.routers.maps-pelias.tls.certresolver: myresolver
+      traefik.http.routers.maps-pelias.middlewares: maps-pelias-strip
+      traefik.http.middlewares.maps-pelias-strip.stripprefix.prefixes: /pelias
+      traefik.http.services.maps-pelias.loadbalancer.server.port: "4000"
+
+  pelias-placeholder:
+    # Admin-area lookup ("Kifisia, Attica") from Who's On First, SQLite read-only.
+    container_name: maps-pelias-placeholder
+    image: pelias/placeholder:${MAPS_PELIAS_PLACEHOLDER_VERSION:-v5.11.0}
+    restart: unless-stopped
+    user: "${MAPS_UID:-1000}:${MAPS_GID:-1000}"
+    environment:
+      PORT: "4100"
+      CPUS: "1"
+      PELIAS_CONFIG: /config/pelias.json
+      PLACEHOLDER_DATA: /data/placeholder
+    volumes:
+      - ./pelias/pelias.json:/config/pelias.json:ro
+      - ./data/pelias/placeholder:/data/placeholder:ro
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:4100/parser/search?text=athens',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: ${MAPS_PELIAS_PLACEHOLDER_MEM_LIMIT:-256m}
+    labels:
+      kuma.maps-pelias-placeholder.docker.name: "maps-pelias-placeholder"
+      kuma.maps-pelias-placeholder.docker.docker_host_name: local-docker-host
+      kuma.maps-pelias-placeholder.docker.docker_container: maps-pelias-placeholder
+
+  pelias-elasticsearch:
+    # Search index. Pelias's own image (analysis-icu plugin), single node.
+    container_name: maps-pelias-elasticsearch
+    image: pelias/elasticsearch:${MAPS_ES_VERSION:-7.17.27}
+    restart: unless-stopped
+    # The Elasticsearch image runs as any UID with group 0.
+    user: "${MAPS_UID:-1000}:0"
+    environment:
+      ES_JAVA_OPTS: "-Xms${MAPS_ES_HEAP:-512m} -Xmx${MAPS_ES_HEAP:-512m}"
+      discovery.type: single-node
+      xpack.ml.enabled: "false"
+      xpack.security.enabled: "false"
+      xpack.watcher.enabled: "false"
+      ingest.geoip.downloader.enabled: "false"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./data/pelias/elasticsearch:/usr/share/elasticsearch/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    mem_limit: ${MAPS_ES_MEM_LIMIT:-1536m}
+    labels:
+      kuma.maps-pelias-elasticsearch.docker.name: "maps-pelias-elasticsearch"
+      kuma.maps-pelias-elasticsearch.docker.docker_host_name: local-docker-host
+      kuma.maps-pelias-elasticsearch.docker.docker_container: maps-pelias-elasticsearch
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway
