@@ -1,0 +1,243 @@
+services:
+  postgres:
+    container_name: paperless-postgres
+    labels:
+      kuma.paperless-postgres.docker.name: "paperless-postgres"
+      kuma.paperless-postgres.docker.docker_host_name: local-docker-host
+      kuma.paperless-postgres.docker.docker_container: paperless-postgres
+    image: postgres:${POSTGRES_VERSION:-18}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${PAPERLESS_DB_NAME:-paperless}"
+      POSTGRES_USER: "${PAPERLESS_DB_USER:-paperless}"
+      POSTGRES_PASSWORD: "${PAPERLESS_DB_PASSWORD:?Set PAPERLESS_DB_PASSWORD in .env}"
+      TZ: "${TZ:-Europe/Athens}"
+    volumes:
+      # Postgres 18+ keeps its versioned PGDATA below /var/lib/postgresql.
+      - ./postgres:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 512m
+
+  redis:
+    # Task broker. Upstream ships Valkey, a drop-in Redis replacement.
+    container_name: paperless-redis
+    labels:
+      kuma.paperless-redis.docker.name: "paperless-redis"
+      kuma.paperless-redis.docker.docker_host_name: local-docker-host
+      kuma.paperless-redis.docker.docker_container: paperless-redis
+    image: valkey/valkey:${VALKEY_VERSION:-9-alpine}
+    restart: unless-stopped
+    volumes:
+      - ./redis:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 128m
+
+  gotenberg:
+    # Converts Office documents and e-mails to PDF for Paperless.
+    container_name: paperless-gotenberg
+    labels:
+      kuma.paperless-gotenberg.docker.name: "paperless-gotenberg"
+      kuma.paperless-gotenberg.docker.docker_host_name: local-docker-host
+      kuma.paperless-gotenberg.docker.docker_container: paperless-gotenberg
+    image: gotenberg/gotenberg:${GOTENBERG_VERSION:-8.37}
+    restart: unless-stopped
+    # Chromium only renders .eml files: no JavaScript, no external content.
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=^file:///tmp/.*"
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    mem_limit: 1g
+
+  tika:
+    # Extracts text and metadata from Office and other non-PDF formats.
+    container_name: paperless-tika
+    labels:
+      kuma.paperless-tika.docker.name: "paperless-tika"
+      kuma.paperless-tika.docker.docker_host_name: local-docker-host
+      kuma.paperless-tika.docker.docker_container: paperless-tika
+    image: apache/tika:${TIKA_VERSION:-3.3.1.0}
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+    networks:
+      - backend
+    mem_limit: 768m
+
+  paperless-ngx:
+    container_name: paperless-ngx
+    image: ghcr.io/paperless-ngx/paperless-ngx:${PAPERLESS_VERSION:-3.3.4}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      gotenberg:
+        condition: service_healthy
+      tika:
+        condition: service_started
+    environment:
+      # Paperless runs as www-data (33:33) so it can read and delete files in
+      # the Nextcloud consume folder; its init chowns every file in its folders
+      # to this UID, so it must match the Nextcloud data owner.
+      USERMAP_UID: "${PAPERLESS_USERMAP_UID:-33}"
+      USERMAP_GID: "${PAPERLESS_USERMAP_GID:-33}"
+      PAPERLESS_URL: "https://paperless.${DOMAIN:?Set DOMAIN in .env}"
+      PAPERLESS_SECRET_KEY: "${PAPERLESS_SECRET_KEY:?Set PAPERLESS_SECRET_KEY in .env}"
+      PAPERLESS_ADMIN_USER: "${PAPERLESS_ADMIN_USER:?Set PAPERLESS_ADMIN_USER in .env}"
+      PAPERLESS_ADMIN_PASSWORD: "${PAPERLESS_ADMIN_PASSWORD:?Set PAPERLESS_ADMIN_PASSWORD in .env}"
+      PAPERLESS_ADMIN_MAIL: "${PAPERLESS_ADMIN_MAIL:-root@localhost}"
+      PAPERLESS_REDIS: redis://redis:6379
+      PAPERLESS_DBENGINE: postgresql
+      PAPERLESS_DBHOST: postgres
+      PAPERLESS_DBNAME: "${PAPERLESS_DB_NAME:-paperless}"
+      PAPERLESS_DBUSER: "${PAPERLESS_DB_USER:-paperless}"
+      PAPERLESS_DBPASS: "${PAPERLESS_DB_PASSWORD:?Set PAPERLESS_DB_PASSWORD in .env}"
+      PAPERLESS_TIKA_ENABLED: "1"
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+      PAPERLESS_TIME_ZONE: "${TZ:-Europe/Athens}"
+      TZ: "${TZ:-Europe/Athens}"
+      # Tesseract stays the baseline OCR. "ell" installs tesseract-ocr-ell at
+      # container start (apt, needs internet egress).
+      PAPERLESS_OCR_LANGUAGE: "${PAPERLESS_OCR_LANGUAGE:-ell+eng}"
+      PAPERLESS_OCR_LANGUAGES: "${PAPERLESS_OCR_LANGUAGES:-ell}"
+      PAPERLESS_DATE_ORDER: DMY
+      # Small host: one task at a time, two OCR pages in parallel, one web worker.
+      PAPERLESS_TASK_WORKERS: "${PAPERLESS_TASK_WORKERS:-1}"
+      PAPERLESS_THREADS_PER_WORKER: "${PAPERLESS_THREADS_PER_WORKER:-2}"
+      PAPERLESS_WEBSERVER_WORKERS: "1"
+      # The consume folder is a bind mount of a Nextcloud folder: poll it
+      # instead of relying on inotify, and wait until uploads are complete.
+      PAPERLESS_CONSUMER_POLLING_INTERVAL: "${PAPERLESS_CONSUMER_POLLING_INTERVAL:-30}"
+      PAPERLESS_CONSUMER_STABILITY_DELAY: "10"
+      PAPERLESS_CONSUMER_RECURSIVE: "true"
+      PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: "${PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS:-false}"
+      # Nextcloud upload temp files and LibreOffice lock files.
+      PAPERLESS_CONSUMER_IGNORE_PATTERNS: '["\\.part$$", "^\\.ocTransferId", "^\\.~lock\\."]'
+    volumes:
+      - ./data:/usr/src/paperless/data
+      - ./media:/usr/src/paperless/media
+      - ./export:/usr/src/paperless/export
+      # Nextcloud <user>/files/Scans. Create the folder in Nextcloud first.
+      - "${NEXTCLOUD_DATA_DIR:-../nextcloud/html/data}/${NEXTCLOUD_USER:?Set NEXTCLOUD_USER in .env}/files/${NEXTCLOUD_CONSUME_FOLDER:-Scans}:/usr/src/paperless/consume"
+    networks:
+      - backend
+      - webgateway
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    mem_limit: "${PAPERLESS_MEM_LIMIT:-2g}"
+    labels:
+      kuma.paperless-ngx.docker.name: "paperless-ngx"
+      kuma.paperless-ngx.docker.docker_host_name: local-docker-host
+      kuma.paperless-ngx.docker.docker_container: paperless-ngx
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.paperless.rule: "Host(`paperless.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.paperless.entrypoints: websecure
+      traefik.http.routers.paperless.tls.certresolver: myresolver
+      traefik.http.services.paperless.loadbalancer.server.port: "8000"
+      homepage.group: Cloud
+      homepage.name: Paperless-ngx
+      homepage.icon: paperless-ngx
+      homepage.href: "https://paperless.${DOMAIN}"
+      homepage.description: Scanned documents with OCR, tags and full-text search.
+
+  paperless-gpt:
+    # LLM metadata suggestions and vision OCR through the llama.cpp router.
+    # No authentication of its own: Traefik basic auth protects it.
+    container_name: paperless-gpt
+    image: icereed/paperless-gpt:${PAPERLESS_GPT_VERSION:-v0.31.0}
+    restart: unless-stopped
+    depends_on:
+      paperless-ngx:
+        condition: service_healthy
+    environment:
+      PUID: "${PAPERLESS_GPT_PUID:-1000}"
+      PGID: "${PAPERLESS_GPT_PGID:-1000}"
+      TZ: "${TZ:-Europe/Athens}"
+      PAPERLESS_BASE_URL: http://paperless-ngx:8000
+      PAPERLESS_PUBLIC_URL: "https://paperless.${DOMAIN:?Set DOMAIN in .env}"
+      PAPERLESS_API_TOKEN: "${PAPERLESS_GPT_API_TOKEN:?Set PAPERLESS_GPT_API_TOKEN in .env}"
+      # Review tag: suggestions wait in the UI until you accept them.
+      MANUAL_TAG: "${PAPERLESS_GPT_MANUAL_TAG:-paperless-gpt}"
+      # Applies suggestions without review. Do not add this tag by workflow.
+      AUTO_TAG: "${PAPERLESS_GPT_AUTO_TAG:-paperless-gpt-auto}"
+      AUTO_OCR_TAG: "${PAPERLESS_GPT_OCR_TAG:-paperless-gpt-ocr-auto}"
+      FAIL_TAG: paperless-gpt-failed
+      CREATE_NEW_TAGS: "false"
+      LLM_LANGUAGE: "${PAPERLESS_GPT_LANGUAGE:-Greek}"
+      # llama.cpp router (OpenAI-compatible), reached over webgateway.
+      LLM_PROVIDER: openai
+      OPENAI_BASE_URL: "${PAPERLESS_GPT_OPENAI_BASE_URL:-http://llama-server:8080/v1}"
+      OPENAI_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env (same value as llama-cpp/.env)}"
+      LLM_MODEL: "${PAPERLESS_GPT_LLM_MODEL:-qwen-3.6-35b-a3b}"
+      OCR_PROVIDER: llm
+      VISION_LLM_PROVIDER: openai
+      VISION_LLM_MODEL: "${PAPERLESS_GPT_OCR_MODEL:?Set PAPERLESS_GPT_OCR_MODEL in .env}"
+      OCR_PROCESS_MODE: image
+      OCR_LIMIT_PAGES: "${PAPERLESS_GPT_OCR_LIMIT_PAGES:-5}"
+      IMAGE_MAX_RENDER_DPI: "300"
+      PDF_UPLOAD: "false"
+      # The router holds one GPU model: one job at a time, gently paced.
+      SUGGESTION_WORKERS: "1"
+      LLM_REQUESTS_PER_MINUTE: "${PAPERLESS_GPT_REQUESTS_PER_MINUTE:-20}"
+      VISION_LLM_REQUESTS_PER_MINUTE: "${PAPERLESS_GPT_REQUESTS_PER_MINUTE:-20}"
+      LOG_LEVEL: info
+    volumes:
+      - ./gpt/prompts:/app/prompts
+      - ./gpt/config:/app/config
+      - ./gpt/db:/app/db
+    networks:
+      - backend
+      - webgateway
+    mem_limit: 512m
+    labels:
+      kuma.paperless-gpt.docker.name: "paperless-gpt"
+      kuma.paperless-gpt.docker.docker_host_name: local-docker-host
+      kuma.paperless-gpt.docker.docker_container: paperless-gpt
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.paperless-gpt.rule: "Host(`paperless-gpt.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.paperless-gpt.entrypoints: websecure
+      traefik.http.routers.paperless-gpt.tls.certresolver: myresolver
+      traefik.http.services.paperless-gpt.loadbalancer.server.port: "8080"
+      homepage.group: Cloud
+      homepage.name: Paperless-GPT
+      homepage.icon: mdi-robot-outline
+      homepage.href: "https://paperless-gpt.${DOMAIN}"
+      homepage.description: LLM title, tag and correspondent suggestions with review, plus vision OCR.
+
+networks:
+  backend:
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway
