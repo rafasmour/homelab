@@ -54,6 +54,21 @@ an encoder must process every question in a request in one micro-batch.
 The container runs as a non-root user, so model files must be readable by it.
 GGUF files and the active `router-config.ini` are ignored by Git.
 
+## Embeddings
+
+The `embeddinggemma-2` preset serves Google EmbeddingGemma 2 (Q8_0, 768-dim,
+mean pooling, L2-normalised) through the OpenAI-compatible endpoint:
+
+```bash
+curl https://classify.example.com/v1/embeddings -H 'Content-Type: application/json' \
+  -d '{"model":"embeddinggemma-2","input":"text to embed"}'
+```
+
+It runs here on the CPU so that embedding requests never evict the model of
+the GPU router. Measured on the 8-core Ryzen 7 1800X: about 2 s for the first
+request (load), then about 1.0-1.7 s (median 1.36 s) for a 477-token chunk.
+Each input must fit the 8192-token context.
+
 ## Download models
 
 Use the commands in [`models/downloads.md`](models/downloads.md). The initial

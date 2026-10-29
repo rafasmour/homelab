@@ -15,3 +15,13 @@ ubatch-size = 8192
 
 [laya]
 model = /models/laya/Laya-Q8_0.gguf
+
+[embeddinggemma-2]
+; Google EmbeddingGemma 2 (271M text tower, gemma-embedding2 architecture),
+; ggml-org Q8_0. Embeddings only: POST /v1/embeddings with this model name.
+; Mean pooling is the GGUF default (pooling_type 1); 768-dim output. It runs
+; here on the CPU so embedding requests never evict the GPU router's model.
+; The [*] context (8192 tokens, one ubatch) covers a whole chunk per input.
+model = /models/embeddinggemma-2/embeddinggemma-2-Q8_0.gguf
+embeddings = true
+pooling = mean
