@@ -1,0 +1,10 @@
+# Healthy nginx. Expected state: running (healthy).
+services:
+  web:
+    image: nginx:1.30.6-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3

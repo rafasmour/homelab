@@ -1,0 +1,7 @@
+#!/bin/sh
+# Docker CLI pointed at the disposable agent-testbed daemon (Docker-in-Docker).
+# Same as `docker --context testbed ...`, but without a daemon-redirect flag.
+DOCKER_HOST=tcp://agent-testbed:2375
+export DOCKER_HOST
+unset DOCKER_CONTEXT
+exec docker "$@"

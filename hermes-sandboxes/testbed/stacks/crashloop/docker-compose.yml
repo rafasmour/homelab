@@ -1,0 +1,6 @@
+# Exits with status 3 after printing an error. Expected state: restarting.
+services:
+  app:
+    image: busybox:1.37.0
+    restart: unless-stopped
+    command: ["sh", "-c", "echo 'FATAL: cannot open /config/app.yml: no such file or directory' >&2; sleep 2; exit 3"]

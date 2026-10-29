@@ -1,0 +1,9 @@
+# Deliberately invalid: `docker compose config` fails (ports must be a list,
+# and "restart: sometimes" is not a valid policy). Never started by seed.sh.
+services:
+  web:
+    image: nginx:1.30.6-alpine
+    restart: sometimes
+    ports: "8080:80"
+    environment
+      - MODE=broken

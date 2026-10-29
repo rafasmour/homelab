@@ -1,0 +1,11 @@
+# Writes ~20 log lines per second; json-file rotation caps it at 3 x 1 MB.
+services:
+  spammer:
+    image: busybox:1.37.0
+    restart: unless-stopped
+    command: ["sh", "-c", "i=0; while true; do i=$$((i+1)); echo \"$$(date -u +%FT%TZ) WARN request $$i took 1234ms (upstream timeout)\"; sleep 0.05; done"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"

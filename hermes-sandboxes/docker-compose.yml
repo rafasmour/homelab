@@ -1,0 +1,212 @@
+# SSH sandboxes for the Hermes terminal and file tools (one per profile), the
+# Docker socket proxy used by sbx-models, and a disposable Docker-in-Docker
+# testbed for `hermes-sandbox devops` sessions (testbed module). Nothing here is
+# published or routed.
+# Keys: run ./setup-keys.sh before the first `docker compose up -d`.
+
+x-sandbox: &sandbox
+  build: &sandbox-build
+    context: .
+    args:
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+  restart: unless-stopped
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  # sshd: privilege separation (chroot, setuid/gid), port 22, key install.
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    - SETUID
+    - SETGID
+    - SYS_CHROOT
+    - NET_BIND_SERVICE
+    - KILL
+    - AUDIT_WRITE
+  pids_limit: 2048
+  labels:
+    traefik.enable: "false"
+
+services:
+  # Profile `models`: llama.cpp model folders, the router API on webgateway,
+  # and restart-only Docker access through sbx-socket-proxy.
+  sbx-models:
+    <<: *sandbox
+    build:
+      <<: *sandbox-build
+      target: models
+    image: hermes-sandbox-models:local
+    container_name: sbx-models
+    hostname: sbx-models
+    cpus: "${SBX_MODELS_CPUS:-4}"
+    mem_limit: "${SBX_MODELS_MEMORY:-4g}"
+    depends_on:
+      sbx-socket-proxy:
+        condition: service_healthy
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      DOCKER_HOST: tcp://sbx-socket-proxy:2375
+      LLAMA_API_URL: http://llama-server:8080
+      # Same value as LLAMA_API_KEY in llama-cpp/.env.
+      LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
+      # Optional; anonymous downloads work for public repositories.
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_HOME: /llama-cpp/models/cache/huggingface
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      SANDBOX_SESSION_ENV: TZ DOCKER_HOST LLAMA_API_URL LLAMA_API_KEY HF_TOKEN HF_HOME HF_HUB_DISABLE_TELEMETRY
+    volumes:
+      - ./keys/sandbox/sbx-models:/keys:ro
+      - ../llama-cpp:/llama-cpp
+      - ../llama-cpp-classifier:/llama-cpp-classifier
+    # VRAM readings: /sys/class/drm/card1/device/mem_info_vram_used is
+    # readable through the container's default read-only /sys.
+    networks:
+      - hermes-sandbox
+      - egress
+      - webgateway
+      - models-docker
+
+  # Profile `hf-models`: Hugging Face downloads into the llama.cpp model
+  # folders. Same image as sbx-models (identical build, cached), but no
+  # router API key and no Docker access.
+  sbx-hf-models:
+    <<: *sandbox
+    build:
+      <<: *sandbox-build
+      target: models
+    image: hermes-sandbox-models:local
+    container_name: sbx-hf-models
+    hostname: sbx-hf-models
+    cpus: "${SBX_HF_MODELS_CPUS:-2}"
+    mem_limit: "${SBX_HF_MODELS_MEMORY:-2g}"
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      # Optional; anonymous downloads work for public repositories.
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_HOME: /llama-cpp/models/cache/huggingface
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      SANDBOX_SESSION_ENV: TZ HF_TOKEN HF_HOME HF_HUB_DISABLE_TELEMETRY
+    working_dir: /llama-cpp
+    volumes:
+      - ./keys/sandbox/sbx-hf-models:/keys:ro
+      - ../llama-cpp:/llama-cpp
+      - ../llama-cpp-classifier:/llama-cpp-classifier
+    networks:
+      - hermes-sandbox
+      - egress
+
+  # Profile `llamacpp-rocm`: read-only llama.cpp clone at /repo, refreshed
+  # every 30 minutes and on demand with `repo-pull`.
+  sbx-llamacpp:
+    <<: *sandbox
+    build:
+      <<: *sandbox-build
+      target: llamacpp
+    image: hermes-sandbox-llamacpp:local
+    container_name: sbx-llamacpp
+    hostname: sbx-llamacpp
+    cpus: "${SBX_LLAMACPP_CPUS:-2}"
+    mem_limit: "${SBX_LLAMACPP_MEMORY:-2g}"
+    environment:
+      TZ: "${TZ:-Europe/Athens}"
+      REPO_URL: https://github.com/ggml-org/llama.cpp.git
+      REPO_PULL_INTERVAL: "1800"
+      SANDBOX_SESSION_ENV: TZ
+    working_dir: /repo
+    volumes:
+      - ./keys/sandbox/sbx-llamacpp:/keys:ro
+      - llamacpp-repo:/repo
+    networks:
+      - hermes-sandbox
+      - egress
+
+  # Restart-only Docker API for sbx-models (see socket-proxy/haproxy.cfg).
+  sbx-socket-proxy:
+    image: haproxy:${HAPROXY_VERSION:-3.2.26-alpine}
+    container_name: sbx-socket-proxy
+    restart: unless-stopped
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    environment:
+      RESTART_CONTAINERS: "${PROXY_RESTART_CONTAINERS:-llama-server|llama-classifier}"
+    volumes:
+      - ./socket-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2375/_ping || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      traefik.enable: "false"
+    networks:
+      - models-docker
+
+  # Disposable Docker-in-Docker daemon with dummy stacks for testing agents.
+  # Privileged (required by DinD) but holds no host socket or host paths
+  # besides the read-only stack definitions. Reset: testbed/reset.sh.
+  agent-testbed:
+    image: docker:${TESTBED_DOCKER_VERSION:-29.9.2-dind}
+    container_name: agent-testbed
+    hostname: agent-testbed
+    restart: unless-stopped
+    privileged: true
+    entrypoint: ["/homelab/hermes-sandboxes/testbed/entrypoint.sh"]
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    cpus: "${TESTBED_CPUS:-2}"
+    mem_limit: "${TESTBED_MEMORY:-2g}"
+    volumes:
+      - testbed-docker:/var/lib/docker
+      # Fixed path used by entrypoint.sh, seed.sh and reset.sh. hermes-sandbox
+      # devops sessions see the folder they were launched from instead (see
+      # README).
+      - ./testbed:/homelab/hermes-sandboxes/testbed:ro
+    healthcheck:
+      test: ["CMD", "docker", "info", "--format", "{{.ServerVersion}}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      traefik.enable: "false"
+    networks:
+      - testbed
+      - testbed-egress
+
+volumes:
+  llamacpp-repo:
+  testbed-docker:
+
+networks:
+  # hermes-api, hermes-nextcloud-bridge (which runs Talk turns) and the
+  # sandboxes. No internet: egress goes through the per-stack network below.
+  hermes-sandbox:
+    name: hermes-sandbox
+    internal: true
+  # Internet access for package installs, git and Hugging Face downloads.
+  egress:
+  # sbx-models <-> socket proxy only.
+  models-docker:
+    internal: true
+  # agent-testbed <-> hermes-sandbox devops sessions with the testbed module
+  # (~/docker/hermes-sandbox/modules/testbed.yml joins it as an external
+  # network).
+  testbed:
+    name: hermes-testbed
+    internal: true
+  # Image pulls for the testbed daemon.
+  testbed-egress:
+  webgateway:
+    external: true
+    name: webgateway

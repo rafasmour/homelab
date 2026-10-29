@@ -1,0 +1,25 @@
+# Loaded before the Debian defaults (first value wins).
+HostKey /etc/ssh/hostkey/ssh_host_ed25519_key
+PermitRootLogin no
+AllowUsers hermes
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+# Root-owned key file per user: the agent cannot add keys for itself.
+AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+UsePAM no
+PermitUserEnvironment no
+AllowAgentForwarding no
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+GatewayPorts no
+PermitTunnel no
+X11Forwarding no
+PrintMotd no
+MaxSessions 20
+MaxStartups 20:50:60
+ClientAliveInterval 60
+LogLevel INFO
+# SetEnv lines for the session environment are generated at start.
+Include /etc/ssh/sandbox-env.conf
