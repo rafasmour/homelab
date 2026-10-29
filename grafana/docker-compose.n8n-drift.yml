@@ -1,0 +1,13 @@
+# Opt-in override: lets Grafana's "n8n drift runner" contact point reach the
+# n8n-drift-runner. Use it only while that stack runs (it creates the network):
+#   docker compose --env-file grafana/.env -f grafana/docker-compose.yml -f grafana/docker-compose.n8n-drift.yml up -d
+# Combine with the self-heal override by passing both -f files.
+services:
+  grafana:
+    networks:
+      - n8n-drift
+
+networks:
+  n8n-drift:
+    external: true
+    name: n8n-drift

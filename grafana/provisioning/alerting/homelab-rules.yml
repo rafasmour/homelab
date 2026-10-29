@@ -4,6 +4,8 @@
 # own node_hwmon_temp_crit_celsius for GPU and NVMe, and common node_exporter
 # alert practice (disk < 10/5 %, memory < 10/5 %, swap > 80 %, OOM kills), plus container
 # state from docker-state-exporter (stopped, failed, restart loops, unhealthy).
+# Rules labelled self_heal: "true" are also sent to the self-heal controller,
+# which diagnoses them and may propose a container restart for the owner to approve.
 apiVersion: 1
 groups:
 - orgId: 1
@@ -471,6 +473,7 @@ groups:
     for: 5m
     labels:
       severity: warning
+      self_heal: "true"
     annotations:
       summary: Only {{ humanize $values.A.Value }}% of RAM is available.
   - uid: memory-critical
@@ -512,6 +515,7 @@ groups:
     for: 2m
     labels:
       severity: critical
+      self_heal: "true"
     annotations:
       summary: Only {{ humanize $values.A.Value }}% of RAM is available; the OOM killer is next (it hung the GPU driver on 2026-10-23).
   - uid: swap-high
@@ -553,6 +557,7 @@ groups:
     for: 10m
     labels:
       severity: warning
+      self_heal: "true"
     annotations:
       summary: Swap is {{ humanize $values.A.Value }}% used.
   - uid: oom-kill
@@ -561,12 +566,15 @@ groups:
     data:
     - refId: A
       relativeTimeRange:
-        from: 600
+        from: 3600
         to: 0
       datasourceUid: prometheus
       model:
         refId: A
-        expr: increase(node_vmstat_oom_kill[10m])
+        # A 1 h window keeps a burst of kills (the router respawns a killed
+        # model instance, which can be killed again) as one firing episode
+        # instead of a fire/resolve pair per kill.
+        expr: round(increase(node_vmstat_oom_kill[1h]))
         instant: true
         range: false
         datasource:
@@ -594,8 +602,9 @@ groups:
     for: 0s
     labels:
       severity: critical
+      self_heal: "true"
     annotations:
-      summary: The kernel OOM killer ran {{ humanize $values.A.Value }} time(s) in the last 10 minutes. Check llama-server and VRAM/RAM.
+      summary: The kernel OOM killer ran {{ humanize $values.A.Value }} time(s) in the last hour. Check llama-server and VRAM/RAM.
   - uid: memory-pressure
     title: Memory pressure high
     condition: C
@@ -635,6 +644,7 @@ groups:
     for: 10m
     labels:
       severity: warning
+      self_heal: "true"
     annotations:
       summary: All tasks were stalled on memory {{ humanize $values.A.Value }}% of the time over 5 minutes (heavy swapping).
   - uid: load-high
@@ -722,6 +732,7 @@ groups:
     for: 2m
     labels:
       severity: critical
+      self_heal: "true"
     annotations:
       summary: '{{ $labels.name }} is not running although its restart policy is {{ $labels.policy }}. Check: docker logs {{ $labels.name }}'
   - uid: container-failed
@@ -804,6 +815,7 @@ groups:
     for: 0s
     labels:
       severity: critical
+      self_heal: "true"
     annotations:
       summary: '{{ $labels.name }} restarted {{ humanize $values.A.Value }} times in 15 minutes. Check: docker logs {{ $labels.name }}'
   - uid: container-unhealthy
@@ -845,6 +857,7 @@ groups:
     for: 3m
     labels:
       severity: critical
+      self_heal: "true"
     annotations:
       summary: '{{ $labels.name }} is running but its health check fails.'
   - uid: container-oom
@@ -858,7 +871,11 @@ groups:
       datasourceUid: prometheus
       model:
         refId: A
-        expr: docker_container_oom_killed
+        # Docker keeps OOMKilled set on a container that is still running when
+        # only a child process was killed (llama-server's model instances), so
+        # alert only on containers the OOM killer left stopped; host-level kills
+        # are covered by oom-kill.
+        expr: docker_container_oom_killed == 1 and on(name) docker_container_running == 0
         instant: true
         range: false
         datasource:
@@ -886,8 +903,9 @@ groups:
     for: 0s
     labels:
       severity: warning
+      self_heal: "true"
     annotations:
-      summary: '{{ $labels.name }} was last stopped by the OOM killer; raise its memory limit or find the leak.'
+      summary: '{{ $labels.name }} was stopped by the OOM killer and is not running; raise its memory limit or find the leak.'
 - orgId: 1
   name: Host and services
   folder: Homelab alerts
@@ -1055,5 +1073,54 @@ groups:
     for: 5m
     labels:
       severity: critical
+      self_heal: "true"
     annotations:
       summary: Uptime Kuma reports {{ $labels.monitor_name }} as down.
+- orgId: 1
+  name: Self-heal
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  # Audit lines of the self-heal controller (container logs reach Loki through
+  # open-telemetry/, label container_name). No self_heal label: this alert
+  # only informs the owner and never starts a diagnosis.
+  - uid: self-heal-action
+    title: Self-heal action executed
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: 'sum by (container_name) (count_over_time({container_name="self-heal"} |~ `\baction_(executed|failed)\b` [5m]))'
+        queryType: instant
+        datasource:
+          type: loki
+          uid: loki
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: warning
+    annotations:
+      summary: The self-heal controller executed (or failed) a restart in the last 5 minutes; see the self-heal Talk room and `docker logs self-heal`.

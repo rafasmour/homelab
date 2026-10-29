@@ -11,6 +11,10 @@ services:
       # Alert notifications to Nextcloud Talk (provisioning/alerting/talk-contact-point.yml).
       TALK_DELIVER_SECRET: "${TALK_DELIVER_SECRET:?Set TALK_DELIVER_SECRET in .env}"
       TALK_ALERTS_ROOM: "${TALK_ALERTS_ROOM:?Set TALK_ALERTS_ROOM in .env}"
+      # Bearer token of the "Self-heal" contact point (self-heal controller).
+      SELF_HEAL_WEBHOOK_SECRET: "${SELF_HEAL_WEBHOOK_SECRET:-}"
+      # Bearer token of the "n8n drift runner" contact point.
+      N8N_DRIFT_WEBHOOK_SECRET: "${N8N_DRIFT_WEBHOOK_SECRET:-}"
     volumes:
       - ./data:/var/lib/grafana
       - ./provisioning:/etc/grafana/provisioning:ro

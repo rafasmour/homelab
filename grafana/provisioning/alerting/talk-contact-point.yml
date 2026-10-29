@@ -3,6 +3,10 @@ apiVersion: 1
 # Alerts go to the "Grafana alerts" Nextcloud Talk room through the
 # hermes-nextcloud-bridge /deliver endpoint, posted by the Hermes Talk bot.
 # TALK_DELIVER_SECRET and TALK_ALERTS_ROOM come from grafana/.env.
+# Rules labelled self_heal="true" are also sent to the self-heal controller
+# (contact point "Self-heal", bearer SELF_HEAL_WEBHOOK_SECRET from grafana/.env).
+# Rules labelled n8n_drift_run="true" go only to the "n8n drift runner" contact
+# point (bearer N8N_DRIFT_WEBHOOK_SECRET from grafana/.env), never to Talk.
 
 templates:
   - orgId: 1
@@ -43,6 +47,33 @@ contactPoints:
             template: '{{ template "talk.payload" . }}'
             vars:
               room_token: $TALK_ALERTS_ROOM
+  # Self-heal controller (self-heal stack, network self-heal-ingress). Grafana's
+  # default webhook JSON; the controller only uses each alert's fingerprint and
+  # re-reads the alert from Grafana. Firing alerts only.
+  - orgId: 1
+    name: Self-heal
+    receivers:
+      - uid: self-heal
+        type: webhook
+        disableResolveMessage: true
+        settings:
+          url: http://self-heal:8790/grafana
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $SELF_HEAL_WEBHOOK_SECRET
+  # n8n-drift-runner (n8n-drift-runner stack, network n8n-drift). Starts one
+  # n8n/scripts/check-workflow-drift.sh run; the runner ignores the body.
+  - orgId: 1
+    name: n8n drift runner
+    receivers:
+      - uid: n8n-drift-runner
+        type: webhook
+        disableResolveMessage: true
+        settings:
+          url: http://n8n-drift-runner:8791/run
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $N8N_DRIFT_WEBHOOK_SECRET
 
 policies:
   - orgId: 1
@@ -52,8 +83,39 @@ policies:
     group_interval: 5m
     repeat_interval: 12h
     routes:
+      # Rules labelled n8n_drift_run="true" only trigger the n8n drift runner,
+      # never Talk. No continue, and this route is first. repeat_interval makes
+      # the alert re-trigger a run every 30m while it stays firing.
+      - receiver: n8n drift runner
+        object_matchers:
+          - ["n8n_drift_run", "=", "true"]
+        group_by: ["..."]
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 30m
+      # Rules labelled self_heal="true" also go to the self-heal controller, one
+      # notification per alert. continue: true keeps matching the routes below,
+      # so the same alerts still reach Talk.
+      - receiver: Self-heal
+        object_matchers:
+          - ["self_heal", "=", "true"]
+        group_by: ["..."]
+        group_wait: 10s
+        continue: true
+      # OOM alerts: one message per episode, no hourly critical repeats.
+      - receiver: Nextcloud Talk
+        object_matchers:
+          - ["alertname", "=~", "Process killed by the OOM killer|Container killed for memory"]
+        group_wait: 10s
+        repeat_interval: 24h
       - receiver: Nextcloud Talk
         object_matchers:
           - ["severity", "=", "critical"]
         group_wait: 10s
         repeat_interval: 1h
+      # A matched child route (Self-heal above, even with continue) stops the
+      # fallback to this policy's own receiver, so self-heal alerts that no
+      # route above sent to Talk (warnings) are caught here with the defaults.
+      - receiver: Nextcloud Talk
+        object_matchers:
+          - ["self_heal", "=", "true"]

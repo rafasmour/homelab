@@ -1,0 +1,13 @@
+# Opt-in override: joins the self-heal stack's network. Use it only while the
+# self-heal stack runs (it creates the network):
+#   docker compose --env-file grafana/.env -f grafana/docker-compose.yml -f grafana/docker-compose.self-heal.yml up -d
+# Alert webhooks to the self-heal controller.
+services:
+  grafana:
+    networks:
+      - self-heal-ingress
+
+networks:
+  self-heal-ingress:
+    external: true
+    name: self-heal-ingress

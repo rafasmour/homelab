@@ -1,0 +1,97 @@
+# Integrity alerts (Grafana-managed). "n8n workflow changed outside git" goes to
+# Nextcloud Talk (talk-contact-point.yml). n8n/scripts/check-workflow-drift.sh
+# compares the live n8n workflows with n8n/workflows/*.json and writes
+# node-exporter/textfile/n8n_drift.prom (textfile collector). There is no cron:
+# "n8n drift check not running" is the scheduler. Labelled n8n_drift_run="true",
+# it goes only to the "n8n drift runner" contact point (never Talk), whose
+# webhook makes the n8n-drift-runner container run the script.
+apiVersion: 1
+groups:
+- orgId: 1
+  name: Integrity
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  - uid: n8n-workflow-drift
+    title: n8n workflow changed outside git
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: label_replace(n8n_workflow_exported == 1, "problem", "was changed in n8n and auto-exported over its file in n8n/workflows. Review with git diff, then commit it or revert the file and re-import it", "", "") or label_replace(n8n_workflow_drift == 1 unless on(workflow) n8n_workflow_exported == 1, "problem", "differs from its file in n8n/workflows. Inspect with n8n/scripts/check-workflow-drift.sh --diff <id>; restore with hermes-digests-setup.sh or commit the intended change", "", "") or label_replace(n8n_workflow_untracked_info == 1, "problem", "exists in n8n but has no file in n8n/workflows", "", "") or label_replace(n8n_workflow_active_mismatch == 1, "problem", "is not active although hermes-digests-setup.sh publishes it", "", "")
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: warning
+    annotations:
+      summary: 'n8n workflow {{ $labels.workflow }}{{ if $labels.name }} ({{ $labels.name }}){{ end }} {{ $labels.problem }}.'
+  - uid: n8n-drift-check-not-running
+    title: n8n drift check not running
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: label_replace((time() - n8n_workflow_drift_check_timestamp_seconds) > 1800, "reason", "has not run for over 30 minutes", "", "") or label_replace((1 - n8n_workflow_drift_check_success) > 0, "reason", "could not export the workflows from n8n", "", "") or label_replace(absent(n8n_workflow_drift_check_timestamp_seconds), "reason", "has never reported (no n8n_drift.prom metrics)", "", "")
+        instant: true
+        range: false
+        datasource:
+          type: prometheus
+          uid: prometheus
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 0
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: warning
+      n8n_drift_run: "true"
+    annotations:
+      summary: The n8n workflow drift check {{ $labels.reason }}. Grafana asks the n8n-drift-runner to run it; see docker logs n8n-drift-runner.
