@@ -8,6 +8,8 @@ services:
       # stored in data/webui.db override these variables. Admin UI changes
       # then last only until the next restart; see README.
       ENABLE_PERSISTENT_CONFIG: "${ENABLE_PERSISTENT_CONFIG:-false}"
+      # Privacy: no community sharing (update checks and model downloads stay on).
+      ENABLE_COMMUNITY_SHARING: "false"
 
       # Connections by index: 0 llama-server, 1 llama-classifier,
       # 2 Hermes default profile, 3-17 Hermes specialist profiles (append new
@@ -22,7 +24,6 @@ services:
         http://hermes-api:8642/p/ai-news/v1;
         http://hermes-api:8642/p/hf-models/v1;
         http://hermes-api:8642/p/llamacpp-vulkan/v1;
-        http://hermes-api:8642/p/gpu-watch/v1;
         http://hermes-api:8642/p/selfhosted/v1;
         http://hermes-api:8642/p/llamacpp-rocm/v1;
         http://hermes-api:8642/p/coding/v1;
@@ -51,24 +52,29 @@ services:
         ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
         ${HERMES_API_KEY:?Set HERMES_API_KEY in .env}
       # Hermes models are shown as hermes.<model id>, e.g. hermes.nextcloud.
+      # api_type responses: Open WebUI talks to Hermes' /v1/responses, which
+      # streams tool calls as function_call / function_call_output items that
+      # Open WebUI shows while the agent works. On /v1/chat/completions Hermes
+      # sends tool progress as a custom hermes.tool.progress SSE event that
+      # Open WebUI ignores, so only the final answer appeared (2026-11-04).
       OPENAI_API_CONFIGS: >-
         {
-        "2": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "3": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "4": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "5": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "6": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "7": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "8": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "9": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "10": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "11": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "12": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "13": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "14": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "15": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "16": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]},
-        "17": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}]}
+        "2": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "3": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "4": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "5": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "6": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "7": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "8": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "9": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "10": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "11": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "12": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "13": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "14": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "15": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "16": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
+        "17": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"}
         }
       ENABLE_OPENAI_API: "true"
       ENABLE_OLLAMA_API: "false"
@@ -126,6 +132,8 @@ services:
     networks:
       - webgateway
       - hermes-mcp
+      # Speech engines through http://speech-gateway:8000/v1 (speech stack).
+      - speech
 
 networks:
   webgateway:
@@ -134,3 +142,7 @@ networks:
   hermes-mcp:
     external: true
     name: hermes-mcp
+  # Created by the speech stack; start it first.
+  speech:
+    external: true
+    name: speech

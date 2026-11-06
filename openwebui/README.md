@@ -74,7 +74,7 @@ Open WebUI registers these OpenAI-compatible connections:
 
 The Hermes specialist models are `hermes.nextcloud`, `hermes.finance`,
 `hermes.calories`, `hermes.ai-news`, `hermes.hf-models`,
-`hermes.llamacpp-vulkan`, `hermes.gpu-watch` and `hermes.selfhosted`.
+`hermes.llamacpp-vulkan`, and `hermes.selfhosted`.
 `OPENAI_API_CONFIGS` gives each Hermes connection the prefix `hermes` and the
 tag `hermes`. Open WebUI removes the prefix before it forwards a request. To
 add a Hermes profile, add its URL to `OPENAI_API_BASE_URLS`, add
@@ -108,6 +108,10 @@ The built-in web search uses the web-search service's REST endpoints:
 - page loading: `WEB_LOADER_ENGINE=external`, `EXTERNAL_WEB_LOADER_URL=http://web-search-mcp:8000/fetch`
 
 Both send `WEB_SEARCH_MCP_TOKEN` as a bearer token.
+
+## Speech (voice input and read-aloud)
+
+Open WebUI joins the internal `speech` network of the [speech](../speech/README.md) stack, so start that stack first. Set the speech-to-text engine to `OpenAI` with base URL `http://speech-gateway:8000/v1` and model `auto` (Parakeet, Greek Parakeet for Greek) under **Admin Panel > Settings > Audio**. For read-aloud, set Text-to-Speech to `OpenAI` with the same base URL and model `supertonic` (English and Greek) or `omnivoice`. See [speech/README.md](../speech/README.md#open-webui).
 
 ## Persistent configuration
 
