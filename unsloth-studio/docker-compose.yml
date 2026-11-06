@@ -1,14 +1,35 @@
 services:
   unsloth-studio:
     container_name: unsloth-studio
-    image: unsloth/unsloth:${UNSLOTH_VERSION:-latest}
+    # Official AMD (ROCm 7.2) image with Unsloth Studio (:8000) and JupyterLab (:8888).
+    image: unsloth/unsloth-rocm:${UNSLOTH_VERSION:-v0.1.913-beta-studio}
     restart: unless-stopped
-    gpus: all
-    shm_size: 8gb
+    # AMD GPUs use the kernel driver nodes, not the NVIDIA toolkit. Same pattern as
+    # llama-cpp: numeric video (44) and render (991) group ids of this host, since
+    # group names do not resolve inside the image.
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "991"
+    # Upstream uses --ipc=host; 2 GB is enough for DataLoader workers on a 15 GB host.
+    shm_size: 2gb
     environment:
+      UNSLOTH_STUDIO_PASSWORD: "${UNSLOTH_STUDIO_PASSWORD:?Set UNSLOTH_STUDIO_PASSWORD in .env}"
       JUPYTER_PASSWORD: "${JUPYTER_PASSWORD:?Set JUPYTER_PASSWORD in .env}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      # Privacy: no Unsloth statistics ping or Hugging Face Hub telemetry.
+      UNSLOTH_DISABLE_STATISTICS: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      DO_NOT_TRACK: "1"
     volumes:
+      # Studio accounts, chats, projects and outputs.
+      - ./studio:/opt/unsloth-studio
+      # Notebooks, scripts and training outputs (/workspace itself stays in the image).
       - ./work:/workspace/work
+      # Hugging Face model and dataset cache (HF_HOME inside the image).
+      - ./huggingface:/workspace/.cache/huggingface
     networks:
       - webgateway
     labels:
@@ -20,7 +41,7 @@ services:
       traefik.http.routers.unsloth-studio.rule: "Host(`unsloth.${DOMAIN:?Set DOMAIN in .env}`)"
       traefik.http.routers.unsloth-studio.entrypoints: websecure
       traefik.http.routers.unsloth-studio.tls.certresolver: myresolver
-      traefik.http.services.unsloth-studio.loadbalancer.server.port: "8888"
+      traefik.http.services.unsloth-studio.loadbalancer.server.port: "8000"
       homepage.group: AI
       homepage.name: Unsloth Studio
       homepage.icon: mdi-brain
