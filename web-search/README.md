@@ -31,13 +31,19 @@ page is that short. `WEB_SEARCH_EXCERPT_CHARS=0` skips reading pages and
 returns snippets only.
 
 Latency is bounded. SearXNG is queried with `timeout_limit` (default
-`SEARXNG_TIMEOUT_LIMIT=3` seconds), so a hanging or rate-limited engine cannot
+`SEARXNG_TIMEOUT_LIMIT=2` seconds; `searxng/config/settings.yml` sets
+`outgoing.request_timeout` and `max_request_timeout` to 2.0, so engines
+answering later than 2 s are ignored), so a hanging or rate-limited engine cannot
 hold a search for the full `outgoing.request_timeout`. Result pages are read in
 parallel (`WEB_SEARCH_FETCH_WORKERS`, default 8) with a single attempt and a
-shared `WEB_SEARCH_FETCH_DEADLINE` (default 4 seconds, redirects included).
+shared `WEB_SEARCH_FETCH_DEADLINE` (default 2 seconds, redirects included, shortened so search + pages stay
+within `WEB_SEARCH_TOTAL_BUDGET`, default 3 seconds).
 A page that misses the deadline is listed with its snippet and
 `[page not read: ...]`. A `web_search` call therefore takes at most about
-`SEARXNG_TIMEOUT_LIMIT + WEB_SEARCH_FETCH_DEADLINE + 1` seconds. `fetch_url`
+`SEARXNG_TIMEOUT_LIMIT + WEB_SEARCH_FETCH_DEADLINE + 0.5` seconds (about 3 s
+typically). Identical `web_search` calls within `WEB_SEARCH_CACHE_TTL`
+(default 300 s) are answered from an in-process cache (SearXNG itself has no
+result cache; its valkey only holds engine/limiter state). `fetch_url`
 and `/fetch` keep the normal `FETCH_MAX_TIME` and `FETCH_RETRY` settings.
 `SEARXNG_ENGINES` and `SEARXNG_CATEGORIES` optionally restrict which SearXNG
 engines are queried.
@@ -85,6 +91,18 @@ search:
 
 Then restart SearXNG. This repository does not edit that ignored runtime
 configuration automatically.
+
+Recommended speed settings in `searxng/config/settings.yml` (measured
+2026-11-03): `outgoing.request_timeout: 2.0` and `max_request_timeout: 2.0`
+(slow engines are dropped after 2 s), and engine `weight`s `google cse` 1.5,
+`bing` 0.5, `mwmbl` 0.2. Google CSE is the best and fastest source here
+(about 0.7-1.1 s, 20 results, Greek works); Bing is locale-skewed and mwmbl
+returns many low-quality hits that outranked Google at weight 1, so both stay
+only as fallbacks. qwant, mojeek, brave and searchmysite answer this host with
+access denied or rate limits, yahoo and stackoverflow time out, and yandex
+works but sends queries to a Russian provider, so none are enabled. No
+Google CSE suspension was seen; if it appears, the cause is request volume,
+and the cache above reduces it.
 
 Engines that keep answering with CAPTCHAs or rate limits are suspended by
 SearXNG, but each time a suspension expires the next search waits for them

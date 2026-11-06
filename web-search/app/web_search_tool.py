@@ -19,7 +19,7 @@ _LOG = logging.getLogger("web_search")
 _MAX_BATCH = 20
 _PARSE_LOCK = threading.Lock()
 # Extra time after the fetch deadline for pages that arrived in time to finish parsing.
-_PARSE_GRACE = 1.0
+_PARSE_GRACE = 0.5
 _MD_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _EXCERPT_MARK = "[excerpt — call fetch_url for the full page]"
@@ -133,13 +133,31 @@ class WebSearchTool:
         self._default_n = int(os.environ.get("WEB_SEARCH_RESULT_COUNT") or "5")
         self._max_n = int(os.environ.get("WEB_SEARCH_MAX_RESULTS") or "8")
         self._excerpt_chars = int(os.environ.get("WEB_SEARCH_EXCERPT_CHARS") or "1200")
-        self._deadline = float(os.environ.get("WEB_SEARCH_FETCH_DEADLINE") or "4")
+        self._deadline = float(os.environ.get("WEB_SEARCH_FETCH_DEADLINE") or "2")
+        # Overall budget (seconds) for search + page reads: pages get whatever
+        # is left of it, at most the per-page deadline and at least 0.5 s.
+        self._budget = float(os.environ.get("WEB_SEARCH_TOTAL_BUDGET") or "3")
+        # Repeat queries inside this many seconds are answered from memory.
+        self._cache_ttl = float(os.environ.get("WEB_SEARCH_CACHE_TTL") or "300")
+        self._cache: dict[tuple[str, int], tuple[float, str]] = {}
 
     def search(self, query: str, count: int) -> list[SearchHit]:
         return self._engine.query(query, max(1, min(count, _MAX_BATCH)))
 
     def run(self, query: str, n: int | None = None) -> str:
         count = self._default_n if n is None or n < 1 else min(n, self._max_n)
+        key = (query.strip().lower(), count)
+        cached = self._cache.get(key)
+        if cached and time.monotonic() - cached[0] < self._cache_ttl:
+            return cached[1]
+        text = self._run(query, count)
+        if self._cache_ttl > 0 and not text.startswith("No search results"):
+            if len(self._cache) > 200:
+                self._cache.clear()
+            self._cache[key] = (time.monotonic(), text)
+        return text
+
+    def _run(self, query: str, count: int) -> str:
         started = time.monotonic()
         hits = self._engine.query(query, count)
         searched = time.monotonic()
@@ -147,7 +165,8 @@ class WebSearchTool:
             return f"No search results for {query!r}."
 
         if self._excerpt_chars > 0:
-            pages = self._reader.read_many([hit.url for hit in hits], self._deadline, excerpt=True)
+            page_deadline = max(0.5, min(self._deadline, self._budget - (searched - started)))
+            pages = self._reader.read_many([hit.url for hit in hits], page_deadline, excerpt=True)
         else:
             pages = [None] * len(hits)
         _LOG.info(

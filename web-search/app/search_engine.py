@@ -26,7 +26,7 @@ class SearxngSearchEngine(SearchEngine):
         self._base_url = (base_url or os.environ.get("SEARXNG_URL") or "http://searxng:8080").rstrip("/")
         # SearXNG waits for its slowest selected engine up to this many seconds
         # (capped by its outgoing.max_request_timeout), then answers with what it has.
-        self._timeout_limit = float(os.environ.get("SEARXNG_TIMEOUT_LIMIT") or "3")
+        self._timeout_limit = float(os.environ.get("SEARXNG_TIMEOUT_LIMIT") or "2")
         self._engines = (os.environ.get("SEARXNG_ENGINES") or "").strip()
         self._categories = (os.environ.get("SEARXNG_CATEGORIES") or "").strip()
         # SearXNG merges URL parameters into the request's preferences, so
