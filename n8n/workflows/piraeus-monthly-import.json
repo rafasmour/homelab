@@ -13,51 +13,92 @@
       "name": "Setup",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [-40, -180]
+      "position": [
+        -48,
+        -176
+      ]
     },
     {
       "parameters": {
         "pollTimes": {
           "item": [
             {
-              "mode": "everyHour"
+              "hour": 2
             }
           ]
         },
         "filters": {
-          "q": "has:attachment filename:zip"
-        },
-        "options": {
-          "downloadAttachments": true
+          "q": "has:attachment filename:zip newer_than:1d"
         }
       },
       "id": "b2e4f6a8-1c3d-4e5f-8a7b-9c0d1e2f3a4b",
       "name": "Gmail Trigger",
       "type": "n8n-nodes-base.gmailTrigger",
       "typeVersion": 1.2,
-      "position": [240, 80]
+      "position": [
+        240,
+        80
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "t1rP4mjqyfXq2jNz",
+          "name": "Gmail account"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "write",
         "fileName": "/tmp/piraeus-statement.zip",
-        "dataPropertyName": "attachment_0"
+        "dataPropertyName": "attachment_0",
+        "options": {}
       },
       "id": "c3f5a7b9-2d4e-4f60-9b8c-0d1e2f3a4b5c",
       "name": "Save zip",
       "type": "n8n-nodes-base.readWriteFile",
       "typeVersion": 1,
-      "position": [500, 80]
+      "position": [
+        672,
+        80
+      ]
     },
     {
       "parameters": {
-        "command": "node /scripts/piraeus-import.cjs /tmp/piraeus-statement.zip"
+        "command": "node /scripts/piraeus-import.cjs tmp/piraeus-statement.zip"
       },
       "id": "d4a6b8c0-3e5f-4071-8c9d-1e2f3a4b5c6d",
       "name": "Import statement",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [760, 80]
+      "position": [
+        896,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        464,
+        80
+      ],
+      "id": "9784d415-236a-4c9a-b11d-ba5837fc041c",
+      "name": "Get a message",
+      "webhookId": "9346519e-5e75-4b9f-a776-7638869794c1",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "t1rP4mjqyfXq2jNz",
+          "name": "Gmail account"
+        }
+      }
     }
   ],
   "connections": {
@@ -65,7 +106,7 @@
       "main": [
         [
           {
-            "node": "Save zip",
+            "node": "Get a message",
             "type": "main",
             "index": 0
           }
@@ -82,10 +123,26 @@
           }
         ]
       ]
+    },
+    "Get a message": {
+      "main": [
+        [
+          {
+            "node": "Save zip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 0
   },
   "pinData": {}
 }

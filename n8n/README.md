@@ -59,12 +59,12 @@ Nine workflows replace the former Hermes cron jobs. They are deterministic: HTTP
 | Hermes digest – hf-models | 08:10 | hf-models | Hugging Face API, top 50 trending `text-generation` and `gguf`; created today/yesterday and GGUF or >100 downloads; no image/audio/video | no |
 | Hermes digest – llamacpp-vulkan | 08:14 | llamacpp-vulkan | GitHub search: issues/PRs updated and commits since yesterday mentioning Vulkan; merged PRs first | one call: change summary per item |
 | Hermes digest – llamacpp-rocm | 08:18 | llamacpp-rocm | GitHub search for rocm/hip/hipblas/rocwmma; RDNA3/gfx1100/flash-attention first; merged PRs marked | one call |
-| Hermes digest – gpu-watch | 08:22 | gpu-watch | `hermes/gpu-watchlist.example.yml` (mounted at `/home/node/.n8n-files/gpu-watchlist.yml`); plaisio.gr search pages, schema.org offers; `ALERT` under `target_price` | no |
 | Hermes digest – calories-report | 22:00 | calories | wger MCP `http://wger-mcp:8765/mcp`, `nutrition_summary` for today | no |
+
+Reddit, GitHub, and Hugging Face get a descriptive User-Agent.
 
 The LLM jobs are staggered so only one model call runs at a time. The call goes to `http://llama-server:8080/v1/chat/completions` with model `qwen-3.6-35b-a3b` (a thinking model), temperature 0.2, bounded `max_tokens`, and no tools. Only `choices[0].message.content` is used; the reply is reduced to `<n>. <text>` lines for known item numbers (links, Markdown, and reasoning-looking lines are dropped). If the call fails or fewer than half of the items get a usable line, the message is built from the template alone (Reddit falls back to the post's first sentence).
 
-Shops for gpu-watch: skroutz.gr and bestprice.gr sit behind a bot challenge, public.gr and you.gr answer 403, and the web-search `/fetch` endpoint returns nothing for any of them, so only plaisio.gr is read (with a browser User-Agent; it rejects a descriptive one). Reddit, GitHub, and Hugging Face get a descriptive User-Agent.
 
 Entry points of every digest:
 

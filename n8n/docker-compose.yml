@@ -58,13 +58,15 @@ services:
       FIREFLY_IMPORT_ARCHIVE: /firefly-import-archive
       NODES_EXCLUDE: '["n8n-nodes-base.localFileTrigger"]'
       N8N_RESTRICT_FILE_ACCESS_TO: /tmp;~/.n8n-files
+      # Privacy: no usage telemetry, onboarding survey or cloud AI (version checks and templates stay on).
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_AI_ENABLED: "false"
     volumes:
       - ./data:/home/node/.n8n
       - ./scripts/piraeus-import.cjs:/scripts/piraeus-import.cjs:ro
       - ../firefly-iii/imports:/firefly-import
       - ../firefly-iii/import-archive:/firefly-import-archive
-      # Read by the "Hermes digest – gpu-watch" workflow.
-      - ../hermes/gpu-watchlist.example.yml:/home/node/.n8n-files/gpu-watchlist.yml:ro
     networks:
       - backend
       - hermes-mcp
@@ -98,6 +100,9 @@ services:
       PORT: "3000"
       NODE_ENV: production
       LOG_LEVEL: info
+      # Privacy: n8n-mcp anonymous telemetry off.
+      N8N_MCP_TELEMETRY_DISABLED: "true"
+      TELEMETRY_DISABLED: "true"
       N8N_API_URL: http://n8n:5678
       N8N_API_KEY: "${N8N_API_KEY:?Set N8N_API_KEY in .env}"
       AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"

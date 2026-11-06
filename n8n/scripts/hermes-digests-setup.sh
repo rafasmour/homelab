@@ -71,7 +71,6 @@ room_ids = {
     "hf-models": "hdTalkHfModels01",
     "llamacpp-vulkan": "hdTalkVulkan0001",
     "llamacpp-rocm": "hdTalkRocm000001",
-    "gpu-watch": "hdTalkGpuWatch01",
     "selfhosted": "hdTalkSelfhost01",
     "finance": "hdTalkFinance001",
     "nextcloud": "hdTalkNextcloud1",
