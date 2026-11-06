@@ -17,17 +17,17 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Web search MCP](web-search/README.md) | SearXNG-backed crawl-to-markdown MCP for Hermes and Open WebUI | Private only | Not listed |
 | [GitLab CE](gitlab/README.md) | Git hosting and CI/CD | `gitlab.${DOMAIN}` | Development |
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
-| [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles | `hermes.${DOMAIN}` | AI |
+| [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles, plus the web dashboard and relay for the Hermes-Relay Android app | `hermes.${DOMAIN}`, `hermes-dash.${DOMAIN}`, `hermes-relay.${DOMAIN}` | AI |
 | [Hermes Nextcloud Talk bridge](hermes-nextcloud-bridge/README.md) | Nextcloud Talk bot and delivery endpoint for Hermes | Private only | Not listed |
 | [Hermes sandboxes](hermes-sandboxes/README.md) | Per-profile SSH sandboxes for the API profiles' terminal/file tools, a restart-only Docker proxy and a Docker-in-Docker agent testbed | Private only | Not listed |
-| [Home Assistant](home-assistant/README.md) | Assist voice pipeline: Whisper, Hermes `voice` agent, Kokoro TTS (Android wake word via the Companion app) | `home-assistant.${DOMAIN}` | Home |
+| [Hindsight](hindsight/README.md) | Shared long-term agent memory for the Hermes profiles (internal API only, no internet; embeddings on llama-classifier, retain/reflect on llama-server) | Private only | Not listed |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
 | [Image Generation](image-generation/README.md) | Vulkan Stable Diffusion WebUI and API | `stable-diffusion.${DOMAIN}` | Not configured |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
 | [llama.cpp](llama-cpp/README.md) | Vulkan model router with an OpenAI-compatible API, plus a Hugging Face GGUF download UI | `ai.${DOMAIN}`, `models.${DOMAIN}` | AI |
 | [llama.cpp classifiers](llama-cpp-classifier/README.md) | CPU router for decision models | `classify.${DOMAIN}` | AI |
 | [Loki](loki/README.md) | Log aggregation | `loki.${DOMAIN}` | Monitoring |
-| [Maps](maps/README.md) | Greece-only maps: vector tiles + web map, Valhalla routing, lean Pelias search (backend for Cardinal / Murena Maps search and directions) | `maps.${DOMAIN}` | Home |
+| [Maps](maps/README.md) | Greece-only Valhalla routing and lean Pelias search, no web page (backend for Cardinal / Murena Maps search and directions) | `maps.${DOMAIN}` | Home |
 | [Mealie](mealie/README.md) | Recipe and meal planning | `mealie.${DOMAIN}` | Food |
 | [Memos](memos/README.md) | Lightweight notes and knowledge capture | `memos.${DOMAIN}` | Knowledge |
 | [n8n](n8n/README.md) | Workflow automation; runs the scheduled Hermes Talk digests | `n8n.${DOMAIN}` | Automation |
@@ -42,8 +42,9 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Reactive Resume](reactive-resume/README.md) | Resume builder | `resume.${DOMAIN}` | Productivity |
 | [SearXNG](searxng/README.md) | Privacy-respecting metasearch | `searxng.${DOMAIN}` | Search |
 | [Self-heal](self-heal/README.md) | Grafana alerts diagnosed by the read-only Hermes `devops-diagnose` profile (host, container, metric and log tools); container restarts only after approval in Talk (`fix`, optional TOTP) | Private only | Not listed |
+| [Speech](speech/README.md) | CPU speech-to-text (Parakeet, Greek Parakeet, automatic English/Greek) and GPU text-to-speech (audio.cpp: Supertonic, OmniVoice, Kokoro, Phonon) through an OpenAI-compatible gateway, plus a voice tester | `speech.${DOMAIN}` | AI |
 | [Tandoor Recipes](tandoor-recipes/README.md) | Recipe management | `tandoor.${DOMAIN}` | Food |
-| [Unsloth Studio](unsloth-studio/README.md) | GPU-backed model training workspace | `unsloth.${DOMAIN}` | AI |
+| [Unsloth Studio](unsloth-studio/README.md) | AMD ROCm model fine-tuning workspace (Unsloth Studio) | `unsloth.${DOMAIN}` | AI |
 | [Uptime Kuma](uptime-kuma/README.md) | Uptime monitoring with AutoKuma discovery | `uptime-kuma.${DOMAIN}` | Monitoring |
 | [Vaultwarden](vaultwarden/README.md) | Bitwarden-compatible password management | `vaultwarden.${DOMAIN}` | Security |
 | [wger](wger/README.md) | Workout and nutrition tracking | `wger.${DOMAIN}` | Food |
@@ -106,6 +107,11 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
 - `scripts/reset-n8n-password.sh [EMAIL]` sets a new n8n password (owner by
   default) straight in its database; the password is read silently and never
   printed.
+- `scripts/clear-model-caches.sh [--yes] [--docker]` lists (and with `--yes`
+  deletes) re-downloadable Hugging Face caches: `~/.cache/huggingface`, every
+  hub cache in the repository (including Open WebUI's embedding and Whisper
+  caches) and the `.cache/huggingface` download metadata in model folders.
+  Model files are kept. `--docker` also prunes the Docker build cache.
 - `scripts/rotate-api-keys.sh [--dry-run] [--restart] [KEY ...]` replaces the
   self-generated API keys and shared bearer tokens (`--list` shows them) with
   new random hex values in every stack `.env` that holds them, without printing
@@ -114,6 +120,26 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   `N8N_API_KEY`, Firefly and wger tokens, the Nextcloud app password, the Talk
   bot secret) and stateful secrets (database passwords, encryption keys) are
   rotated by hand.
+- `scripts/llama-router.sh status|reload|load M|unload M|loaded|presets|vram`
+  talks to the llama.cpp router through `docker exec llama-server curl` with
+  the container's own key.
+- `scripts/production-model.sh [status|switch MODEL] [--dry-run]` moves the
+  production model (router preset flags, the model variables in the hermes,
+  hindsight, benchmark and speech `.env` files) and recreates the affected
+  containers.
+- `scripts/bench.sh llm|stt|tts|all|summary|status [--bg]` runs the benchmark
+  suites with the speech warmer paused, refuses while a run holds the lock,
+  logs to `benchmark/reports/` and prints scores from the database.
+- `scripts/hf-find.sh search|files|card|dl|drafters` finds quantized GGUFs and
+  drafters on Hugging Face; full-precision files are flagged SKIP and refused.
+- `scripts/add-preset.sh NAME --model FILE [...]` appends a preset to
+  `llama-cpp/models/router-config.ini` (with backup) and can reload the router.
+- `scripts/post-note.sh TITLE [--category C] [--file F]` posts a Markdown
+  report to Nextcloud Notes via the hermes-api integration.
+- `scripts/resources.sh [--short]` shows VRAM, RAM/swap, loaded models, top
+  containers, stopped containers and benchmark leftovers.
+- `scripts/stack.sh check|up|rebuild STACK [SERVICE ...]` validates a stack's
+  Compose file, rebuilds a local image and recreates single services.
 
 ## Observability startup order
 

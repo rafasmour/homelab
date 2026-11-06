@@ -35,7 +35,6 @@ Existing: 9 profiles, 8 nightly/daily jobs, one Talk room each. Gaps found in th
 | **Wedding planner profile** | low / high (time-bound) | A profile scoped to the Γάμος list and calendar: due-date chasing, weekly countdown digest, vendor contacts. |
 | **Homelab ops profile + self-healing with approval** | medium / medium | [grafana/mcp-grafana](https://github.com/grafana/mcp-grafana) with `--disable-write` and `--enabled-tools` (PromQL, LogQL, alerts). Grafana alert → ops room → LLM proposes one of `{restart, ignore, escalate}` → you approve → n8n runs an allowlisted `restart_container(name)` → verify. Never give the agent the Docker socket directly ([pattern](https://piefed.keyboardvagabond.com/post/397656), add the approval gate). |
 | **Model manager tool** | low / medium | Wrap the router's native `POST`/`DELETE /models` (now tested) in a small tool: "install Gemma 31B" → pull, then propose a preset following the >64k / f16-or-q8_0 rules. |
-| **Fix gpu-watch price-drop alerts** | low / low | The "below last price" comparison relied on the notepad, which is disabled; store the last price in a Nextcloud note or let changedetection.io do it (section 4). |
 | **Remove legacy profiles** | low / low | `router` and `digest` still sit on the Hermes volume; the orphaned `hermes_conversation` entry in Home Assistant points at `router`. |
 
 ## 3. Home Assistant: make it actually do things

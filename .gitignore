@@ -14,6 +14,15 @@
 !scripts/rotate-api-keys.sh
 !scripts/reset-n8n-password.sh
 !scripts/setup-env.sh
+!scripts/clear-model-caches.sh
+!scripts/llama-router.sh
+!scripts/production-model.sh
+!scripts/bench.sh
+!scripts/hf-find.sh
+!scripts/add-preset.sh
+!scripts/post-note.sh
+!scripts/resources.sh
+!scripts/stack.sh
 
 # Supported service folders. Add a matching `!service-name/` entry when a new
 # stack is created. Files inside remain ignored unless allowlisted separately.
@@ -28,7 +37,8 @@
 !hermes/
 !hermes-nextcloud-bridge/
 !hermes-sandboxes/
-!home-assistant/
+!hindsight/
+!hindsight/nginx.conf
 !homepage/
 !image-generation/
 !immich/
@@ -51,6 +61,7 @@
 !reactive-resume/
 !searxng/
 !self-heal/
+!speech/
 !n8n-drift-runner/
 !n8n-drift-runner/Dockerfile
 !n8n-drift-runner/.dockerignore
@@ -94,9 +105,15 @@ grafana/data/
 hermes/data/
 hermes-nextcloud-bridge/data/
 homepage/config/
-home-assistant/config/
-home-assistant/piper/
-home-assistant/whisper/
+speech/lid/
+speech/recordings/
+speech/parakeet/
+speech/parakeet-greek/
+speech/phonon/
+speech/piper/
+speech/qwen3-asr/
+speech/supertonic/
+speech/whisper/
 immich/library/
 immich/model-cache/
 immich/postgres/
@@ -131,6 +148,8 @@ silverbullet/space/
 tandoor-recipes/mediafiles/
 tandoor-recipes/postgres/
 tandoor-recipes/staticfiles/
+unsloth-studio/huggingface/
+unsloth-studio/studio/
 unsloth-studio/work/
 uptime-kuma/autokuma-data/
 uptime-kuma/data/
@@ -162,11 +181,17 @@ wger/static/
 !hermes/.gitignore
 !hermes/start.sh
 !hermes/docker-compose.self-heal.yml
-!hermes/gpu-watchlist.example.yml
 !hermes/plugins/
 !hermes/plugins/talk_send/
 !hermes/plugins/talk_send/plugin.yaml
 !hermes/plugins/talk_send/__init__.py
+!hermes/plugins/agents/
+!hermes/plugins/agents/plugin.yaml
+!hermes/plugins/agents/__init__.py
+!hermes/plugins/agents/runner.py
+!hermes/plugins/kanban_notify/
+!hermes/plugins/kanban_notify/plugin.yaml
+!hermes/plugins/kanban_notify/__init__.py
 !hermes/plugins/clock/
 !hermes/plugins/clock/plugin.yaml
 !hermes/plugins/clock/__init__.py
@@ -251,7 +276,6 @@ wger/static/
 !n8n/workflows/hermes-digest-hf-models.json
 !n8n/workflows/hermes-digest-llamacpp-vulkan.json
 !n8n/workflows/hermes-digest-llamacpp-rocm.json
-!n8n/workflows/hermes-digest-gpu-watch.json
 !n8n/workflows/hermes-digest-selfhosted.json
 !n8n/workflows/hermes-digest-payments-unpaid.json
 !n8n/workflows/hermes-digest-morning-digest.json
@@ -261,8 +285,17 @@ wger/static/
 !wger/powersync/
 !wger/powersync/powersync.yaml
 !wger/powersync/sync_rules.yaml
-!home-assistant/scripts/
-!home-assistant/scripts/bootstrap-and-start.sh
+!speech/gateway/
+!speech/gateway/Dockerfile
+!speech/gateway/server.py
+!speech/gateway/lid.py
+!speech/gateway/tester.html
+!speech/audiocpp/
+!speech/audiocpp/Dockerfile
+!speech/audiocpp/server.json
+!speech/audiocpp/discover.py
+!speech/tools/
+!speech/tools/fix_convinteger.py
 
 !benchmark/Dockerfile
 !benchmark/package.json
@@ -284,6 +317,12 @@ wger/static/
 !benchmark/benchmarks/hermes/*.js
 !benchmark/benchmarks/hermes/tasks/
 !benchmark/benchmarks/hermes/tasks/*.md
+!benchmark/benchmarks/stt/
+!benchmark/benchmarks/stt/*.js
+!benchmark/benchmarks/stt/models.json
+!benchmark/benchmarks/tts/
+!benchmark/benchmarks/tts/*.js
+!benchmark/benchmarks/tts/voices.json
 !benchmark/.dockerignore
 !benchmark/ui/
 !benchmark/ui/Dockerfile
@@ -322,12 +361,9 @@ wger/static/
 !self-heal/host-probe/tests/
 !self-heal/host-probe/tests/test_probe.py
 
-# maps (Greece tiles, Valhalla, Pelias)
+# maps (Greece Valhalla routing and Pelias search)
 !maps/build/
 !maps/build/build-greece.sh
 !maps/pelias/
 !maps/pelias/pelias.json
-!maps/web/
-!maps/web/index.html
-!maps/web/style.json
 !maps/nginx.conf
