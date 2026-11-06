@@ -1,0 +1,225 @@
+services:
+  # --- Speech-to-text (CPU, Wyoming servers on the internal speech network) ---
+
+  # NVIDIA Parakeet TDT 0.6B v3 int8 via sherpa-onnx: 25 European languages
+  # (Greek included, but weak), no prompt biasing.
+  wyoming-parakeet:
+    image: rhasspy/wyoming-whisper:${WHISPER_VERSION:-3.8.1}
+    container_name: wyoming-parakeet
+    restart: unless-stopped
+    entrypoint: ["bash", "/usr/src/docker_run.sh", "--local-files-only"]
+    command:
+      - --stt-library
+      - sherpa
+      - --model
+      - ${PARAKEET_MODEL:-sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8}
+      - --cpu-threads
+      - ${PARAKEET_CPU_THREADS:-8}
+      - --download-dir
+      - /data
+    environment:
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - ./parakeet:/data
+    networks:
+      - speech
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "/usr/src/.venv/bin/python3", "-m", "wyoming_faster_whisper.health_check"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 180s
+
+
+  # --- Text-to-speech on the GPU ---
+
+  # audio.cpp server (OpenAI-shaped POST /v1/audio/speech on 8080), Vulkan on
+  # the RX 7900 XT next to llama.cpp: Supertonic 3 (English + Greek, presets
+  # M1-M5/F1-F5), OmniVoice (voice design), Jarvis (VoxCPM2 + the
+  # FuturePresentLabs/tts-jarvis LoRA), Kokoro (British voices), Phonon.
+  # Models are lazy-loaded from ./audiocpp/models (see README), about
+  # 0.2-1.3 GB of VRAM each (Jarvis ~1 GB more). It also serves Cohere
+  # Transcribe (task asr, POST /v1/audio/transcriptions) for Greek
+  # speech-to-text. Build: ./audiocpp.
+  audiocpp-tts:
+    build:
+      context: ./audiocpp
+      args:
+        AUDIOCPP_VERSION: ${AUDIOCPP_VERSION:-v0.9.3}
+    image: homelab-audiocpp:${AUDIOCPP_VERSION:-v0.9.3}
+    container_name: audiocpp-tts
+    restart: unless-stopped
+    # Two models in VRAM at a time (server.json: Jarvis + Cohere Transcribe).
+    # Requests run one at a time per model (--busy-timeout-ms, default 300 s).
+    # --min-free-memory-mb: refuse a model load that would leave less than 512 MiB (1 GiB until 2026-11-05)
+    # of VRAM (or host RAM) free, instead of pushing llama.cpp out of memory;
+    # the gateway then answers with TTS_FALLBACK. No idle unload: the
+    # gateway's warmer decides what stays loaded.
+    command: ["--config", "/config/server.json", "--min-free-memory-mb", "512"]
+    devices:
+      - /dev/dri:/dev/dri
+    # video and render groups of the host (owners of /dev/dri/*).
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-991}"
+    volumes:
+      - ./audiocpp/models:/models:ro
+      - ./audiocpp/server.json:/config/server.json:ro
+      # Voice library: <name>.wav reference clips plus `prompt_text`
+      # (<name>|<transcript> per line); a request "voice": "<name>" clones it.
+      - ./audiocpp/voices:/voices:ro
+    networks:
+      - speech
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # OpenAI-compatible gateway for Open WebUI and the voice tester: one base URL
+  # (http://speech-gateway:8000/v1) for every engine; `model` picks one.
+  # Speech-to-text goes to the Wyoming servers (and Cohere over HTTP),
+  # text-to-speech to the HTTP servers. Build: ./gateway.
+  speech-gateway:
+    build:
+      context: ./gateway
+    image: homelab-speech-gateway:local
+    container_name: speech-gateway
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      # STT model "auto" (the default), detector mode: a small CPU Whisper
+      # int8 language-ID model (./lid, mounted at /lid) picks el or en from
+      # the first 15 s, then Cohere Transcribe (audio.cpp, GPU) transcribes
+      # with exactly that language hint (it translates into any hint it is
+      # given, so the hint must not be a guess). A client `language` skips
+      # detection. If detection or Cohere fails, Parakeet (CPU, kept running
+      # as the fallback) answers. Previous mode, still supported:
+      #   {"primary": "parakeet", "greek": "cohere"}
+      # STT_BACKENDS: a string is a Wyoming "host:port", an object with "url"
+      # is an OpenAI-style HTTP endpoint (audio.cpp) and takes `language`.
+      STT_DEFAULT: auto
+      STT_AUTO: '{"detector": "whisper-lid", "model": "base", "engine": "cohere", "languages": ["el", "en"], "fallback": "parakeet", "seconds": 15, "threads": 2, "el_bias": 4}'
+      STT_GREEK_TIMEOUT_S: "8"
+      # Recording capture: the first STT_SAVE_MAX "auto" requests are saved to
+      # ./recordings (16 kHz WAV + JSON with language, probabilities,
+      # transcript, timings). This stores the owner's voice locally: set
+      # STT_SAVE_DIR to "" to turn it off, and delete the files (README).
+      STT_SAVE_DIR: /recordings
+      STT_SAVE_MAX: "10"
+      STT_BACKENDS: >-
+        {"parakeet": "wyoming-parakeet:10300",
+         "cohere": {"url": "http://audiocpp-tts:8080/v1", "model": "cohere", "language": "el"}}
+      # Text-to-speech engines are discovered from audiocpp-tts: every tts
+      # model in audiocpp/server.json becomes an engine of the same name, its
+      # voices are read from the GGUF in ./audiocpp/models, and multilingual
+      # families (Supertonic, OmniVoice, VoxCPM2, ...) get `language` "el"
+      # when the text is mostly Greek letters, else "en". TTS_BACKENDS only
+      # adds per-engine extras on top; "voice_options" maps voice names to
+      # request fields (OmniVoice voice design, Jarvis has a single voice).
+      AUDIOCPP_URL: http://audiocpp-tts:8080/v1
+      AUDIOCPP_MODELS_DIR: /models
+      # "assistant" is a virtual engine: each request goes to the engine and
+      # voice for its language (Greek letters in the majority -> "el", else
+      # "en"). Change the Greek voice here (pocket-greek: spyros, kostas,
+      # nikos, giorgos, eleni, athina, katerina, sophia). With one model
+      # loaded at a time, alternating languages reloads models.
+      TTS_DEFAULT: assistant
+      TTS_ROUTES: >-
+        {"assistant": {"en": {"model": "jarvis", "voice": "jarvis"},
+                       "el": {"model": "jarvis", "voice": "jarvis"}}}
+      # Safety net: a failed request (GPU full, model error) is answered by
+      # this small engine instead.
+      TTS_FALLBACK: '{"model": "supertonic", "voice": "M1"}'
+      # Warmer: keeps WARM_LLM loaded in the llama.cpp router while nothing
+      # else runs there (Hermes' first token without a load) and WARM_TTS in
+      # audio.cpp after WARM_TTS_IDLE seconds without speech requests. While
+      # another llama.cpp model is loaded it parks audio.cpp on PARK_TTS
+      # (~0.2 GB) so that model has the card.
+      LLAMA_URL: http://llama-server:8080
+      LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
+      WARM_LLM: "${WARM_LLM:-nemotron-3.5-bolt-e4b-dflash}"
+      # Jarvis (VoxCPM2 Q4_K + LoRA, ~2.9 GiB + the 1 GiB guard) fits next to
+      # the production model, so it stays warm; the Q8_0 + LoRA
+      # variant (4.35 GiB) does not.
+      WARM_TTS: jarvis
+      WARM_TTS_IDLE: "600"
+      # Cohere Transcribe (Q6_K, ~2.1 GiB) stays loaded beside Jarvis.
+      WARM_STT: cohere
+      # audio.cpp holds two models (server.json), so parking loads one small
+      # model per slot: this pushes both Jarvis and Cohere out of VRAM.
+      PARK_TTS: phonon,kokoro
+      TTS_BACKENDS: >-
+        {"omnivoice": {"voice_options": {
+           "british-male": {"instruct": "male, middle-aged, low pitch, british accent", "seed": 42},
+           "british-male-young": {"instruct": "male, young adult, moderate pitch, british accent", "seed": 7},
+           "british-female": {"instruct": "female, middle-aged, moderate pitch, british accent", "seed": 42},
+           "greek-male": {"instruct": "male, middle-aged, low pitch", "seed": 42}}},
+         "jarvis": {"library": false, "voice_options": {
+           "jarvis": {"voice": "jarvis",
+                      "input_prefix": "(a calm, middle-aged British man with a low voice)",
+                      "post_filter": "rubberband=pitch=0.971532:formant=preserved,highpass=f=65,equalizer=f=170:t=q:w=0.8:g=1.2,equalizer=f=360:t=q:w=1.0:g=0.5,equalizer=f=2600:t=q:w=1.0:g=1.6,equalizer=f=5200:t=q:w=1.2:g=0.8,deesser=i=0.10:m=0.28:f=0.55,acompressor=threshold=-20dB:ratio=2.4:attack=3:release=45:makeup=4,aexciter=level_in=1:level_out=1:amount=0.12:drive=1.08:blend=0.12:freq=3200,loudnorm=I=-15:TP=-1.0:LRA=6,aresample=24000"},
+           "jarvis-raw": {"voice": "jarvis",
+                          "input_prefix": "(a calm, middle-aged British man with a low voice)"}}},
+         "voxcpm2": {"voice_options": {
+           "british-man": {"input_prefix": "(a calm, middle-aged British man with a low voice)"},
+           "british-woman": {"input_prefix": "(a calm, middle-aged British woman with a clear voice)"},
+           "greek-man": {"input_prefix": "(a warm, middle-aged Greek man with a deep voice)"},
+           "greek-woman": {"input_prefix": "(a warm, young Greek woman with a clear voice)"},
+           "narrator": {"input_prefix": "(a deep, slow documentary narrator)"}}}}
+      WYOMING_TTS_BACKENDS: "{}"
+    tmpfs:
+      - /tmp
+    # Group of the host user that owns ./recordings (STT_SAVE_DIR below).
+    group_add:
+      - "${RECORDINGS_GID:-1000}"
+    volumes:
+      # Read-only, only to list the voices embedded in each model.
+      - ./audiocpp/models:/models:ro
+      # Whisper int8 ONNX language-ID model (see README "Models").
+      - ./lid:/lid:ro
+      # Captured STT requests (WAV + JSON), see STT_SAVE_DIR.
+      - ./recordings:/recordings
+    # Voice tester page at / (tester.html). No authentication of its own:
+    # like the rest of the lab it is reachable over WireGuard only.
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: webgateway
+      traefik.http.routers.speech.rule: "Host(`speech.${DOMAIN:?Set DOMAIN in .env}`)"
+      traefik.http.routers.speech.entrypoints: websecure
+      traefik.http.routers.speech.tls.certresolver: myresolver
+      traefik.http.services.speech.loadbalancer.server.port: "8000"
+      homepage.group: AI
+      homepage.name: Voice tester
+      homepage.icon: mdi-account-voice
+      homepage.href: "https://speech.${DOMAIN}"
+      homepage.description: Try the speech-to-text and text-to-speech engines.
+    networks:
+      - speech
+      - webgateway
+    # 768m: the language-ID model (onnxruntime, Whisper base int8, ~0.4 GB
+    # resident) lives in this process; 256m was enough without it.
+    mem_limit: 768m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+networks:
+  webgateway:
+    external: true
+    name: webgateway
+  # Internal (no internet) network. Open WebUI joins it as an external
+  # network and reaches speech-gateway by container name.
+  speech:
+    name: speech
+    internal: true

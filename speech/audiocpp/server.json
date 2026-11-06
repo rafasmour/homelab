@@ -1,0 +1,103 @@
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+  "backend": "vulkan",
+  "device": 0,
+  "threads": 4,
+  "lazy_load": true,
+  "max_loaded_models": 2,
+  "ui": false,
+  "ui_management": false,
+  "models": [
+    {
+      "id": "supertonic",
+      "family": "supertonic",
+      "path": "/models/Supertonic-3-GGUF/supertonic-3-q8_0.gguf",
+      "task": "tts",
+      "mode": "offline",
+      "default_voice_preset": {
+        "voice_id": "M1"
+      },
+      "default_request_options": {
+        "language": "en"
+      }
+    },
+    {
+      "id": "omnivoice",
+      "family": "omnivoice",
+      "path": "/models/OmniVoice-GGUF/omnivoice-q8_0.gguf",
+      "task": "tts",
+      "mode": "offline",
+      "default_request_options": {
+        "instruct": "male, middle-aged, low pitch, british accent",
+        "seed": 42
+      }
+    },
+    {
+      "id": "kokoro",
+      "family": "kokoro_tts",
+      "path": "/models/Kokoro-82M-GGUF/kokoro-82m-q8_0.gguf",
+      "task": "tts",
+      "mode": "offline",
+      "default_voice_preset": {
+        "voice_id": "bm_george"
+      }
+    },
+    {
+      "id": "phonon",
+      "family": "gradium_phonon",
+      "path": "/models/phonon-31m-en/phonon-31m-en-q8_0.gguf",
+      "task": "tts",
+      "mode": "offline"
+    },
+    {
+      "id": "jarvis",
+      "family": "voxcpm2",
+      "path": "/models/VoxCPM2-GGUF-NANI/voxcpm2-Q4_K.gguf",
+      "task": "tts",
+      "mode": "offline",
+      "session_options": {
+        "voxcpm2.lora": "/models/tts-jarvis/adapter",
+        "voxcpm2.lora_scale": "1"
+      },
+      "default_request_options": {
+        "num_inference_steps": 6,
+        "guidance_scale": 2.4,
+        "seed": 42
+      }
+    },
+    {
+      "id": "voxcpm2",
+      "family": "voxcpm2",
+      "path": "/models/VoxCPM2-GGUF/voxcpm2-q8_0.gguf",
+      "task": "tts",
+      "mode": "offline",
+      "default_request_options": {
+        "seed": 42
+      }
+    },
+    {
+      "id": "audio8-air",
+      "family": "audio8_tts",
+      "path": "/models/Audio8-TTS-Realistic-Air-GGUF/Audio8-TTS-Realistic-Air-Q8_0.gguf",
+      "task": "tts",
+      "mode": "offline",
+      "model_spec_override": "embedded",
+      "default_request_options": {
+        "temperature": 0.8,
+        "top_p": 0.95,
+        "top_k": 50,
+        "max_tokens": 1024,
+        "seed": 42
+      }
+    },
+    {
+      "id": "cohere",
+      "family": "cohere_asr",
+      "path": "/models/cohere-transcribe-gguf/cohere-transcribe-03-2026-q6_k.gguf",
+      "task": "asr",
+      "mode": "offline"
+    }
+  ],
+  "voice_dir": "/voices"
+}

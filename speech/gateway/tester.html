@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Tester</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5d6673;
+    --border: #d9dde3; --accent: #2f6fde; --accent-text: #ffffff;
+    --ok: #1f8a4c; --err: #c23b3b; --row: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --panel: #1b1e23; --text: #e6e8eb; --muted: #9aa3ae;
+      --border: #2e333a; --accent: #5b93f0; --accent-text: #0d1117;
+      --ok: #4cc27f; --err: #ef6b6b; --row: #22262c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  section { background: var(--panel); border: 1px solid var(--border);
+            border-radius: 10px; padding: 16px; margin-bottom: 18px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  textarea, select, input[type=file] {
+    width: 100%; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+  textarea { min-height: 72px; resize: vertical; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 12px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--row);
+           color: var(--text); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .chips label { display: inline-flex; gap: 6px; align-items: center; color: var(--text); font-size: 14px; margin: 0; }
+  .status { color: var(--muted); font-size: 13px; }
+  .table-wrap { overflow-x: auto; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td audio { height: 32px; max-width: 260px; }
+  .err { color: var(--err); }
+  code { font-size: 13px; }
+  .phrase { font-size: 18px; margin: 0 0 4px; }
+  button.big { font-size: 17px; padding: 12px 22px; }
+  .rec { background: var(--err) !important; border-color: var(--err) !important; color: #fff !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voice tester</h1>
+  <p class="lead">Every engine of the speech stack through <code>speech-gateway</code>.</p>
+
+  <section>
+    <h2>Text to speech</h2>
+    <p class="phrase" id="phrase"></p>
+    <div class="grid">
+      <div><label for="engine">Engine</label><select id="engine"></select></div>
+      <div><label for="voice">Voice</label><select id="voice"></select></div>
+      <div><label for="phraselang">Phrase</label>
+        <select id="phraselang"><option value="en">English</option><option value="el">Greek</option></select></div>
+    </div>
+    <p class="status">assistant picks Jarvis (English) or the Greek voice by the text; Jarvis, Supertonic and OmniVoice pick English or Greek from the text; Kokoro and Phonon speak English only.</p>
+    <div class="row">
+      <button class="primary" id="speak">Speak</button>
+      <button id="allvoices">Every voice of this engine</button>
+      <button id="compare">Every engine</button>
+      <button id="stop">Stop</button>
+      <span class="status" id="ttsstatus"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="ttstable">
+        <thead><tr><th>Engine</th><th>Voice</th><th>First byte</th><th>Total</th><th>Audio</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Speech to text</h2>
+    <div class="grid">
+      <div><label for="sttengine">Engine</label><select id="sttengine"></select></div>
+      <div><label for="lang">Language</label>
+        <select id="lang"><option value="">Auto</option><option value="en">English</option><option value="el">Greek</option></select></div>
+    </div>
+    <p class="status" id="langhint"></p>
+    <div class="row">
+      <button class="primary big" id="record">🎙 Start speaking</button>
+      <button id="allstt" disabled>Last clip on every engine</button>
+      <span class="status" id="sttstatus"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="stttable">
+        <thead><tr><th>Engine</th><th>Language</th><th>Time</th><th>Text</th><th>Clip</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+const PHRASE = { en: "Hello Raphael, what would you like to do today?",
+                 el: "Γεια σου Ραφαήλ, τι θα ήθελες να κάνουμε σήμερα;" };
+// Preferred default voice per engine; otherwise the first one listed.
+const PREFERRED = { jarvis: "jarvis", supertonic: "M1", omnivoice: "british-male", kokoro: "bm_george", phonon: "default" };
+// What each engine does with the language setting (measured 2026-11-03).
+const LANG_NOTES = {
+  auto: "Parakeet first; if it hears Greek, the clip is redone with Greek Parakeet.",
+  parakeet: "Detects English and Greek by itself; the setting is ignored.",
+  "parakeet-greek": "Greek model: best for Greek, slightly worse on English.",
+};
+const $ = (id) => document.getElementById(id);
+const voices = {};
+let stopped = false, lastClip = null;
+
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) n[k] = v;
+  for (const k of kids) n.append(k);
+  return n;
+}
+const ms = (t) => t >= 1000 ? (t / 1000).toFixed(2) + " s" : Math.round(t) + " ms";
+const phraseFor = () => PHRASE[$("phraselang").value];
+
+async function load() {
+  const models = (await (await fetch("v1/models")).json()).data;
+  const tts = models.filter((m) => m.owned_by === "tts").map((m) => m.id);
+  const stt = models.filter((m) => m.owned_by === "stt").map((m) => m.id);
+  await Promise.all(tts.map(async (m) => {
+    const r = await fetch("v1/audio/voices?model=" + encodeURIComponent(m));
+    voices[m] = r.ok ? (await r.json()).voices : [];
+  }));
+  if (!tts.length) {
+    $("ttsstatus").textContent = "No text-to-speech engine is configured right now.";
+    document.querySelectorAll("#speak,#allvoices,#compare").forEach((b) => (b.disabled = true));
+  }
+  for (const m of tts) $("engine").append(el("option", { value: m, textContent: `${m} (${voices[m].length || "default"})` }));
+  const ttsDefault = models.find((m) => m.owned_by === "tts" && m.default);
+  if (ttsDefault) $("engine").value = ttsDefault.id;
+  for (const m of stt) $("sttengine").append(el("option", { value: m, textContent: m }));
+  const sttDefault = models.find((m) => m.owned_by === "stt" && m.default);
+  $("sttengine").value = sttDefault ? sttDefault.id : stt[0];
+  fillVoices();
+  langHint();
+}
+
+function defaultVoice(engine) {
+  const list = voices[engine] || [];
+  return list.includes(PREFERRED[engine]) ? PREFERRED[engine] : (list[0] || "");
+}
+function fillVoices() {
+  const engine = $("engine").value, sel = $("voice");
+  const list = voices[engine] || [];
+  sel.replaceChildren(...(list.length ? list : [""]).map((v) => el("option", { value: v, textContent: v || "(model default)" })));
+  sel.value = defaultVoice(engine);
+  showPhrase();
+}
+function showPhrase() { $("phrase").textContent = "“" + phraseFor($("engine").value, $("voice").value) + "”"; }
+function langHint() { $("langhint").textContent = LANG_NOTES[$("sttengine").value] || ""; }
+
+async function synth(engine, voice) {
+  const first = el("td", { className: "num", textContent: "…" });
+  const total = el("td", { className: "num" }), audioCell = el("td");
+  $("ttstable").tBodies[0].prepend(el("tr", {}, el("td", { textContent: engine }),
+    el("td", { textContent: voice || "—" }), first, total, audioCell));
+  const t0 = performance.now();
+  try {
+    const r = await fetch("v1/audio/speech", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: engine, voice, input: phraseFor(engine, voice) }) });
+    if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+    const reader = r.body.getReader(), parts = [];
+    let firstAt = null;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (firstAt === null) { firstAt = performance.now(); first.textContent = ms(firstAt - t0); }
+      parts.push(value);
+    }
+    total.textContent = ms(performance.now() - t0);
+    const blob = new Blob(parts, { type: r.headers.get("Content-Type") || "audio/mpeg" });
+    const audio = el("audio", { controls: true, src: URL.createObjectURL(blob) });
+    audioCell.append(audio);
+    return audio;
+  } catch (e) {
+    first.textContent = "";
+    audioCell.append(el("span", { className: "err", textContent: String(e.message || e) }));
+    return null;
+  }
+}
+
+function playToEnd(audio) {
+  return new Promise((resolve) => {
+    if (!audio) return resolve();
+    audio.onended = audio.onerror = resolve;
+    audio.play().catch(resolve);
+  });
+}
+
+async function runQueue(jobs) {
+  stopped = false;
+  const buttons = document.querySelectorAll("#speak,#allvoices,#compare");
+  buttons.forEach((b) => (b.disabled = true));
+  // Generate the next clip while the current one plays.
+  let next = jobs.length ? synth(...jobs[0]) : null;
+  for (let i = 0; i < jobs.length && !stopped; i++) {
+    $("ttsstatus").textContent = jobs.length > 1 ? `${i + 1} / ${jobs.length}: ${jobs[i].join(" / ")}` : "";
+    const audio = await next;
+    next = i + 1 < jobs.length && !stopped ? synth(...jobs[i + 1]) : null;
+    await playToEnd(audio);
+  }
+  if (next) await next;
+  $("ttsstatus").textContent = stopped ? "Stopped." : "";
+  buttons.forEach((b) => (b.disabled = false));
+}
+
+async function transcribe(engine, clip) {
+  const lang = $("lang").value;
+  const time = el("td", { className: "num", textContent: "…" }), text = el("td");
+  $("stttable").tBodies[0].prepend(el("tr", {}, el("td", { textContent: engine }),
+    el("td", { textContent: lang || "auto" }), time, text,
+    el("td", {}, el("audio", { controls: true, src: clip.url }))));
+  const form = new FormData();
+  form.append("file", clip.blob, "clip");
+  form.append("model", engine);
+  if (lang) form.append("language", lang);
+  const t0 = performance.now();
+  try {
+    const r = await fetch("v1/audio/transcriptions", { method: "POST", body: form });
+    const data = await r.json();
+    time.textContent = ms(performance.now() - t0);
+    if (!r.ok) throw new Error(data.error?.message || r.status);
+    text.textContent = data.text || "(nothing heard)";
+  } catch (e) {
+    time.textContent = "";
+    text.append(el("span", { className: "err", textContent: String(e.message || e) }));
+  }
+}
+
+let recorder = null;
+async function toggleRecord() {
+  if (recorder) { recorder.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { $("sttstatus").textContent = "Microphone unavailable: " + e.message; return; }
+  const chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => chunks.push(e.data);
+  recorder.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    recorder = null;
+    $("record").textContent = "🎙 Start speaking";
+    $("record").classList.remove("rec");
+    const blob = new Blob(chunks, { type: chunks[0]?.type || "audio/webm" });
+    lastClip = { blob, url: URL.createObjectURL(blob) };
+    $("allstt").disabled = false;
+    $("sttstatus").textContent = "Transcribing…";
+    await transcribe($("sttengine").value, lastClip);
+    $("sttstatus").textContent = "";
+  };
+  recorder.start();
+  $("record").textContent = "■ Stop";
+  $("record").classList.add("rec");
+  $("sttstatus").textContent = "Listening… press Stop when you are done.";
+}
+
+async function allEngines() {
+  $("allstt").disabled = true;
+  const engines = [...$("sttengine").options].map((o) => o.value);
+  for (const [i, engine] of engines.entries()) {
+    $("sttstatus").textContent = `${i + 1} / ${engines.length}: ${engine}`;
+    await transcribe(engine, lastClip);
+  }
+  $("sttstatus").textContent = "";
+  $("allstt").disabled = false;
+}
+
+$("engine").onchange = fillVoices;
+$("voice").onchange = showPhrase;
+$("phraselang").onchange = showPhrase;
+$("sttengine").onchange = langHint;
+$("speak").onclick = () => runQueue([[$("engine").value, $("voice").value]]);
+$("allvoices").onclick = () => { const e = $("engine").value; runQueue((voices[e] || []).map((v) => [e, v])); };
+$("compare").onclick = () => runQueue(Object.keys(voices).map((e) => [e, defaultVoice(e)]));
+// Engines and voices come from the gateway, which discovers them from audio.cpp:
+// a model added to audiocpp/server.json shows up after a page reload.
+$("stop").onclick = () => { stopped = true; document.querySelectorAll("audio").forEach((a) => a.pause()); };
+$("record").onclick = toggleRecord;
+$("allstt").onclick = allEngines;
+load().catch((e) => { $("ttsstatus").textContent = "Cannot load engines: " + e.message; });
+</script>
+</body>
+</html>
