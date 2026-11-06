@@ -88,6 +88,20 @@ def compile_allowlist(value):
         raise ConfigError("SELF_HEAL_RESTART_ALLOWLIST is not a valid regex: %s" % exc)
 
 
+DEFAULT_AUTO_DENY = (r"[A-Za-z0-9_.-]*-database|[A-Za-z0-9_.-]*-db|[A-Za-z0-9_.-]*redis[A-Za-z0-9_.-]*|"
+                     r"[A-Za-z0-9_.-]*valkey[A-Za-z0-9_.-]*|[A-Za-z0-9_.-]*postgres[A-Za-z0-9_.-]*|"
+                     r"[A-Za-z0-9_.-]*mariadb[A-Za-z0-9_.-]*|[A-Za-z0-9_.-]*mysql[A-Za-z0-9_.-]*|vaultwarden")
+# Alert labels that name the affected container (Grafana rules use `name`; Loki-based ones container_name).
+ALERT_CONTAINER_LABELS = ("name", "container", "container_name")
+
+
+def compile_named(name, value):
+    try:
+        return re.compile("(?:%s)" % value)
+    except re.error as exc:
+        raise ConfigError("%s is not a valid regex: %s" % (name, exc))
+
+
 def load_config(env):
     missing = [k for k in REQUIRED if not env.get(k, "").strip() or env.get(k, "").strip() == "CHANGE_ME"]
     if missing:
@@ -109,6 +123,15 @@ def load_config(env):
     require_totp = env.get("SELF_HEAL_REQUIRE_TOTP", "1").strip().lower()
     if require_totp not in ("0", "1", "true", "false", "yes", "no"):
         raise ConfigError("SELF_HEAL_REQUIRE_TOTP must be 0 or 1")
+    auto = env.get("SELF_HEAL_AUTO_APPROVE", "0").strip().lower()
+    if auto not in ("0", "1", "true", "false", "yes", "no"):
+        raise ConfigError("SELF_HEAL_AUTO_APPROVE must be 0 or 1")
+    auto_min = env.get("SELF_HEAL_AUTO_MIN_CONFIDENCE", "").strip().lower() or "high"
+    if auto_min not in CONFIDENCE:
+        raise ConfigError("SELF_HEAL_AUTO_MIN_CONFIDENCE must be one of: " + ", ".join(CONFIDENCE))
+    # Empty allowlist = no extra restriction beyond SELF_HEAL_RESTART_ALLOWLIST.
+    auto_allow = env.get("SELF_HEAL_AUTO_ALLOWLIST", "").strip() or ".*"
+    auto_deny = env.get("SELF_HEAL_AUTO_DENY", "").strip() or DEFAULT_AUTO_DENY
     owner = env["SELF_HEAL_OWNER_ACTOR"].strip()
     if not re.fullmatch(r"users/[^\s/]+", owner):
         raise ConfigError("SELF_HEAL_OWNER_ACTOR must look like users/<uid>")
@@ -121,6 +144,11 @@ def load_config(env):
         "totp_key": b32_secret(env["SELF_HEAL_TOTP_SECRET"]),
         "require_totp": require_totp in ("1", "true", "yes"),
         "owner_actor": owner,
+        "auto_approve": auto in ("1", "true", "yes"),
+        "auto_min_confidence": auto_min,
+        "auto_allowlist": compile_named("SELF_HEAL_AUTO_ALLOWLIST", auto_allow),
+        "auto_deny": compile_named("SELF_HEAL_AUTO_DENY", auto_deny),
+        "auto_max_per_day": integer("SELF_HEAL_AUTO_MAX_PER_DAY", 3, 1),
         "allowlist": compile_allowlist(env["SELF_HEAL_RESTART_ALLOWLIST"].strip()),
         "talk_secret": env["TALK_DELIVER_SECRET"].strip(),
         "talk_room": env["TALK_SELF_HEAL_ROOM"].strip(),
@@ -383,7 +411,8 @@ class State:
     def __init__(self, path):
         self.path = path
         self.lock = threading.RLock()
-        self.data = {"runs": {}, "used_steps": [], "fingerprints": {}, "run_times": []}
+        self.data = {"runs": {}, "used_steps": [], "fingerprints": {}, "run_times": [],
+                     "auto_restarts": {}}
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as fh:
                 loaded = json.load(fh)
@@ -414,6 +443,9 @@ class State:
         self.data["used_steps"] = sorted({s for s in self.data["used_steps"] if s >= current - 10})
         self.data["run_times"] = [t for t in self.data["run_times"] if t > now - 3600]
         self.data["fingerprints"] = {f: t for f, t in self.data["fingerprints"].items() if t > now - 7 * 86400}
+        self.data["auto_restarts"] = {
+            n: [t for t in ts if t > now - 86400] for n, ts in self.data["auto_restarts"].items()
+            if any(t > now - 86400 for t in ts)}
         self.data["runs"] = {r: v for r, v in self.data["runs"].items()
                              if v.get("created", now) > now - self.RUN_RETENTION}
 
@@ -615,9 +647,61 @@ class Controller:
         audit("diagnosis_done", run_id=run_id, fingerprint=fingerprint, alertname=alertname,
               action=action["id"], target=action["target"], confidence=diagnosis["confidence"],
               notes=diagnosis["notes"])
-        self.post_talk(self.format_report(run_id, alertname, annotations, diagnosis))
+        auto_note = None
+        if self.cfg.get("auto_approve") and action["id"] == "restart_container":
+            reason = self.auto_check(labels, diagnosis)
+            if reason is None:
+                self.post_talk(self.format_report(run_id, alertname, annotations, diagnosis, auto=True))
+                self.auto_execute(run_id, run, diagnosis)
+                return
+            audit("auto_skipped", run_id=run_id, fingerprint=fingerprint, target=action["target"], reason=reason)
+            auto_note = reason
+        self.post_talk(self.format_report(run_id, alertname, annotations, diagnosis, auto_note=auto_note))
 
-    def format_report(self, run_id, alertname, annotations, diagnosis):
+    def auto_check(self, labels, diagnosis):
+        """None when the run may be auto-approved, else a short reason (all conditions must hold)."""
+        cfg = self.cfg
+        action = diagnosis["proposed_action"]
+        target = action["target"]
+        if not cfg.get("auto_approve") or not cfg["enabled"]:
+            return "auto mode is off"
+        if action["id"] != "restart_container" or not isinstance(target, str):
+            return "no restart proposed"
+        if CONFIDENCE.index(diagnosis["confidence"]) < CONFIDENCE.index(cfg["auto_min_confidence"]):
+            return "confidence %s is below the auto minimum %s" % (diagnosis["confidence"], cfg["auto_min_confidence"])
+        if not CONTAINER_NAME_RE.fullmatch(target) or not cfg["allowlist"].fullmatch(target):
+            return "target is not on the restart allowlist"
+        if cfg["auto_deny"].fullmatch(target) or not cfg["auto_allowlist"].fullmatch(target):
+            return "target is not eligible for auto-heal (data store or outside the auto allowlist)"
+        named = [labels[k] for k in ALERT_CONTAINER_LABELS if k in labels]
+        if not named:
+            return "the alert names no container"
+        if any(not isinstance(v, str) or v != target for v in named):
+            return "target differs from the container the alert is about"
+        now = self.clock()
+        with self.state.lock:
+            recent = [t for t in self.state.data["auto_restarts"].get(target, []) if t > now - 86400]
+            if len(recent) >= cfg["auto_max_per_day"]:
+                return "daily auto-restart cap (%d) for %s reached" % (cfg["auto_max_per_day"], target)
+        return None
+
+    def auto_execute(self, run_id, run, diagnosis):
+        target = run["target"]
+        now = self.clock()
+        with self.state.lock:
+            if run.get("status") != "pending":  # denied or expired meanwhile
+                return
+            self.state.data["auto_restarts"].setdefault(target, []).append(now)
+            run["status"] = "executing"
+            run["decided"] = now
+            run["auto"] = True
+            self.state.save()
+        audit("action_auto_approved", run_id=run_id, action=run["action"], target=target,
+              confidence=diagnosis["confidence"], min_confidence=self.cfg["auto_min_confidence"],
+              alert_container=target)
+        self._run_restart(run_id, run, target)
+
+    def format_report(self, run_id, alertname, annotations, diagnosis, auto=False, auto_note=None):
         lines = ["**Self-heal: %s** (run %s)" % (alertname, run_id)]
         alert_summary = sanitize(annotations.get("summary"), 300)
         if alert_summary:
@@ -635,7 +719,12 @@ class Controller:
             lines.append("Note: " + sanitize(note, 200))
         lines.append("")
         action = diagnosis["proposed_action"]
-        if action["id"] == "restart_container":
+        if action["id"] == "restart_container" and auto:
+            lines.append("Auto-heal: restarting %s (confidence %s): %s" % (
+                action["target"], diagnosis["confidence"], sanitize(diagnosis["summary"], 300)))
+        elif action["id"] == "restart_container":
+            if auto_note:
+                lines.append("Not auto-approved: %s." % sanitize(auto_note, 200))
             minutes = max(1, self.cfg["approval_ttl"] // 60)
             lines.append("Proposed action: restart container %s" % action["target"])
             if self.cfg.get("require_totp", True):
@@ -769,11 +858,15 @@ class Controller:
             self.state.save()
             target = run["target"]
 
+        return self._run_restart(run_id, run, target, approved=True)
+
+    def _run_restart(self, run_id, run, target, approved=False):
         # Defense in depth: re-check the catalog and allowlist before acting.
         if (run["action"] != "restart_container" or not isinstance(target, str)
                 or not CONTAINER_NAME_RE.fullmatch(target) or not self.cfg["allowlist"].fullmatch(target)):
             return self._finish(run_id, run, "failed", "target not allowed", target)
-        audit("approval_accepted", run_id=run_id, action=run["action"], target=target)
+        if approved:
+            audit("approval_accepted", run_id=run_id, action=run["action"], target=target)
         try:
             status = self.restart(target)
         except urllib.error.HTTPError as exc:

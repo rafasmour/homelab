@@ -403,6 +403,147 @@ class WebhookTests(unittest.TestCase):
         self.assertEqual(self.ctl.talk, [])
 
 
+
+class AutoHealTests(unittest.TestCase):
+    ANSWER = ('{"summary": "crashed", "evidence": ["exit 1"], '
+              '"proposed_action": {"id": "restart_container", "target": "%s"}, "confidence": "%s"}')
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.now = 1_800_000_000
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def ctl(self, **env):
+        env.setdefault("SELF_HEAL_AUTO_APPROVE", "1")
+        env.setdefault("SELF_HEAL_RESTART_ALLOWLIST", "drawio|excalidraw|immich-database|vaultwarden|wger-redis")
+        cfg = make_cfg(self.tmp.name, **env)
+        return FakeController(cfg, c.State(cfg["state_file"]), self.now)
+
+    def run_alert(self, ctl, target="drawio", confidence="high", labels=None, fp="aa", enabled=True):
+        labels = {"alertname": "Unhealthy", "self_heal": "true", "name": target} if labels is None else labels
+        ctl.alerts = [{"fingerprint": fp, "status": {"state": "active"}, "labels": labels, "annotations": {}}]
+        ctl.answer = self.ANSWER % (target, confidence)
+        ctl.cfg["enabled"] = enabled
+        ctl.process(fp)
+        return list(ctl.state.data["runs"].values())[-1]
+
+    def test_auto_off_unchanged(self):
+        ctl = self.ctl(SELF_HEAL_AUTO_APPROVE="0")
+        run = self.run_alert(ctl)
+        self.assertEqual(ctl.restarts, [])
+        self.assertEqual(run["status"], "pending")
+        self.assertNotIn("Not auto-approved", ctl.talk[0])
+        self.assertIn("Reply: fix", ctl.talk[0])
+
+    def test_happy_path(self):
+        ctl = self.ctl()
+        run = self.run_alert(ctl)
+        self.assertEqual(ctl.restarts, ["drawio"])
+        self.assertEqual(run["status"], "executed")
+        self.assertTrue(run["auto"])
+        self.assertIn("Auto-heal: restarting drawio (confidence high): crashed", ctl.talk[0])
+        self.assertIn("restarted container drawio", ctl.talk[-1])
+        self.assertEqual(len(ctl.state.data["auto_restarts"]["drawio"]), 1)
+
+    def assert_manual(self, ctl, run, text):
+        self.assertEqual(ctl.restarts, [])
+        self.assertEqual(run["status"], "pending")
+        self.assertIn("Not auto-approved", ctl.talk[0])
+        self.assertIn(text, ctl.talk[0])
+        self.assertIn("Reply: fix", ctl.talk[0])
+
+    def test_low_confidence(self):
+        ctl = self.ctl()
+        self.assert_manual(ctl, self.run_alert(ctl, confidence="medium"), "confidence medium")
+
+    def test_min_confidence_medium(self):
+        ctl = self.ctl(SELF_HEAL_AUTO_MIN_CONFIDENCE="medium")
+        self.run_alert(ctl, confidence="medium")
+        self.assertEqual(ctl.restarts, ["drawio"])
+
+    def test_target_differs_from_alert_container(self):
+        ctl = self.ctl()
+        run = self.run_alert(ctl, target="excalidraw", labels={"alertname": "x", "self_heal": "true", "name": "drawio"})
+        self.assert_manual(ctl, run, "differs from the container")
+
+    def test_conflicting_container_labels(self):
+        ctl = self.ctl()
+        run = self.run_alert(ctl, labels={"alertname": "x", "self_heal": "true", "name": "drawio",
+                                          "container_name": "excalidraw"})
+        self.assert_manual(ctl, run, "differs from the container")
+
+    def test_alert_without_container_label(self):
+        ctl = self.ctl()
+        run = self.run_alert(ctl, labels={"alertname": "Memory critical", "self_heal": "true"})
+        self.assert_manual(ctl, run, "names no container")
+
+    def test_deny_list_default(self):
+        for target in ("immich-database", "vaultwarden", "wger-redis"):
+            ctl = self.ctl()
+            run = self.run_alert(ctl, target=target)
+            self.assert_manual(ctl, run, "not eligible")
+
+    def test_outside_auto_allowlist(self):
+        ctl = self.ctl(SELF_HEAL_AUTO_ALLOWLIST="excalidraw")
+        self.assert_manual(ctl, self.run_alert(ctl), "not eligible")
+
+    def test_custom_deny(self):
+        ctl = self.ctl(SELF_HEAL_AUTO_DENY="drawio")
+        self.assert_manual(ctl, self.run_alert(ctl), "not eligible")
+
+    def test_not_on_restart_allowlist(self):
+        ctl = self.ctl()
+        ctl.alerts = [{"fingerprint": "aa", "status": {"state": "active"},
+                       "labels": {"self_heal": "true", "name": "pihole"}}]
+        ctl.answer = self.ANSWER % ("pihole", "high")
+        ctl.process("aa")
+        self.assertEqual(ctl.restarts, [])
+        self.assertIn("Proposed action: none", ctl.talk[0])
+
+    def test_daily_cap(self):
+        ctl = self.ctl(SELF_HEAL_AUTO_MAX_PER_DAY="2")
+        self.run_alert(ctl, fp="a1")
+        self.run_alert(ctl, fp="a2")
+        self.assertEqual(ctl.restarts, ["drawio", "drawio"])
+        ctl.talk.clear()
+        run = self.run_alert(ctl, fp="a3")
+        self.assertEqual(ctl.restarts, ["drawio", "drawio"])
+        self.assertEqual(run["status"], "pending")
+        self.assertIn("daily auto-restart cap", ctl.talk[0])
+        # another target is counted separately, and the window slides
+        self.run_alert(ctl, target="excalidraw", fp="a4")
+        self.assertEqual(ctl.restarts[-1], "excalidraw")
+        ctl.now += 86400 + 1
+        diagnosis = c.validate_diagnosis(json.loads(self.ANSWER % ("drawio", "high")), ctl.cfg["allowlist"])
+        self.assertIsNone(ctl.auto_check({"name": "drawio"}, diagnosis))
+
+    def test_kill_switch(self):
+        ctl = self.ctl()
+        run = self.run_alert(ctl, enabled=False)
+        self.assertEqual(ctl.restarts, [])
+        self.assertEqual(run["status"], "pending")
+
+    def test_deny_still_works_for_manual_run(self):
+        ctl = self.ctl()
+        run = self.run_alert(ctl, confidence="low")
+        rid = next(iter(ctl.state.data["runs"]))
+        status, body = ctl.handle_approval({"run_id": rid, "decision": "deny", "code": None,
+                                            "actor_id": "users/tom", "room_token": "room123"})
+        self.assertTrue(body["ok"])
+        self.assertEqual(ctl.restarts, [])
+
+    def test_config_validation(self):
+        with self.assertRaises(c.ConfigError):
+            make_cfg(self.tmp.name, SELF_HEAL_AUTO_APPROVE="maybe")
+        with self.assertRaises(c.ConfigError):
+            make_cfg(self.tmp.name, SELF_HEAL_AUTO_MIN_CONFIDENCE="certain")
+        with self.assertRaises(c.ConfigError):
+            make_cfg(self.tmp.name, SELF_HEAL_AUTO_ALLOWLIST="(")
+        self.assertFalse(make_cfg(self.tmp.name)["auto_approve"])
+
+
 class ValidationTests(unittest.TestCase):
     allow = c.compile_allowlist("drawio|excalidraw")
 
