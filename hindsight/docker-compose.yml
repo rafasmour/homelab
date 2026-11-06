@@ -1,0 +1,129 @@
+services:
+  # PostgreSQL with pgvector >= 0.8 (iterative HNSW scans). Backend only.
+  hindsight-db:
+    image: ${PGVECTOR_IMAGE:-pgvector/pgvector:0.8.1-pg17}
+    container_name: hindsight-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${HINDSIGHT_DB_NAME:-hindsight}"
+      POSTGRES_USER: "${HINDSIGHT_DB_USER:-hindsight}"
+      POSTGRES_PASSWORD: "${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}"
+    # Small host: modest buffers, few connections (the API pool is capped below).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=40
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - max_parallel_workers_per_gather=0
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    shm_size: 256m
+    mem_limit: ${HINDSIGHT_DB_MEM_LIMIT:-768m}
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Egress relay: the only container that can reach the llama.cpp routers.
+  # Forwards :8001 -> llama-server and :8002 -> llama-classifier (nginx.conf).
+  hindsight-relay:
+    image: ${RELAY_IMAGE:-nginx:1.30.6-alpine-slim}
+    container_name: hindsight-relay
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - hindsight
+      - webgateway
+    mem_limit: 64m
+
+  # Hindsight API (slim image: no local embedder or reranker, no UI). Sits on
+  # internal networks only: no internet route, no Traefik, no host port.
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight-api:${HINDSIGHT_VERSION:-1.2.0-slim}
+    container_name: hindsight
+    restart: unless-stopped
+    stop_grace_period: 75s
+    depends_on:
+      hindsight-db:
+        condition: service_healthy
+      hindsight-relay:
+        condition: service_started
+    environment:
+      HINDSIGHT_API_HOST: "0.0.0.0"
+      HINDSIGHT_API_PORT: "8888"
+      HINDSIGHT_API_DATABASE_URL: "postgresql://${HINDSIGHT_DB_USER:-hindsight}:${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}@hindsight-db:5432/${HINDSIGHT_DB_NAME:-hindsight}"
+      HINDSIGHT_API_VECTOR_EXTENSION: pgvector
+      HINDSIGHT_API_DB_POOL_MIN_SIZE: "2"
+      HINDSIGHT_API_DB_POOL_MAX_SIZE: "10"
+
+      # LLM for retain / consolidation / reflect: the warm GPU model only.
+      HINDSIGHT_API_LLM_PROVIDER: openai
+      HINDSIGHT_API_LLM_BASE_URL: http://hindsight-relay:8001/v1
+      HINDSIGHT_API_LLM_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
+      HINDSIGHT_API_LLM_MODEL: "${HINDSIGHT_LLM_MODEL:-nemotron-3.5-bolt-e4b-dflash}"
+      HINDSIGHT_API_LLM_MAX_CONCURRENT: "1"
+      HINDSIGHT_API_RETAIN_LLM_MAX_CONCURRENT: "1"
+      HINDSIGHT_API_CONSOLIDATION_LLM_MAX_CONCURRENT: "1"
+      HINDSIGHT_API_RETAIN_MAX_CONCURRENT: "1"
+      HINDSIGHT_API_WORKER_ID: hindsight
+      HINDSIGHT_API_WORKER_MAX_SLOTS: "3"
+      HINDSIGHT_API_WORKER_CONSOLIDATION_RESERVED_SLOTS: "1"
+      HINDSIGHT_API_WORKER_RETAIN_RESERVED_SLOTS: "1"
+      HINDSIGHT_API_LLM_TIMEOUT: "600"
+      # Pin every Hindsight LLM call to llama.cpp slot 2 so it never evicts the
+      # prompt primed in slot 1 (Hermes ai-assistant) or slot 0 (other profiles).
+      # The router forwards id_slot; a busy slot queues the request.
+      HINDSIGHT_API_LLM_EXTRA_BODY: '{"id_slot": ${HINDSIGHT_LLM_SLOT:-1}}'
+
+      # Embeddings: EmbeddingGemma 2 on llama-classifier (768-dim, no auth).
+      # The variable names carry the provider segment (EMBEDDINGS_OPENAI_*);
+      # a misspelled name silently falls back to api.openai.com.
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: openai
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_BASE_URL: http://hindsight-relay:8002/v1
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_MODEL: "${HINDSIGHT_EMBEDDINGS_MODEL:-embeddinggemma-2}"
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_API_KEY: not-needed
+      HINDSIGHT_API_EMBEDDINGS_OPENAI_BATCH_SIZE: "16"
+
+      # Reranker: none (RRF fusion order only, no model, no RAM).
+      HINDSIGHT_API_RERANKER_PROVIDER: rrf
+
+      # Privacy: no telemetry exporters, no model downloads, no LLM prompt log.
+      HINDSIGHT_API_OTEL_TRACES_ENABLED: "false"
+      HINDSIGHT_API_LLM_TRACE_ENABLED: "false"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      DO_NOT_TRACK: "1"
+    mem_limit: ${HINDSIGHT_API_MEM_LIMIT:-1536m}
+    networks:
+      - backend
+      - hindsight
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8888/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+networks:
+  # Database network: internal, no internet.
+  backend:
+    internal: true
+  # Internal (no internet) network shared with hermes-api (declare it there
+  # as an external network named `hindsight`).
+  hindsight:
+    name: hindsight
+    internal: true
+  webgateway:
+    external: true
+    name: webgateway
