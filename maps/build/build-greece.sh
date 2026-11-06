@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# Build the Greece data for the `maps` stack: vector tiles (Planetiler ->
-# PMTiles), web map assets, Valhalla routing tiles and the Pelias search index
+# Build the Greece data for the `maps` stack: Valhalla routing tiles and the
+# Pelias search index
 # (Who's On First + OpenStreetMap + street polylines) plus Placeholder.
 #
 # Runs on the homelab at a quiet time or on any machine with Docker, bash and
 # curl (then copy the result with `push`). Nothing here starts the stack.
 #
 # Usage: build/build-greece.sh [command]
-#   all         download, tiles, assets, valhalla, pelias, install (default)
+#   all         download, valhalla, pelias, install (default)
 #   download    Geofabrik greece-latest.osm.pbf, MD5-verified, resumable
-#   tiles       Planetiler (OpenMapTiles schema) -> build/greece.pmtiles
-#   assets      MapLibre JS/CSS, pmtiles.js, OSM Liberty sprites, Roboto glyphs
 #   valhalla    Valhalla admins, time zones, tiles.tar and Pelias polylines
 #   pelias      Who's On First download, Placeholder, Elasticsearch import
 #   install     move finished build outputs into place, restart containers
@@ -20,10 +18,9 @@
 #
 # Every step records a marker keyed by the OSM extract date and image versions,
 # so re-running skips finished work; a failed step restarts from its beginning.
-# Tunables (environment): THREADS (default 4), PLANETILER_HEAP (2g),
-# PLANETILER_MEM (3g), VALHALLA_BUILD_MEM (3g), ES_BUILD_HEAP (1g),
-# ES_BUILD_MEM (2g), PELIAS_IMPORT_MEM (2g), VALHALLA_TIMEZONES (1),
-# KEEP_SEARCH_RUNNING (0), DATA_DIR (maps/data).
+# Tunables (environment): THREADS (default 4), VALHALLA_BUILD_MEM (3g),
+# ES_BUILD_HEAP (1g), ES_BUILD_MEM (2g), PELIAS_IMPORT_MEM (2g),
+# VALHALLA_TIMEZONES (1), KEEP_SEARCH_RUNNING (0), DATA_DIR (maps/data).
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,8 +30,6 @@ STATE_DIR="$DATA_DIR/.build"
 BUILD_DIR="$DATA_DIR/build"
 
 THREADS="${THREADS:-4}"
-PLANETILER_HEAP="${PLANETILER_HEAP:-2g}"
-PLANETILER_MEM="${PLANETILER_MEM:-3g}"
 VALHALLA_BUILD_MEM="${VALHALLA_BUILD_MEM:-3g}"
 ES_BUILD_HEAP="${ES_BUILD_HEAP:-1g}"
 ES_BUILD_MEM="${ES_BUILD_MEM:-2g}"
@@ -45,17 +40,9 @@ KEEP_SEARCH_RUNNING="${KEEP_SEARCH_RUNNING:-0}"
 GEOFABRIK_URL="https://download.geofabrik.de/europe/greece-latest.osm.pbf"
 OSM_LINK="greece-latest.osm.pbf"
 
-# Web assets, pinned.
-MAPLIBRE_VERSION="5.24.0"
-PMTILES_JS_VERSION="4.5.0"
-OSM_LIBERTY_COMMIT="40a0d19861c9d26805dee3daab5cb366badb6678"
-FONTS_URL="https://github.com/openmaptiles/fonts/releases/download/v2.0/v2.0.zip"
-FONTS=("Roboto Regular" "Roboto Medium" "Roboto Condensed Italic")
-
 BUILD_NET="maps-build"
 BUILD_ES="maps-build-elasticsearch"
 # Runtime container names from docker-compose.yml.
-RT_WEB="maps-web"
 RT_VALHALLA="maps-valhalla"
 RT_SEARCH=(maps-pelias-api maps-pelias-placeholder maps-pelias-elasticsearch)
 
@@ -78,10 +65,9 @@ load_versions() {
     [[ -n "${!key:-}" ]] || printf -v "$key" '%s' "${from_file[$key]}"
   done
   : "${MAPS_VALHALLA_VERSION:?missing in .env.example}" "${MAPS_ES_VERSION:?}" \
-    "${MAPS_PLANETILER_VERSION:?}" "${MAPS_PELIAS_SCHEMA_VERSION:?}" \
+    "${MAPS_PELIAS_SCHEMA_VERSION:?}" \
     "${MAPS_PELIAS_WHOSONFIRST_VERSION:?}" "${MAPS_PELIAS_OPENSTREETMAP_VERSION:?}" \
     "${MAPS_PELIAS_POLYLINES_VERSION:?}" "${MAPS_PELIAS_PLACEHOLDER_VERSION:?}"
-  IMG_PLANETILER="ghcr.io/onthegomap/planetiler:$MAPS_PLANETILER_VERSION"
   IMG_VALHALLA="ghcr.io/valhalla/valhalla:$MAPS_VALHALLA_VERSION"
   IMG_ES="pelias/elasticsearch:$MAPS_ES_VERSION"
   IMG_SCHEMA="pelias/schema:$MAPS_PELIAS_SCHEMA_VERSION"
@@ -149,68 +135,8 @@ step_download() {
 }
 
 # --------------------------------------------------------------------------
-step_tiles() {
-  local key; key="$(osm_stamp) planetiler=$MAPS_PLANETILER_VERSION"
-  if is_done tiles "$key"; then log "tiles: up to date ($key)"; return; fi
-  check_disk 6
-  mkdir -p "$BUILD_DIR" "$DATA_DIR/sources/planetiler" "$DATA_DIR/tmp/planetiler"
-  rm -f "$BUILD_DIR/greece.pmtiles"
-  log "tiles: Planetiler ${MAPS_PLANETILER_VERSION}, heap ${PLANETILER_HEAP}, ${THREADS} threads"
-  # --download fetches only what is missing: water polygons, Natural Earth and
-  # lake centrelines (about 1.4 GB, reused next month). The OSM file is local.
-  docker run --rm --name maps-build-planetiler \
-    --user "$RUN_AS" --cpus "$THREADS" --memory "$PLANETILER_MEM" \
-    -e JAVA_TOOL_OPTIONS="-Xmx$PLANETILER_HEAP" \
-    -v "$DATA_DIR:/data" \
-    "$IMG_PLANETILER" \
-    --osm_path="/data/sources/$OSM_LINK" \
-    --download --download_dir=/data/sources/planetiler \
-    --tmpdir=/data/tmp/planetiler \
-    --output=/data/build/greece.pmtiles --force \
-    --threads="$THREADS" --storage=mmap \
-    --languages=el,en
-  rm -rf "$DATA_DIR/tmp/planetiler"
-  [[ -s "$BUILD_DIR/greece.pmtiles" ]] || die "Planetiler produced no output"
-  mark_done tiles "$key"
-}
 
 # --------------------------------------------------------------------------
-fetch() { curl -fsSL --retry 3 -o "$2" "$1"; }
-
-step_assets() {
-  local key out lib zip font
-  key="maplibre=$MAPLIBRE_VERSION pmtiles=$PMTILES_JS_VERSION liberty=$OSM_LIBERTY_COMMIT fonts=v2.0"
-  if is_done assets "$key" && [[ -d "$DATA_DIR/web-assets" ]]; then log "assets: up to date"; return; fi
-  out="$BUILD_DIR/web-assets"
-  rm -rf "$out"; mkdir -p "$out/lib" "$out/sprites" "$out/fonts" "$DATA_DIR/sources"
-  log "assets: MapLibre GL JS $MAPLIBRE_VERSION, pmtiles $PMTILES_JS_VERSION, OSM Liberty sprites"
-  lib="https://cdn.jsdelivr.net/npm"
-  fetch "$lib/maplibre-gl@$MAPLIBRE_VERSION/dist/maplibre-gl.js" "$out/lib/maplibre-gl.js"
-  fetch "$lib/maplibre-gl@$MAPLIBRE_VERSION/dist/maplibre-gl.css" "$out/lib/maplibre-gl.css"
-  fetch "$lib/maplibre-gl@$MAPLIBRE_VERSION/LICENSE.txt" "$out/lib/maplibre-gl.LICENSE.txt"
-  fetch "$lib/pmtiles@$PMTILES_JS_VERSION/dist/pmtiles.js" "$out/lib/pmtiles.js"
-  for f in osm-liberty.json osm-liberty.png osm-liberty@2x.json osm-liberty@2x.png; do
-    fetch "https://raw.githubusercontent.com/maputnik/osm-liberty/$OSM_LIBERTY_COMMIT/sprites/$f" "$out/sprites/$f"
-  done
-  fetch "https://raw.githubusercontent.com/maputnik/osm-liberty/$OSM_LIBERTY_COMMIT/LICENSE.md" "$out/sprites/LICENSE.md"
-
-  zip="$DATA_DIR/sources/openmaptiles-fonts-v2.0.zip"
-  if [[ ! -s "$zip" ]]; then
-    log "assets: glyphs (openmaptiles/fonts v2.0, 74 MB; only Roboto is kept)"
-    curl -fL --retry 3 -C - -o "$zip.part" "$FONTS_URL"
-    mv "$zip.part" "$zip"
-  fi
-  if command -v unzip >/dev/null; then
-    unzip -q -o "$zip" "${FONTS[@]/%//*}" -d "$out/fonts"
-  else
-    docker run --rm --user "$RUN_AS" -v "$DATA_DIR:/data" "$IMG_VALHALLA" \
-      unzip -q -o "/data/sources/$(basename "$zip")" "${FONTS[@]/%//*}" -d /data/build/web-assets/fonts
-  fi
-  for font in "${FONTS[@]}"; do
-    [[ -f "$out/fonts/$font/0-255.pbf" ]] || die "glyphs for '$font' missing after unzip"
-  done
-  mark_done assets "$key"
-}
 
 # --------------------------------------------------------------------------
 step_valhalla() {
@@ -335,7 +261,7 @@ step_pelias() {
   check_disk 5
 
   # Free the RAM of the live search containers while the import runs (search
-  # is offline until `install`). Tiles and routing stay up.
+  # is offline until `install`). Routing stays up.
   if [[ "$KEEP_SEARCH_RUNNING" != 1 ]]; then
     for c in "${RT_SEARCH[@]}"; do
       if container_running "$c"; then log "pelias: stopping $c for the import"; docker stop "$c" >/dev/null; fi
@@ -376,17 +302,9 @@ swap_dir() { # swap_dir NEW LIVE
 
 step_install() {
   local c
-  mkdir -p "$DATA_DIR/tiles" "$DATA_DIR/web-assets" "$DATA_DIR/valhalla" \
+  mkdir -p "$DATA_DIR/valhalla" \
     "$DATA_DIR/pelias/elasticsearch" "$DATA_DIR/pelias/placeholder"
 
-  if [[ -s "$BUILD_DIR/greece.pmtiles" ]]; then
-    log "install: tiles"
-    mv -f "$BUILD_DIR/greece.pmtiles" "$DATA_DIR/tiles/greece.pmtiles"
-  fi
-  if [[ -d "$BUILD_DIR/web-assets" ]]; then
-    log "install: web assets"
-    swap_dir "$BUILD_DIR/web-assets" "$DATA_DIR/web-assets"
-  fi
   if [[ -s "$BUILD_DIR/valhalla/tiles.tar" ]]; then
     log "install: Valhalla tiles"
     swap_dir "$BUILD_DIR/valhalla" "$DATA_DIR/valhalla"
@@ -406,7 +324,7 @@ step_install() {
   for c in maps-pelias-elasticsearch maps-pelias-placeholder maps-pelias-api; do
     container_exists "$c" && docker start "$c" >/dev/null
   done
-  container_exists "$RT_WEB" || log "install: done. Start the stack with: docker compose -f $STACK_DIR/docker-compose.yml up -d"
+  container_exists "$RT_VALHALLA" || log "install: done. Start the stack with: docker compose -f $STACK_DIR/docker-compose.yml up -d"
   log "install: done"
 }
 
@@ -417,7 +335,7 @@ step_status() {
   for f in "$STATE_DIR"/*.done; do
     [[ -e "$f" ]] && printf '  %-20s %s\n' "$(basename "$f" .done)" "$(cat "$f")"
   done
-  du -sh "$DATA_DIR"/{sources,tiles,web-assets,valhalla,pelias/elasticsearch,pelias/placeholder,build} 2>/dev/null || true
+  du -sh "$DATA_DIR"/{sources,valhalla,pelias/elasticsearch,pelias/placeholder,build} 2>/dev/null || true
 }
 
 step_push() {
@@ -426,15 +344,15 @@ step_push() {
   log "push: stop the remote search containers first (docker compose stop), then:"
   cd "$DATA_DIR"
   rsync -aR --delete --info=progress2 \
-    ./tiles ./web-assets ./valhalla ./pelias/elasticsearch ./pelias/placeholder "$dest"
+    ./valhalla ./pelias/elasticsearch ./pelias/placeholder "$dest"
   log "push: done; on the target run: docker compose up -d --force-recreate"
 }
 
 step_clean() {
   log "clean: removing temp files, build staging and old downloads"
-  rm -rf "$DATA_DIR/tmp" "$BUILD_DIR" "$DATA_DIR/sources/planetiler"
+  rm -rf "$DATA_DIR/tmp" "$BUILD_DIR"
   find "$DATA_DIR/sources" -maxdepth 1 -name '*.part' -delete 2>/dev/null || true
-  rm -f "$STATE_DIR"/tiles.done "$STATE_DIR"/valhalla.done "$STATE_DIR"/pelias-*.done "$STATE_DIR"/assets.done
+  rm -f "$STATE_DIR"/valhalla.done "$STATE_DIR"/pelias-*.done
 }
 
 # --------------------------------------------------------------------------
@@ -455,10 +373,8 @@ main() {
 
   case "$cmd" in
     all)
-      step_download; step_tiles; step_assets; step_valhalla; step_pelias; step_install ;;
+      step_download; step_valhalla; step_pelias; step_install ;;
     download) step_download ;;
-    tiles) step_tiles ;;
-    assets) step_assets ;;
     valhalla) step_valhalla ;;
     pelias) step_pelias ;;
     install) step_install ;;

@@ -1,50 +1,36 @@
-# Self-hosted maps for Greece: vector tiles + web map, Valhalla routing and a
-# minimal Pelias search, all under https://maps.${DOMAIN}. The data comes from
-# build/build-greece.sh (nothing is downloaded or built at runtime).
+# Self-hosted search and routing for Greece: Valhalla and a minimal Pelias,
+# under https://maps.${DOMAIN}. No web page: the clients are apps such as
+# Cardinal / Murena Maps. The data comes from build/build-greece.sh (nothing
+# is downloaded or built at runtime).
 #
 # Path layout (Headway-compatible, which is what Cardinal Maps expects):
-#   /                  web map (nginx), /style.json, /assets/...
-#   /tiles/greece.pmtiles   vector tiles (HTTP range requests)
 #   /pelias/v1/...     Pelias API (autocomplete, search, reverse, nearby)
 #   /valhalla/route    Valhalla (and every other Valhalla endpoint)
 name: maps
 
 services:
-  web:
-    # Static web map, style, fonts, sprites and the PMTiles archive.
-    container_name: maps-web
+  pelias-libpostal-stub:
+    # Empty libpostal stand-in for pelias-api (backend network only, no
+    # Traefik route, no web page). /v1/search fails without a libpostal URL;
+    # an empty parse makes it fall back to pelias/parser, the parser
+    # /v1/autocomplete always uses, without running the 2 GB libpostal.
+    container_name: maps-pelias-libpostal-stub
     image: nginx:${MAPS_NGINX_VERSION:-1.30.6-alpine-slim}
     restart: unless-stopped
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./web:/srv/web:ro
-      - ./data/tiles:/srv/tiles:ro
-      - ./data/web-assets:/srv/assets:ro
     networks:
-      # backend: the empty libpostal stand-in on port 4400 for pelias-api.
       - backend
-      - webgateway
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4400/parse"]
       interval: 30s
       timeout: 5s
       retries: 3
-    mem_limit: ${MAPS_WEB_MEM_LIMIT:-32m}
+    mem_limit: 32m
     labels:
-      kuma.maps-web.docker.name: "maps-web"
-      kuma.maps-web.docker.docker_host_name: local-docker-host
-      kuma.maps-web.docker.docker_container: maps-web
-      traefik.enable: "true"
-      traefik.docker.network: webgateway
-      traefik.http.routers.maps-web.rule: "Host(`maps.${DOMAIN:?Set DOMAIN in .env}`)"
-      traefik.http.routers.maps-web.entrypoints: websecure
-      traefik.http.routers.maps-web.tls.certresolver: myresolver
-      traefik.http.services.maps-web.loadbalancer.server.port: "8080"
-      homepage.group: Home
-      homepage.name: Maps
-      homepage.icon: openstreetmap
-      homepage.href: "https://maps.${DOMAIN}"
-      homepage.description: Greece map, search and routing (also the Cardinal Maps backend).
+      kuma.maps-pelias-libpostal-stub.docker.name: "maps-pelias-libpostal-stub"
+      kuma.maps-pelias-libpostal-stub.docker.docker_host_name: local-docker-host
+      kuma.maps-pelias-libpostal-stub.docker.docker_container: maps-pelias-libpostal-stub
 
   valhalla:
     # Routing engine. Reads the prebuilt tiles.tar (memory-mapped); never builds.
@@ -80,8 +66,8 @@ services:
 
   pelias-api:
     # Pelias search API. No real libpostal: autocomplete always uses
-    # pelias/parser, and /v1/search gets an empty parse from maps-web:4400 so
-    # it falls back to pelias/parser too (it errors with no libpostal URL).
+    # pelias/parser, and /v1/search gets an empty parse from
+    # pelias-libpostal-stub so it falls back to pelias/parser too.
     container_name: maps-pelias-api
     image: pelias/api:${MAPS_PELIAS_API_VERSION:-v7.11.0}
     restart: unless-stopped
@@ -95,6 +81,8 @@ services:
       pelias-elasticsearch:
         condition: service_healthy
       pelias-placeholder:
+        condition: service_started
+      pelias-libpostal-stub:
         condition: service_started
     networks:
       - backend
@@ -122,6 +110,11 @@ services:
       traefik.http.routers.maps-pelias.middlewares: maps-pelias-strip
       traefik.http.middlewares.maps-pelias-strip.stripprefix.prefixes: /pelias
       traefik.http.services.maps-pelias.loadbalancer.server.port: "4000"
+      homepage.group: Home
+      homepage.name: Maps
+      homepage.icon: openstreetmap
+      homepage.href: "https://maps.${DOMAIN}/pelias/v1"
+      homepage.description: Greece search and routing API (Cardinal / Murena Maps backend).
 
   pelias-placeholder:
     # Admin-area lookup ("Kifisia, Attica") from Who's On First, SQLite read-only.

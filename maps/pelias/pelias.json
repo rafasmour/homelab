@@ -22,7 +22,7 @@
   "api": {
     "services": {
       "placeholder": { "url": "http://maps-pelias-placeholder:4100" },
-      "libpostal": { "url": "http://maps-web:4400" }
+      "libpostal": { "url": "http://maps-pelias-libpostal-stub:4400" }
     },
     "defaultParameters": {
       "focus.point.lat": 37.98,
