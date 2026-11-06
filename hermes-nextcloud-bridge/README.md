@@ -21,7 +21,7 @@ Bridge settings:
 
 | Setting | Value | Why |
 | --- | --- | --- |
-| `HERMES_TOOLSETS` | `nextcloud,wger,web_search,clock` | Fallback only: rooms use their profile's `platform_toolsets.cli` from `hermes/start.sh`, without `clarify` and `talk` (default keeps `kanban` and `delegation`). Follow-up questions are asked in the reply and the bridge feeds recent room messages back as context. |
+| `HERMES_TOOLSETS` | `nextcloud,wger,web_search,clock` | Fallback only: rooms use their profile's `platform_toolsets.cli` from `hermes/start.sh`, without `clarify` and `talk` (`kanban`, `cronjob` and `delegation` stay). Follow-up questions are asked in the reply and the bridge feeds recent room messages back as context. |
 | `HERMES_YOLO`, `HERMES_ACCEPT_HOOKS` | `0` | No unattended approval of protected actions or shell hooks. |
 | `TALK_APPROVAL_PROMPTS`, `TALK_APPROVAL_TIMEOUT` | `1`, `600` | Risky terminal commands of the sandbox profiles (`models`, `hf-models`, `llamacpp-rocm`) post **⚠️ Approval required** with the redacted command into the room and wait. Reply `/approve once`, `/approve session` or `/deny` (`yes`/`no` also work); silence denies after 600 s. See [Hermes](../hermes/README.md#sandboxes-and-approvals). |
 | `HERMES_WRITE_SAFE_ROOT` | `/opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier` | Lets `write_file`/`patch` of the sandbox profiles target sandbox paths (they are written over SSH, not in this container). |
@@ -86,7 +86,6 @@ Each Hermes profile has its own Talk conversation, owned by `pi.hole`, with the 
 | Hermes · HF models | `hf-models` | 🤗 yellow |
 | Hermes · llama.cpp Vulkan | `llamacpp-vulkan` | 🦙 red |
 | Hermes · llama.cpp ROCm | `llamacpp-rocm` | 🔥 orange-red |
-| Hermes · GPU watch | `gpu-watch` | 🎮 teal |
 | Hermes · Self-hosted | `selfhosted` | 🏠 slate |
 | Hermes · Models | `models` | 🧪 magenta |
 | Hermes · Planner | `planner` | 🗓️ cyan |
