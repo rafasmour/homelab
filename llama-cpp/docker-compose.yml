@@ -34,8 +34,9 @@ services:
       - "--jinja"
       - "--models-max"
       - "${MAX_MODELS:-1}"
-      - "--sleep-idle-seconds"
-      - "${SLEEP_IDLE_SECONDS:-300}"
+      # Idle sleep is set per preset in router-config.ini ([*] sleep-idle-seconds);
+      # a command-line value would override every preset, including the
+      # always-warm Hermes model.
     restart: unless-stopped
     networks:
       - webgateway

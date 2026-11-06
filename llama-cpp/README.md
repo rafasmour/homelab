@@ -38,9 +38,12 @@ the build and router behavior:
 | `DOMAIN` | Creates the Traefik host rule `ai.<DOMAIN>` |
 | `MAX_JOBS` | Parallel jobs used while compiling llama.cpp; empty uses every CPU thread, set a number if the build runs out of RAM |
 | `MAX_MODELS` | Maximum number of loaded router models; use `1` on memory-constrained hosts |
-| `SLEEP_IDLE_SECONDS` | Unload an idle model after this duration so another preset can load |
 | `LLAMA_REPO` | Git repository to build llama.cpp from; defaults to upstream `ggml-org/llama.cpp` |
 | `LLAMA_REF` | Branch, tag or commit to build; `main` (or empty) builds the repository's default branch |
+
+Idle sleep is the preset key `sleep-idle-seconds` (300 s in `[*]`; `ornith-1.5-9b-mtp` has `-1` and `load-on-startup = true`, so Hermes' model stays loaded and speech-gateway's warmer reloads it when the router is idle; the `hermes-api` plugin `prompt_prime` then re-evaluates the primed profile's system prompt + tool schemas (~39k tokens, ~29 s cold) into an idle slot, see `hermes/README.md` "Prompt priming"; the preset has 3 slots so Jarvis (Q4_K) fits beside it). It used to be the `SLEEP_IDLE_SECONDS` command-line option, which overrode every preset; the variable in an existing `.env` is now unused.
+
+Slot reservation for the production preset `ornith-1.5-9b-mtp` (3 slots): a request is placed by longest-common-prefix similarity (`--slot-prompt-similarity` 0.10) unless it carries `id_slot`; the router forwards `id_slot` to the child (log `selected slot by id (N)`) and a busy slot defers the request (queue, no fallback to another slot). Slot 0 is reserved for the primed Hermes ai-assistant prompt, slot 1 for Hindsight, slot 2 for every other Hermes profile (see `hermes/README.md` "llama.cpp slot reservation"). Clients that cannot set it (Open WebUI direct connection, the n8n digest workflows) stay on similarity selection; Open WebUI can pin per model under Admin, Models, Advanced Params, custom parameter `id_slot` if Ornith is used there.
 
 `MODEL_FILE` is not used by this router setup. Models are configured through
 the preset file instead of a single `-m` or `-hf` argument.
@@ -118,22 +121,18 @@ RAM and an 8-core Ryzen 7 1800X:
 
 | Alias | Model | KV, context per slot x slots | VRAM | Decode |
 | --- | --- | --- | --- | --- |
-| `spark-x2.6-4b` | Spark-X2.6 4B Q8_0 | f16, 96k x 3 | 15.46 GiB | ~84 tok/s (does not load on the current b10666 image: `unknown model architecture: spark2_5`; measured on the earlier patched build) |
-| `ornith-1.5-9b` | Ornith 1.5 9B Q6_K | f16, 64k x 3 | 12.74 GiB (13.01 peak) | ~60 tok/s; 110 tok/s total with 3 requests |
-| `ornith-1.5-9b-mtp` | same + built-in MTP draft | f16, 64k x 3 | 14.23 GiB (14.74 peak) | ~66 tok/s; 93 total with 3 |
-| `ornith-1.5-9b-dflash` | same + DFlash draft Q8_0 | f16, 64k x 2 | 14.12 GiB (14.42 peak) | ~64 tok/s; 75 total with 2 |
-| `qwen-3.5-9b` | Qwen3.5-9B Q6_K | f16, 64k x 3 | 12.85 GiB (13.12 peak) | ~59 tok/s; 107 tok/s total with 3 requests |
-| `qwen-3.5-9b-mtp` | same + built-in MTP draft | f16, 64k x 3 | 14.34 GiB (14.87 peak) | ~78 tok/s; 97 total with 3 |
-| `qwen-3.5-9b-dflash` | same + DFlash draft Q8_0 | f16, 64k x 2 | 14.23 GiB (14.53 peak) | ~77 tok/s; 84 total with 2 |
-| `ling-3.0-tiny` | Ling-3.0-tiny Q8_0 (MoE 7.9B, 1.3B active, fully on GPU) | f16, 128k x 8 | 15.32 GiB (15.42 peak) | ~103 tok/s; 393 tok/s total with 8 requests |
+| `ornith-1.5-9b` | Ornith 1.5 9B Q6_K, plain (no drafter; the ngram-mod drafter was dropped 2026-11-06) | f16, 64k x 3 | 12.74 GiB (13.01 peak) | ~60 tok/s; 110 tok/s total with 3 requests |
+| `ornith-1.5-9b-dflash` | same + DFlash draft Q8_0 | q8_0, 64k x 3 (since 2026-11-03; was 4) | ~14.8 GiB alone (15.9 GB in use incl. other stacks), 18.0 GB with Jarvis Q4_K | ~60 tok/s; DFlash, `checkpoint-min-step` 2048 |
+| `ornith-1.5-9b-q4-dflash` | Ornith 1.5 9B Q4_K_M (5.38 GiB) + official DFlash drafter Q8_0 (1.29 GiB); benchmark candidate, not production | q8_0, 64k x 3 (f16 measured 15.5 GiB, over budget) | 13.22 GiB after load, 13.42 GiB after a 200-token essay (2026-11-06; process VRAM) | ~53-60 tok/s; DFlash accepted 24% of drafts on prose |
+| `mellum-2.1-thinking` | JetBrains Mellum 2.1 Thinking (MoE 12B, 2.5B active, Apache-2.0) Q5_K_M, fully on GPU | f16, 128k x 1 | 11.6 GiB (idle card baseline 0.03) | ~94 tok/s |
+| `mellum-2.1-thinking-mtp` | same file + built-in MTP head (`draft-mtp`, n-max 2) | f16, 128k x 1 | 12.1 GiB | ~136 tok/s (1.45x; n-max 1: 131, 3: 130, 4: 112, 6: 97; 57% of drafts accepted at 2) |
 | `ocr-xiaomi-0` | Xiaomi-OCR-0 Q6_K + BF16 projector (OCR) | f16, 16k x 2 | 1.77 GiB | ~210 tok/s, about 3 s per page |
-| `gemma-4-12b-it-qat` (`-vision`) | Gemma 4 12B QAT UD-Q4_K_XL | f16, 128k x 4 | 16.91 / 17.12 GiB | ~64 tok/s |
-| `gemma-4-26b-a4b` (`-vision`) | Gemma 4 26B-A4B Q4_0 | q8_0, 128k x 2, `n-cpu-moe 2` / `4` | ~17.42 / ~17.57 GiB (est.; 18.22 / 19.16 measured fully on GPU) | ~74 tok/s fully on GPU |
 | `gemma-4-31b-it` / `-vision` | Gemma 4 31B UD-IQ3_XXS | q8_0, 128k / 96k | 18.57 / 18.26 GiB | ~31 tok/s |
 | `qwen-3.6-35b-a3b` | Qwen3.6 35B-A3B UD-IQ4_XS | q8_0, 128k x 1, `n-cpu-moe 3` (Hermes default) | ~17.35 GiB (est.; 18.39 measured fully on GPU) | ~69 tok/s fully on GPU |
 | `qwen-3.8-27b` | Qwen3.8 27B Q4_0 | q8_0, 96k, fully on GPU | 18.45 GiB | ~31 tok/s |
 | `qwen-3.8-27b-mtp` | Qwen3.8 27B Q4_0 + MTP draft | q8_0, 68k (0.6 GiB headroom) | 19.38 GiB | ~57 tok/s |
-| `flint-40b-a2.5b` | Flint UD-Q3_K_XL | q8_0, 96k, `n-cpu-moe 7` | ~17.46 GiB (est.; 18.50 measured with `n-cpu-moe 4`) | ~59 tok/s with `n-cpu-moe 4` |
+
+Removed 2026-11-03 to free disk: `flint-40b-a2.5b`, `gemma-4-12b-it-qat` and `gemma-4-26b-a4b` (with `-vision`), `qwen-3.5-9b` (with `-mtp` and `-dflash`), `ornith-1.5-9b-mtp`, `ling-3.0-tiny` and `spark-x2.6-4b`; the notes below still quote some of their measurements.
 
 Rules behind these presets: every slot has more than 64k context; small models use f16 KV and as many slots as fit; larger models use f16 or q8_0 and never q4_0 (it made models misbehave). f16 KV is also much faster on ROCm flash attention: the since-removed Mellum 2.1 ran at ~44 tok/s with q8_0 and ~102 tok/s with f16. CPU-offloaded layers of a dense model cost more speed than shorter context (Qwen 3.8: 12 tok/s with 5 layers on the CPU, 31 fully on the GPU). `qwen-3.8-27b-dflash2` is disabled: with its draft it does not fit above 64k. Decode speeds are single short requests; VRAM and speed of the MoE presets with their new `n-cpu-moe` are estimates until re-measured. The GPU only runs these models, so presets may use up to ~19.5 GiB of the 20 GiB.
 
