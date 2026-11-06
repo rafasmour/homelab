@@ -6,11 +6,17 @@
 !README.md
 !.gitignore
 !start.sh
-!gpu-watchlist.example.yml
 !plugins/
 !plugins/talk_send/
 !plugins/talk_send/plugin.yaml
 !plugins/talk_send/__init__.py
+!plugins/agents/
+!plugins/agents/plugin.yaml
+!plugins/agents/__init__.py
+!plugins/agents/runner.py
+!plugins/kanban_notify/
+!plugins/kanban_notify/plugin.yaml
+!plugins/kanban_notify/__init__.py
 !plugins/clock/
 !plugins/clock/plugin.yaml
 !plugins/clock/__init__.py
@@ -20,3 +26,7 @@
 !plugins/local_only/
 !plugins/local_only/plugin.yaml
 !plugins/local_only/__init__.py
+!plugins/local_only/benchmark_sandbox.py
+!plugins/prompt_prime/
+!plugins/prompt_prime/plugin.yaml
+!plugins/prompt_prime/__init__.py

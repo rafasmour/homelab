@@ -1,0 +1,4 @@
+name: prompt_prime
+version: 1.0.0
+description: "Keeps the default profile's system prompt and tool schemas in a llama.cpp slot cache: captures the first request of each default-profile API session and replays it with max_tokens 1 while the router is idle."
+author: homelab

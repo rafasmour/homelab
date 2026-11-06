@@ -1,0 +1,8 @@
+name: agents
+version: 1.0.0
+description: "ask_agent: consult another Hermes profile and wait up to two minutes for its answer; a later answer is posted to Nextcloud Talk. delegate and task_status: queue a Kanban card for a profile and read its status."
+author: homelab
+provides_tools:
+  - ask_agent
+  - delegate
+  - task_status

@@ -19,14 +19,63 @@ services:
       HERMES_INFERENCE_BASE_URL: "${HERMES_INFERENCE_BASE_URL:-http://llama-cpp:8080/v1}"
       # Same value as LLAMA_API_KEY in llama-cpp/.env.
       LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
-      HERMES_MODEL: "${HERMES_MODEL:-ornith-1.5-9b}"
-      # Per-slot context of that preset (llama.cpp ctx-size / parallel); Hermes
-      # must not plan prompts larger than one slot.
+      HERMES_MODEL: "${HERMES_MODEL:-nemotron-3.5-bolt-e4b-dflash}"
+      # Context Hermes plans for (it compacts at the threshold below): every
+      # profile and cron job HERMES_CONTEXT_LENGTH, the interactive
+      # HERMES_SESSION_PROFILES HERMES_SESSION_CONTEXT_LENGTH. Both must fit
+      # the preset's per-slot size (ctx-size / parallel, or kv-unified-per-slot).
       HERMES_CONTEXT_LENGTH: "${HERMES_CONTEXT_LENGTH:-65536}"
+      HERMES_SESSION_PROFILES: "${HERMES_SESSION_PROFILES:-ai-assistant}"
+      HERMES_SESSION_CONTEXT_LENGTH: "${HERMES_SESSION_CONTEXT_LENGTH:-65536}"
+      # Fraction of that context at which Hermes compacts (0.8 = ~52k of 64k tokens).
+      HERMES_COMPRESSION_THRESHOLD: "${HERMES_COMPRESSION_THRESHOLD:-0.8}"
+      # Profile whose prompt prefix (system prompt + tools) the prompt_prime
+      # plugin keeps in a llama.cpp slot while the router is idle.
+      HERMES_PRIME_PROFILE: "${HERMES_PRIME_PROFILE:-ai-assistant}"
+      # llama.cpp slot reservation: the primed profile (ai-assistant) always
+      # uses HERMES_SLOT_PRIMED; every other profile gets a fixed slot from
+      # HERMES_SLOT_OTHERS (a slot, a range spread round-robin, or -1 = no pin).
+      # Hindsight uses slot 1 (hindsight/.env HINDSIGHT_LLM_SLOT).
+      HERMES_SLOT_PRIMED: "${HERMES_SLOT_PRIMED:-0}"
+      HERMES_SLOT_OTHERS: "${HERMES_SLOT_OTHERS:-2}"
+      # ai-assistant only: thinking budget in tokens (-1 = unlimited); every other profile is unlimited.
+      HERMES_AI_ASSISTANT_THINK_BUDGET: "${HERMES_AI_ASSISTANT_THINK_BUDGET:-1024}"
+      # ask_agent (plugins/agents): seconds a consult is awaited before its answer
+      # goes to Talk, the hard time limit of one consult, and the answer length
+      # handed back to the asking profile.
+      HERMES_ASK_AGENT_WAIT: "${HERMES_ASK_AGENT_WAIT:-120}"
+      HERMES_ASK_AGENT_HARD_CAP: "${HERMES_ASK_AGENT_HARD_CAP:-1800}"
+      HERMES_ASK_AGENT_MAX_CHARS: "${HERMES_ASK_AGENT_MAX_CHARS:-8000}"
+      # Sampling sent to llama.cpp for every profile except default (start.sh puts
+      # it into each profile's custom_providers extra_body). Set empty to keep the
+      # model preset's own value (hence "-", not ":-").
+      HERMES_SAMPLING_TEMPERATURE: "${HERMES_SAMPLING_TEMPERATURE-0.6}"
+      HERMES_SAMPLING_PRESENCE_PENALTY: "${HERMES_SAMPLING_PRESENCE_PENALTY-0}"
+      # Self-hosted Hindsight memory (hindsight stack; start it first, it creates
+      # the external "hindsight" network). Unset = hindsight; set it empty to use
+      # only the built-in MEMORY.md/USER.md. Excluded profiles never use it.
+      HERMES_MEMORY_PROVIDER: "${HERMES_MEMORY_PROVIDER-hindsight}"
+      HERMES_MEMORY_EXCLUDE: "${HERMES_MEMORY_EXCLUDE-devops-diagnose coding devops}"
+      HERMES_HINDSIGHT_RETAIN_EVERY: "${HERMES_HINDSIGHT_RETAIN_EVERY:-1}"
       HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
+      # Speech-to-text and text-to-speech of every profile (start.sh): the
+      # speech stack's gateway on webgateway. STT "auto" switches between
+      # Parakeet and Greek Parakeet; TTS engines/voices come from audio.cpp.
+      # Empty HERMES_SPEECH_URL keeps Hermes' own speech settings.
+      HERMES_SPEECH_URL: "${HERMES_SPEECH_URL:-http://speech-gateway:8000/v1}"
+      HERMES_STT_MODEL: "${HERMES_STT_MODEL:-auto}"
+      HERMES_TTS_MODEL: "${HERMES_TTS_MODEL:-assistant}"
+      HERMES_TTS_VOICE: "${HERMES_TTS_VOICE:-assistant}"
+      # Hermes-Relay streaming voice output (start.sh patches the relay's
+      # openai_tts renderer): the gateway streams Jarvis sentence by sentence.
+      # The gateway has no authentication, the key is a placeholder.
+      HERMES_RELAY_OPENAI_TTS_URL: "${HERMES_SPEECH_URL:-http://speech-gateway:8000/v1}"
+      HERMES_RELAY_OPENAI_TTS_KEY: speech-gateway
       # write_file/patch path allowlist. Profiles with an SSH sandbox write
       # these paths inside their sandbox (hermes-sandboxes), never in here.
-      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier
+      # cache/audio: where text_to_speech writes its clips (outside every other
+      # root, so spoken replies were refused).
+      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier:/home/hermes/.hermes/cache/audio
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_PORT: "8642"
@@ -37,16 +86,12 @@ services:
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
       # Self-heal: the devops-diagnose profile's own API key (start.sh writes
       # it into that profile's .env; the shared API_SERVER_KEY cannot reach
-      # it) and the bearer token of the self-heal diagnose MCP. Optional like
-      # HERMES_VOICE_KEY: without a usable key start.sh does not serve the profile.
+      # it) and the bearer token of the self-heal diagnose MCP. Optional: without
+      # a usable key start.sh does not serve the profile.
       SELF_HEAL_HERMES_KEY: "${SELF_HEAL_HERMES_KEY:-}"
       DIAGNOSE_MCP_TOKEN: "${DIAGNOSE_MCP_TOKEN:-}"
       # Optional: bearer token of benchmark-mcp (models profile). Empty: no benchmark tools.
       BENCHMARK_MCP_TOKEN: "${BENCHMARK_MCP_TOKEN:-}"
-      # Optional: the voice profile's own API key (Home Assistant Assist). Without
-      # a usable value (16+ characters, not API_SERVER_KEY) /p/voice/v1 is not
-      # served; start.sh writes it into that profile's .env.
-      HERMES_VOICE_KEY: "${HERMES_VOICE_KEY:-}"
       # Cron delivery (--deliver nextcloud_talk) and the talk_send tool post
       # through hermes-nextcloud-bridge.
       NEXTCLOUD_TALK_DELIVER_URL: "${NEXTCLOUD_TALK_DELIVER_URL:-http://hermes-nextcloud-bridge:8788/deliver}"
@@ -54,13 +99,47 @@ services:
       NEXTCLOUD_TALK_HOME_ROOM: "${NEXTCLOUD_TALK_HOME_ROOM:?Set NEXTCLOUD_TALK_HOME_ROOM in .env}"
       # "<profile>=<room-token>|...": each profile's cron output and talk_send go to its own room.
       NEXTCLOUD_TALK_PROFILE_ROOMS: "${NEXTCLOUD_TALK_PROFILE_ROOMS:-}"
+      # Hermes-Relay (Android app): web dashboard on 9119 and relay on 8767,
+      # both started by start.sh next to the gateway. The dashboard is served
+      # only when HERMES_DASHBOARD_PASSWORD is set and not CHANGE_ME; the relay terminal stays off unless explicitly enabled.
+      HERMES_DASHBOARD_ENABLED: "${HERMES_DASHBOARD_ENABLED:-true}"
+      HERMES_DASHBOARD_USERNAME: "${HERMES_DASHBOARD_USERNAME:-admin}"
+      HERMES_DASHBOARD_PASSWORD: "${HERMES_DASHBOARD_PASSWORD:-}"
+      # Public origin behind Traefik: trusted by the dashboard Host/Origin
+      # guards and advertised in pairing QR codes (`hermes pair`).
+      HERMES_DASHBOARD_PUBLIC_URL: "https://hermes-dash.${DOMAIN}"
+      HERMES_RELAY_ENABLED: "${HERMES_RELAY_ENABLED:-true}"
+      HERMES_RELAY_TERMINAL_ENABLED: "${HERMES_RELAY_TERMINAL_ENABLED:-false}"
+      # Phone-reachable Hermes API base URL the relay hands to the app.
+      RELAY_WEBAPI_URL: "https://hermes.${DOMAIN}"
+      # API address in dashboard and `hermes pair` QR codes (start.sh patches
+      # the plugin to use it instead of the container IP).
+      HERMES_RELAY_PAIR_API_URL: "https://hermes.${DOMAIN}"
+      # Traefik terminates TLS and sets X-Forwarded-Proto: https.
+      RELAY_TRUST_PROXY_HEADERS: "1"
+      # start.sh installs the relay's extra Python packages here (the image
+      # venv is read-only); the folder is absent while the relay is disabled.
+      PYTHONPATH: /home/hermes/.hermes/relay/deps
     labels:
       traefik.enable: "true"
       traefik.docker.network: webgateway
       traefik.http.routers.hermes-api.rule: "Host(`hermes.${DOMAIN:?Set DOMAIN in .env}`)"
       traefik.http.routers.hermes-api.entrypoints: websecure
       traefik.http.routers.hermes-api.tls.certresolver: myresolver
+      traefik.http.routers.hermes-api.service: hermes-api
       traefik.http.services.hermes-api.loadbalancer.server.port: "8642"
+      # Hermes-Relay web dashboard (password login, see README).
+      traefik.http.routers.hermes-dash.rule: "Host(`hermes-dash.${DOMAIN}`)"
+      traefik.http.routers.hermes-dash.entrypoints: websecure
+      traefik.http.routers.hermes-dash.tls.certresolver: myresolver
+      traefik.http.routers.hermes-dash.service: hermes-dash
+      traefik.http.services.hermes-dash.loadbalancer.server.port: "9119"
+      # Hermes-Relay WebSocket server (voice, bridge, media, optional terminal).
+      traefik.http.routers.hermes-relay.rule: "Host(`hermes-relay.${DOMAIN}`)"
+      traefik.http.routers.hermes-relay.entrypoints: websecure
+      traefik.http.routers.hermes-relay.tls.certresolver: myresolver
+      traefik.http.routers.hermes-relay.service: hermes-relay
+      traefik.http.services.hermes-relay.loadbalancer.server.port: "8767"
       homepage.group: AI
       homepage.name: Hermes
       homepage.icon: mdi-robot
@@ -71,6 +150,8 @@ services:
       - hermes-mcp
       # SSH to the per-profile sandboxes (hermes-sandboxes stack, start it first).
       - hermes-sandbox
+      # Hindsight memory API (internal network, no internet).
+      - hindsight
       - webgateway
 
 volumes:
@@ -84,6 +165,9 @@ networks:
   hermes-sandbox:
     external: true
     name: hermes-sandbox
+  hindsight:
+    external: true
+    name: hindsight
   webgateway:
     external: true
     name: webgateway

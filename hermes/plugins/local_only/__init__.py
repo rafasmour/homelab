@@ -22,6 +22,13 @@ def _unavailable(*_args, **_kwargs):
 
 
 def register(ctx) -> None:
+    # Benchmark runs (HERMES_BENCHMARK=1) must not write to real systems; see benchmark_sandbox.py.
+    try:
+        from . import benchmark_sandbox
+
+        benchmark_sandbox.install()
+    except Exception:
+        logger.exception("local_only: benchmark sandbox unavailable")
     from agent import auxiliary_client as aux
 
     if getattr(aux, "_homelab_local_only", False):
@@ -35,5 +42,22 @@ def register(ctx) -> None:
     aux._try_openrouter = _unavailable
     aux._try_nous = _unavailable
     aux._resolve_api_key_provider = _unavailable
+
+    # Hard failure instead of a silent cloud fallback: only the local custom
+    # endpoint (and the "auto"/"main" sentinels, whose chain is stubbed above)
+    # may be resolved. Anything else (openrouter, nous, anthropic, a bare
+    # API-key provider) raises.
+    original_resolve = aux.resolve_provider_client
+
+    def guarded_resolve(provider, *args, **kwargs):
+        name = str(provider or "").strip().lower()
+        if name not in {"", "auto", "main", "custom"} and not name.startswith("custom:"):
+            raise RuntimeError(
+                f"local_only: auxiliary provider {provider!r} is blocked; only the local custom endpoint is allowed"
+            )
+        return original_resolve(provider, *args, **kwargs)
+
+    aux.resolve_provider_client = guarded_resolve
+    aux._try_anthropic = _unavailable
     aux._homelab_local_only = True
     logger.debug("local_only: cloud auxiliary providers disabled")
