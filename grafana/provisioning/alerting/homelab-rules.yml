@@ -1124,3 +1124,98 @@ groups:
       severity: warning
     annotations:
       summary: The self-heal controller executed (or failed) a restart in the last 5 minutes; see the self-heal Talk room and `docker logs self-heal`.
+- orgId: 1
+  name: AI services
+  folder: Homelab alerts
+  interval: 1m
+  rules:
+  # The llama.cpp router keeps proxying to a model instance that stopped
+  # accepting connections (2026-10-31 22:58 → 2026-11-01 08:00: every Hermes
+  # cron run and chat failed with "HTTP 500: proxy error"). The line never
+  # appeared in the week before outside that outage. A restart of llama-server
+  # clears it, so the rule goes to the self-heal controller.
+  - uid: llama-router-backend-unreachable
+    title: llama.cpp model backend unreachable
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: 'sum by (container_name) (count_over_time({container_name="llama-server"} |= `http client error: Could not establish connection` [10m]))'
+        queryType: instant
+        datasource:
+          type: loki
+          uid: loki
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 2
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      self_heal: "true"
+    annotations:
+      summary: 'llama-server could not reach a loaded model instance {{ humanize $values.A.Value }} times in 10 min ("proxy error: Could not establish connection"); Hermes chats and cron jobs are failing. Restarting llama-server reloads the model.'
+  # Failed Hermes cron jobs (any profile). The scheduler logs each failure as
+  # "ERROR cron.scheduler: Job '<name>' failed: ..."; Loki holds every such
+  # line 5 times (one per log stream), so > 5 in an hour means at least two
+  # failed runs. A single failed run (e.g. a truncated reply) does not page.
+  - uid: hermes-cron-failures
+    title: Hermes cron jobs failing
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 3600
+        to: 0
+      datasourceUid: loki
+      model:
+        refId: A
+        expr: 'sum by (container_name) (count_over_time({container_name="hermes-api"} |~ `ERROR cron\.scheduler: Job .* failed` [1h]))'
+        queryType: instant
+        datasource:
+          type: loki
+          uid: loki
+    - refId: C
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: A
+        datasource:
+          type: __expr__
+          uid: __expr__
+        conditions:
+        - evaluator:
+            type: gt
+            params:
+            - 5
+    noDataState: OK
+    execErrState: Error
+    for: 0s
+    labels:
+      severity: warning
+    annotations:
+      summary: 'Hermes cron jobs failed repeatedly in the last hour ({{ humanize $values.A.Value }} log lines). See `docker logs hermes-api | grep cron.scheduler` and data/profiles/<profile>/cron/output/.'
