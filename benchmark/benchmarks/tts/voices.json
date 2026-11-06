@@ -1,0 +1,428 @@
+{
+  "_comment": "Voices per TTS GGUF (file name without .gguf). {id, langs, args: extra audiocpp_cli args, prefix: text put in front of the input (VoxCPM2 voice design)}. Models not listed get one 'default' voice for every language they support (en, el). 'default': false keeps a model out of default runs (name it on the command line, e.g. kokoro-82m-q8_0@bm_george). The voice ids mirror speech/docker-compose.yml TTS_BACKENDS where one exists. 'language': false omits --language (Kokoro and Phonon reject it); a string passes that code instead.",
+  "supertonic-3-q8_0": {
+    "voices": [
+      {
+        "id": "M1",
+        "langs": [
+          "en",
+          "el"
+        ],
+        "args": [
+          "--voice-id",
+          "M1"
+        ]
+      },
+      {
+        "id": "F1",
+        "langs": [
+          "en",
+          "el"
+        ],
+        "args": [
+          "--voice-id",
+          "F1"
+        ]
+      }
+    ]
+  },
+  "kokoro-82m-q8_0": {
+    "voices": [
+      {
+        "id": "bm_george",
+        "langs": [
+          "en"
+        ],
+        "args": [
+          "--voice-id",
+          "bm_george"
+        ],
+        "language": false
+      },
+      {
+        "id": "bf_emma",
+        "langs": [
+          "en"
+        ],
+        "args": [
+          "--voice-id",
+          "bf_emma"
+        ],
+        "language": false
+      }
+    ]
+  },
+  "omnivoice-q8_0": {
+    "voices": [
+      {
+        "id": "british-male",
+        "langs": [
+          "en",
+          "el"
+        ],
+        "args": [
+          "--instruct",
+          "male, middle-aged, low pitch, british accent",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "greek-male",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--instruct",
+          "male, middle-aged, low pitch",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "jarvis-clone",
+        "langs": [
+          "en",
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/jarvis.wav",
+          "--reference-text",
+          "Good evening. The workshop is ready, and the overnight builds finished without errors. Three deployments are waiting on your approval when you have a moment.",
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "phonon-31m-en-q8_0": {
+    "voices": [
+      {
+        "id": "default",
+        "langs": [
+          "en"
+        ],
+        "args": [],
+        "language": false
+      }
+    ]
+  },
+  "voxcpm2-q8_0": {
+    "voices": [
+      {
+        "id": "british-man",
+        "langs": [
+          "en"
+        ],
+        "prefix": "(a calm, middle-aged British man with a low voice)",
+        "args": [
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "greek-man",
+        "langs": [
+          "el"
+        ],
+        "prefix": "(a warm, middle-aged Greek man with a deep voice)",
+        "args": [
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "voxcpm2-Q4_K": {
+    "voices": [
+      {
+        "id": "british-man",
+        "langs": [
+          "en"
+        ],
+        "prefix": "(a calm, middle-aged British man with a low voice)",
+        "args": [
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "greek-man",
+        "langs": [
+          "el"
+        ],
+        "prefix": "(a warm, middle-aged Greek man with a deep voice)",
+        "args": [
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "jarvis",
+        "langs": [
+          "en",
+          "el"
+        ],
+        "prefix": "(a calm, middle-aged British man with a low voice)",
+        "args": [
+          "--session-option",
+          "voxcpm2.lora=/models/tts-jarvis/adapter",
+          "--session-option",
+          "voxcpm2.lora_scale=1",
+          "--voice-ref",
+          "/voices/jarvis.wav",
+          "--num-inference-steps",
+          "6",
+          "--guidance-scale",
+          "2.4",
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "voxcpm2-Q5_K": {
+    "default": false,
+    "voices": [
+      {
+        "id": "british-man",
+        "langs": [
+          "en"
+        ],
+        "prefix": "(a calm, middle-aged British man with a low voice)",
+        "args": [
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "greek-man",
+        "langs": [
+          "el"
+        ],
+        "prefix": "(a warm, middle-aged Greek man with a deep voice)",
+        "args": [
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "chatterbox-q6_k": {
+    "voices": [
+      {
+        "id": "jarvis-ref",
+        "langs": [
+          "en"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/jarvis.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "spyros-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/spyros.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "eleni-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/eleni.wav",
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "moss-tts-nano-100m-q6_k": {
+    "voices": [
+      {
+        "id": "jarvis-ref",
+        "langs": [
+          "en"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/jarvis.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "spyros-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/spyros.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "eleni-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/eleni.wav",
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "moss-tts-local-v1.5-q6_k": {
+    "voices": [
+      {
+        "id": "jarvis-ref",
+        "langs": [
+          "en"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/jarvis.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "spyros-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/spyros.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "eleni-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/eleni.wav",
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "pocket-tts-greek-q6_k": {
+    "voices": [
+      {
+        "id": "spyros",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/spyros.wav",
+          "--language",
+          "el"
+        ]
+      },
+      {
+        "id": "eleni",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/eleni.wav",
+          "--language",
+          "el"
+        ]
+      }
+    ]
+  },
+  "moss-tts-local-v1.5-q8_0": {
+    "voices": [
+      {
+        "id": "jarvis-ref",
+        "langs": [
+          "en"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/jarvis.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "spyros-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/spyros.wav",
+          "--seed",
+          "42"
+        ]
+      },
+      {
+        "id": "eleni-ref",
+        "langs": [
+          "el"
+        ],
+        "args": [
+          "--voice-ref",
+          "/voices/eleni.wav",
+          "--seed",
+          "42"
+        ]
+      }
+    ]
+  },
+  "Audio8-TTS-Realistic-Air-Q8_0": {
+    "voices": [
+      {
+        "id": "jarvis-clone",
+        "langs": [
+          "en",
+          "el"
+        ],
+        "language": false,
+        "args": [
+          "--model-spec-override",
+          "embedded",
+          "--voice-ref",
+          "/voices/jarvis.wav",
+          "--reference-text",
+          "Good evening. The workshop is ready, and the overnight builds finished without errors. Three deployments are waiting on your approval when you have a moment.",
+          "--seed",
+          "42",
+          "--request-option",
+          "temperature=0.8",
+          "--request-option",
+          "top_p=0.95",
+          "--request-option",
+          "top_k=50"
+        ]
+      }
+    ]
+  }
+}

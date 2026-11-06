@@ -7,6 +7,8 @@
   "scripts": {
     "benchmark": "node --disable-warning=ExperimentalWarning main.js",
     "import": "node --disable-warning=ExperimentalWarning main.js import",
+    "test": "node --test test/*.test.js",
+    "tts-texts": "node --disable-warning=ExperimentalWarning benchmarks/tts/build-texts.js",
     "rescore": "node --disable-warning=ExperimentalWarning main.js rescore"
   },
   "engines": {

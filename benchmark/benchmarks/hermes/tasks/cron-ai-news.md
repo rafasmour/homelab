@@ -3,6 +3,7 @@ case: cron-ai-news
 kind: cron
 job: ai-news
 profile: ai-news
+web: true  # needs the web search/extract tools: opt-in (--web or --cases), not in the default selection
 order: 1
 heading: "r/LocalLLaMA"
 research: true

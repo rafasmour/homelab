@@ -14,7 +14,8 @@ const athensParts = (d) => {
 const todayAthens = () => athensParts(new Date()).date;
 const addDays = (ymd, n) => { const d = new Date(`${ymd}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const parseDate = (s) => { if (!s) return null; const d = new Date(s); return Number.isNaN(d.getTime()) ? null : d; };
-const fold = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+// Accent-, case- and final-sigma-insensitive (Greek "Λογιστής" and "ΛΟΓΙΣΤΗΣ" fold to the same string).
+const fold = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/ς/g, 'σ');
 const check = (name, pass, reason = '') => ({ name, pass, reason });
 const asList = (x, key) => (Array.isArray(x) ? x : (x && Array.isArray(x[key]) ? x[key] : []));
 
@@ -98,9 +99,34 @@ async function fireflyTransactions(ff) {
 }
 
 
+// ---------------------------------------------------------------- isolated Kanban board
+// Every benchmark case runs with HERMES_KANBAN_DB pointing at this throw-away board, so a model that calls
+// kanban_create never writes to the real board (whose dispatcher would start a real specialist run).
+const KANBAN_DIR = '/tmp/bench-kanban';
+const KANBAN_DB = `${KANBAN_DIR}/kanban.db`;
+const KANBAN_PY = `
+import json, sqlite3, os
+db = ${JSON.stringify(KANBAN_DB)}
+out = {"tasks": [], "links": []}
+if os.path.exists(db):
+    c = sqlite3.connect("file:%s?mode=ro" % db, uri=True, timeout=10)
+    c.row_factory = sqlite3.Row
+    out["tasks"] = [dict(r) for r in c.execute("select id, title, body, assignee, status from tasks")]
+    out["links"] = [dict(r) for r in c.execute("select parent_id, child_id from task_links")]
+print(json.dumps(out))
+`;
+/** Cards the model created on the isolated benchmark board during the current case. */
+async function kanbanCards() {
+  const { dockerExec } = require('../../lib/docker');
+  const r = await dockerExec('hermes-api', ['/opt/hermes/.venv/bin/python3', '-'], { user: 'hermes', input: KANBAN_PY, timeoutMs: 30_000 });
+  if (r.code !== 0) throw new Error(`cannot read the benchmark Kanban board: ${r.stderr.slice(0, 200)}`);
+  return JSON.parse(r.stdout);
+}
+
 const onTestDate = (s) => { const d = parseDate(s); return Boolean(d) && athensParts(d).date === TEST_DATE; };
 
 module.exports = {
   TEST_DATE, TZ, athensParts, todayAthens, addDays, parseDate, fold, check, asList, onTestDate,
   ncSnapshot, ncDiff, ncCleanup, wgerItems, fireflyBills, fireflyTransactions,
+  KANBAN_DIR, KANBAN_DB, kanbanCards,
 };

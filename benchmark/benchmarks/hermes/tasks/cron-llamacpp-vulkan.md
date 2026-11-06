@@ -3,6 +3,7 @@ case: cron-llamacpp-vulkan
 kind: cron
 job: llamacpp-vulkan
 profile: llamacpp-vulkan
+web: true  # needs the web search/extract tools: opt-in (--web or --cases), not in the default selection
 order: 3
 heading: "llama.cpp Vulkan"
 research: true

@@ -26,7 +26,7 @@ services:
       WGER_MCP_URL: "${WGER_MCP_URL:-http://wger-mcp:8765/mcp}"
       NEXTCLOUD_MCP_URL: "${NEXTCLOUD_MCP_URL:-http://nextcloud-mcp:8000/mcp}"
       FIREFLY_MCP_URL: "${FIREFLY_MCP_URL:-http://firefly-mcp:3000/mcp}"
-      PRODUCTION_MODEL: "${PRODUCTION_MODEL:-qwen-3.6-35b-a3b}"
+      PRODUCTION_MODEL: "${PRODUCTION_MODEL:-ornith-1.5-9b-mtp}"
       # Mock Nextcloud user's Talk room (README "Talk isolation"). Empty: cases
       # with the talk toolset are refused; nothing ever goes to the real rooms.
       BENCHMARK_TALK_ROOM: "${BENCHMARK_TALK_ROOM:-}"
@@ -41,6 +41,8 @@ services:
       - ./reports:/app/reports
       - ./data:/app/data
       - "${ROUTER_CONFIG_FILE:-../llama-cpp/models/router-config.ini}:/app/router-config.ini:ro"
+      # Speech benchmarks (stt, tts): ASR clips + model discovery. Read-only; audiocpp_cli runs in audiocpp-tts.
+      - "${SPEECH_MODELS_DIR:-../speech/audiocpp/models}:/speech-models:ro"
     networks:
       - webgateway
       - hermes-mcp

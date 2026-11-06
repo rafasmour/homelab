@@ -3,6 +3,7 @@ case: cron-selfhosted
 kind: cron
 job: selfhosted
 profile: selfhosted
+web: true  # needs the web search/extract tools: opt-in (--web or --cases), not in the default selection
 order: 6
 heading: "Self-hosted"
 research: true

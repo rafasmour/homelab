@@ -64,7 +64,7 @@ function startRun(body) {
   if (typeof model !== 'string' || !MODEL_RE.test(model) || !presetModels().includes(model)) throw new HttpError(400, 'model is not a benchmarkable preset (see /models)');
   if (!SUITES.includes(suite)) throw new HttpError(400, `suite must be one of ${SUITES.join(', ')}`);
   if (profile !== null && (typeof profile !== 'string' || !profiles().includes(profile))) throw new HttpError(400, `profile must be one of ${profiles().join(', ')}`);
-  const all = hermes.listCases({ profiles: profile ? [profile] : null });
+  const all = hermes.listCases({ profiles: profile ? [profile] : null, defaultSelection: !profile });
   const cases = all.filter((c) => suite === 'all' || (suite === 'cron') === (c.kind === 'cron'));
   if (!cases.length) throw new HttpError(400, 'no cases match that suite and profile');
   const act = activeRun();

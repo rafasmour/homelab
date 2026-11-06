@@ -3,6 +3,10 @@
 // front matter (kind, profile, toolsets, hooks, params) followed by the exact prompt.
 //   kind: cron      - former Hermes cron job: Hermes' cron wrapper is prepended, the profile's
 //                     platform_toolsets.cron is used, checks: heading/[SILENT]/links/size/tools.
+//                     `kanban: true` keeps the profile's kanban toolset (ai-assistant delegation cases); every case
+//                     runs against a throw-away board (HERMES_KANBAN_DB, see hermes-benchmark.js).
+//   web: true       - the job depends on the web search/extract tools: excluded from the default selection and from
+//                     --profiles; runs with --web or when named in --cases (see README "Web cases").
 //   kind: chat|...  - any other kind runs as an interactive request with optional setup/verify/
 //                     cleanup hooks (hooks.js) and the profile's CLI toolsets.
 // Chat cases write on the test date 2027-01-15 through the real MCP servers, are verified through
@@ -47,7 +51,7 @@ function parseTask(file) {
   const task = {
     id, kind, profile: meta.profile, order: Number(meta.order) || 999, file: path.basename(file), prompt, params,
     research: meta.research === true, toolsets: meta.toolsets || (kind === 'cron' ? 'cron' : 'cli'),
-    writeTools: meta.write_tools === true, needs: String(meta.needs || '').split(',').map((x) => x.trim()).filter(Boolean),
+    optin: meta.optin === true, web: meta.web === true, kanban: meta.kanban === true, writeTools: meta.write_tools === true, needs: String(meta.needs || '').split(',').map((x) => x.trim()).filter(Boolean),
     job: meta.job || id.replace(/^cron-/, ''), heading: meta.heading || null, schedule: meta.schedule || null,
   };
   if (kind === 'cron' && !task.heading) throw new Error(`${file}: a cron task needs heading`);
@@ -139,6 +143,7 @@ async function runCleanup(c, snap) {
     verification.nextcloud_todos_on_test_date = s.todos.filter((t) => onTestDate(t.due) || onTestDate(t.dtstart)).length;
     verification.nextcloud_events_on_test_date = s.events.filter((e) => onTestDate(e.start)).length;
   } catch (e) { verification.nextcloud_on_test_date = `error: ${e.message}`; }
+  if (snap.recovered) removed.push(snap.recovered);
   if (snap.errors.length) leftovers.push(...snap.errors.map((e) => `start snapshot failed: ${e}`));
   return { removed, leftovers, verification };
 }

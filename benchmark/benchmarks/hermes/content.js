@@ -7,7 +7,6 @@
 //   ai-news, selfhosted  Reddit RSS entries dated within 24 h of clock_now (selfhosted: 5 per subreddit)
 //   llamacpp-*           GitHub issues/PRs/commits since yesterday that mention the job's keywords
 //   hf-models            models created today or yesterday with the gguf tag or > 100 downloads, text only
-//   gpu-watch            shop pages read: [SILENT] needs one, the error line needs none; prices must be real
 // Item limits come from the prompt the model actually got (stored runs used older prompts); JOBS has the fallbacks.
 // The digest passes when it recalls >= 60 % of the expected items (expected = reference set capped at the
 // job's item limit), at least 80 % of the items it lists are in the reference set, and [SILENT] or the
@@ -15,7 +14,6 @@
 
 const RECALL_MIN = 0.6;
 const PRECISION_MIN = 0.8;
-const SHOP_RE = /^https?:\/\/(?:www\.)?(?:skroutz|bestprice|public|plaisio|kotsovolos|e-shop)\.gr\//i;
 const FAIL_RE = /^(?:Could not fetch|Could not extract)|\bHTTP (?:error )?[45]\d\d\b|returned error: [45]\d\d/i;
 
 const JOBS = {
@@ -24,7 +22,6 @@ const JOBS = {
   'llamacpp-vulkan': { source: 'github', cap: 12, keywords: /\bvulkan\b/i },
   'llamacpp-rocm': { source: 'github', cap: 12, keywords: /\b(?:rocm|hip|hipblas|rocwmma|gfx11\d*|amd)\b/i },
   'hf-models': { source: 'hf', cap: 15 },
-  'gpu-watch': { source: 'shops' },
 };
 
 /** Item limits stated in the prompt ("Keep up to 8 posts per subreddit", "at most 12 bullets"); null = no limit. */
@@ -50,7 +47,7 @@ function toolResults(messages) {
     if (text.startsWith('{')) {
       try { const j = JSON.parse(text); if (typeof j.result === 'string') text = j.result; } catch { /* spilled or truncated JSON: keep raw */ }
     }
-    return { tool: m.tool_name || m.name || '', text, failed: FAIL_RE.test(text.slice(0, 400)) };
+    return { tool: m.tool_name || m.name || '', text, failed: FAIL_RE.test(text.slice(0, 400)) && (text.length < 1500 || /^(?:Could not|Error)/i.test(text)) };
   });
 }
 
@@ -70,11 +67,13 @@ function redditItems(results, now, job) {
   const items = [];
   for (const r of results) {
     if (r.failed || !/reddit\.com/.test(r.text)) continue;
-    const re = /^- \[(.+?)\]\((https?:\/\/(?:www\.)?reddit\.com\/r\/([^/]+)\/comments\/([a-z0-9]+)[^)]*)\)\s*\((\d{4}-\d\d-\d\dT[^)]+)\)/gim;
+    const re = /^- \[(.+?)\]\((https?:\/\/(?:[a-z]+\.)?reddit\.com\/r\/([^/]+)\/comments\/([a-z0-9]+)[^)]*)\)\s*\((\d{4}-\d\d-\d\dT[^)]+)\)/gim;
     let m;
     while ((m = re.exec(r.text))) {
       const at = Date.parse(m[5]);
-      items.push({ key: `reddit:${m[4]}`, title: m[1], group: m[3].toLowerCase(), eligible: Number.isFinite(at) && now - at <= 25 * 3600e3 && at - now <= 3600e3 });
+      // Accepted up to 25 h old (clock skew, the model's clock_now call preceding the fetch), expected only within 24 h.
+      const ok = Number.isFinite(at) && now - at <= 25 * 3600e3 && at - now <= 3600e3;
+      items.push({ key: `reddit:${m[4]}`, title: m[1], group: m[3].toLowerCase(), eligible: ok, strict: ok && now - at <= 24 * 3600e3 });
     }
   }
   return dedupe(items, job.perGroup);
@@ -137,8 +136,8 @@ function dedupe(items, perGroup) {
   const out = [...seen.values()];
   const counts = {};
   for (const it of out) {
-    it.expected = it.eligible;
-    if (perGroup && it.eligible) {
+    it.expected = it.strict === undefined ? it.eligible : Boolean(it.strict);
+    if (perGroup && it.expected) {
       counts[it.group] = (counts[it.group] || 0) + 1;
       if (counts[it.group] > perGroup) it.expected = false;
     }
@@ -176,7 +175,6 @@ function gradeContent(job, answer, messages, fallbackIso, prompt) {
   const a = String(answer || '').trim();
   const silent = a === '[SILENT]';
   const errorLine = /^Error:/i.test(a) && a.split('\n').filter((l) => l.trim()).length <= 2;
-  if (spec.source === 'shops') return gradeShops(a, silent, errorLine, results);
 
   const now = runNow(results, fallbackIso);
   if (!now) return { applicable: false, problems: [], summary: 'no run time' };
@@ -216,26 +214,21 @@ function gradeContent(job, answer, messages, fallbackIso, prompt) {
   return { applicable: true, problems, summary: `${hits} of ${expectN} qualifying item(s) listed${wrong ? `, ${wrong} not qualifying` : ''}` };
 }
 
-function gradeShops(a, silent, errorLine, results) {
-  // A fetched page starts "# <title>\nURL: <url>"; a failed fetch is "Could not fetch <url>: ...".
-  const pageUrl = (r) => (r.text.match(/^Could not fetch (\S+):\s/) || r.text.slice(0, 2000).match(/^URL:\s*(\S+)/m) || [])[1] || '';
-  const shops = results.filter((r) => SHOP_RE.test(pageUrl(r)));
-  const read = shops.filter((r) => !r.failed);
-  if (!shops.length && !silent) return { applicable: false, problems: [], summary: 'no shop page requested' };
-  const problems = [];
-  if (silent && !read.length) problems.push(`[SILENT] but no shop page could be read (${shops.length} failed)`);
-  if (errorLine && read.length) problems.push(`error line but ${read.length} shop page(s) were read`);
-  if (!silent && !errorLine) {
-    const hay = results.map((r) => r.text).join('\n').replace(/[.\s]/g, '');
-    const fake = bullets(a).map((l) => (l.match(/(\d[\d.,]*)\s*€/) || [])[1]).filter(Boolean)
-      .filter((p) => { const digits = p.replace(/[.,]\d\d$/, '').replace(/[.,]/g, ''); return !hay.includes(digits); });
-    if (fake.length) problems.push(`price(s) not in any tool result: ${fake.join(', ')}`);
-    if (!bullets(a).length) problems.push('no offer bullets');
+const TRANSIENT_RE = /\bHTTP (?:error )?(?:429|50\d|52\d)\b|Too Many Requests|rate.?limit|timed? ?out|ConnectError|ConnectTimeout|Connection (?:refused|reset|error)|Bad Gateway|Service Unavailable|Gateway Time-?out|Name or service not known|Temporary failure|Server disconnected/i;
+/**
+ * Why a research source (fetch_url/web_search/Hugging Face/GitHub through fetch_url) was unusable for a reason that is not the
+ * model's: rate limit, 5xx, timeout, network, or an empty Reddit feed. null when the sources answered.
+ */
+function sourceProblem(messages) {
+  for (const r of toolResults(messages)) {
+    if (!/fetch_url|web_search|hub_repo/.test(r.tool)) continue;
+    if ((r.failed || /^(?:Could not|Error)/i.test(r.text)) && TRANSIENT_RE.test(r.text.slice(0, 600))) return `source ${r.tool.split('__').pop()} failed: ${r.text.replace(/\s+/g, ' ').slice(0, 140)}`;
+    if (/fetch_url$/.test(r.tool) && /reddit\.com\/[^\s"]*\.rss/i.test(r.text.slice(0, 400)) && !/^- \[/m.test(r.text)) return 'source returned an empty Reddit feed';
   }
-  return { applicable: true, problems, summary: `${read.length} of ${shops.length} shop page(s) read` };
+  return null;
 }
 
 /** True when a tool result in the run is a fetch failure (also inside the JSON envelope). */
 const anyToolFailed = (messages) => toolResults(messages).some((r) => r.failed);
 
-module.exports = { gradeContent, toolResults, anyToolFailed, JOBS };
+module.exports = { gradeContent, toolResults, anyToolFailed, sourceProblem, JOBS };

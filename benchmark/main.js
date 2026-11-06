@@ -14,7 +14,7 @@ const db = require('./lib/db');
 
 const REPORTS = path.join(__dirname, 'reports');
 const LOCK = path.join(REPORTS, '.running.lock');
-const PRODUCTION_MODEL = process.env.PRODUCTION_MODEL || 'qwen-3.6-35b-a3b';
+const PRODUCTION_MODEL = process.env.PRODUCTION_MODEL || 'ornith-1.5-9b-mtp';
 const TZ = process.env.TZ || 'Europe/Athens';
 
 const USAGE = `Usage: npm run benchmark -- [model ...|all] [options]
@@ -23,9 +23,12 @@ Positional: router model ids/aliases (GET /models). "all" or none = every preset
 model (vision variants and disabled presets are skipped).
 
 Options:
-  --only a,b        run only these benchmarks (default: all under benchmarks/)
+  --only a,b        run only these benchmarks (default: all under benchmarks/ except the opt-in speech
+                    benchmarks stt and tts, which use their own audio.cpp model ids and never touch llama.cpp)
   --cases x,y       run only these case ids
   --profiles p,q    run only cases of these Hermes profiles (default, finance, ...)
+  --with-optin      add the opt-in group (ai-assistant) to the default selection
+  --web             add the web cases (front matter web: true; they need the web search/extract tools)
   --repeat N        run each case N times (default 1)
   --list            list benchmarks, cases and models, then exit
   --dry-run         print the plan without loading models or calling them
@@ -41,7 +44,7 @@ Example:
   docker exec benchmark npm run benchmark -- qwen-3.6-35b-a3b --only hermes --cases cron-ai-news`;
 
 function parseArgs(argv) {
-  const o = { models: [], only: null, cases: null, profiles: null, repeat: 1, list: false, dryRun: false };
+  const o = { models: [], only: null, cases: null, profiles: null, repeat: 1, list: false, dryRun: false, withOptin: false, web: false };
   const csv = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -53,6 +56,8 @@ function parseArgs(argv) {
     if (a === '-h' || a === '--help') { o.help = true; }
     else if (a === '--list') o.list = true;
     else if (a === '--dry-run') o.dryRun = true;
+    else if (a === '--with-optin') o.withOptin = true;
+    else if (a === '--web') o.web = true;
     else if (a.startsWith('--only')) o.only = csv(val());
     else if (a.startsWith('--cases')) o.cases = csv(val());
     else if (a.startsWith('--profiles')) o.profiles = csv(val());
@@ -225,14 +230,20 @@ async function main() {
     const unknown = opts.only.filter((n) => !benches.some((b) => b.name === n));
     if (unknown.length) throw new Error(`unknown benchmark(s): ${unknown.join(', ')}`);
     benches = benches.filter((b) => opts.only.includes(b.name));
-  }
-  const caseOpts = { cases: opts.cases, profiles: opts.profiles };
+  } else benches = benches.filter((b) => !b.optin); // speech benchmarks (stt, tts) run only when named with --only
+  // Opt-in cases (front matter `optin: true`, the ai-assistant group) run only when selected by --cases or --profiles.
+  const caseOpts = { cases: opts.cases, profiles: opts.profiles, defaultSelection: !opts.cases && !opts.profiles, withOptin: opts.withOptin, web: opts.web };
 
   if (opts.list) {
     for (const b of benches) {
       console.log(`\nBenchmark ${b.name}: ${b.description}`);
-      for (const c of b.listCases({})) console.log(`  ${b.describeCase ? await b.describeCase(c) : c.id}`);
+      for (const c of b.listCases({ web: true, withOptin: true })) console.log(`  ${b.describeCase ? await b.describeCase(c) : c.id}`);
     }
+    for (const b of benches.filter((x) => x.ownModels)) {
+      console.log(`\nModels of ${b.name} (audio.cpp GGUF, quantized only):`);
+      for (const m of b.ownModels()) console.log(`  ${m.id.padEnd(34)} family=${m.family} quant=${m.quant} ${m.size_mb} MB${m.languages ? ` langs=${m.languages.length > 6 ? `${m.languages.length} languages` : m.languages.join(',')}` : ''}`);
+    }
+    if (!benches.some((b) => !b.ownModels)) return 0; // speech-only listing never touches llama.cpp
     const models = await router.listModels();
     console.log('\nModels (router GET /models):');
     for (const m of models) {
@@ -242,24 +253,39 @@ async function main() {
     return 0;
   }
 
-  const models = await resolveModels(opts.models);
-  const plan = benches.map((b) => ({ b, cases: b.listCases(caseOpts) })).filter((p) => p.cases.length);
+  // Benchmarks with their own model list (ownModels, the speech benchmarks) never use the llama.cpp router.
+  const ownIds = new Set(benches.filter((b) => b.ownModels).flatMap((b) => b.ownModels().map((m) => m.id)));
+  const routerRequested = opts.models.filter((m) => !ownIds.has(m));
+  let plan = benches.map((b) => ({ b, cases: b.listCases(caseOpts) })).filter((p) => p.cases.length);
+  // Only speech model ids named on the command line: skip the router benchmarks.
+  if (opts.models.length && !routerRequested.length) plan = plan.filter((p) => p.b.ownModels);
+  const models = plan.some((p) => !p.b.ownModels) ? await resolveModels(routerRequested) : [];
+  if (routerRequested.length && !plan.some((p) => !p.b.ownModels)) throw new Error(`unknown model(s) for the selected benchmark(s): ${routerRequested.join(', ')}. Speech models: ${[...ownIds].join(', ')}`);
+  const ownSel = (b) => {
+    const all = b.ownModels();
+    const want = opts.models.filter((m) => all.some((x) => x.id === m));
+    return want.length || !opts.models.length || opts.models.includes('all') ? (want.length ? all.filter((x) => want.includes(x.id)) : all) : [];
+  };
   if (opts.cases) {
-    const known = new Set(benches.flatMap((b) => b.listCases({}).map((c) => c.id)));
+    const known = new Set(benches.flatMap((b) => b.listCases({ web: true }).map((c) => c.id)));
     const unknown = opts.cases.filter((c) => !known.has(c));
     if (unknown.length) throw new Error(`unknown case(s): ${unknown.join(', ')}`);
   }
   if (!plan.length) throw new Error('no cases selected');
-  const total = models.length * plan.reduce((a, p) => a + p.cases.length, 0) * opts.repeat;
+  const routerPlan = plan.filter((p) => !p.b.ownModels);
+  const ownPlan = plan.filter((p) => p.b.ownModels);
+  const total = models.length * routerPlan.reduce((a, p) => a + p.cases.length, 0) * opts.repeat
+    + ownPlan.reduce((a, p) => a + ownSel(p.b).length * p.cases.length, 0) * opts.repeat;
 
   if (opts.dryRun) {
-    console.log(`Dry run: ${models.length} model(s) x ${plan.reduce((a, p) => a + p.cases.length, 0)} case(s) x ${opts.repeat} = ${total} case run(s)`);
-    console.log(`Models: ${models.join(', ')}`);
+    console.log(`Dry run: ${total} case run(s)`);
+    if (models.length) console.log(`Models: ${models.join(', ')}`);
+    for (const p of ownPlan) console.log(`${p.b.name} models (${ownSel(p.b).length}): ${ownSel(p.b).map((m) => m.id).join(', ')}`);
     for (const p of plan) {
       console.log(`\n${p.b.name}:`);
       for (const c of p.cases) console.log(`  ${p.b.describeCase ? await p.b.describeCase(c) : c.id}`);
     }
-    console.log(`\nAfter the run: reload ${PRODUCTION_MODEL}. Reports: reports/<YYYY-MM-DD_HH-MM>/`);
+    console.log(`\n${routerPlan.length ? `After the run: reload ${PRODUCTION_MODEL}. ` : ''}Reports: reports/<YYYY-MM-DD_HH-MM>/`);
     return 0;
   }
 
@@ -290,15 +316,20 @@ async function main() {
     ac.abort();
     for (const p of plan) if (p.b.abort) await p.b.abort();
   };
-  const gpu = new GpuMonitor({ onOverheat: (s) => abortRun(`GPU VRAM temperature ${s.mem_c} °C >= 104 °C for 60 s`) });
+  const gpu = new GpuMonitor({ intervalMs: routerPlan.length ? 15_000 : 2_000, onOverheat: (s) => abortRun(`GPU VRAM temperature ${s.mem_c} °C >= 104 °C for 60 s`) });
   gpu.start();
   const save = () => {
     run.gpu = { peaks: gpu.peaks, samples: gpu.samples.length, overall_peak: gpu.peakFor('') };
     writeReport(run, { log });
+    // Benchmarks with a `summarize` hook (speech) also get their own <name>-summary.md next to report.md.
+    for (const [i, p] of plan.entries()) {
+      if (!p.b.summarize) continue;
+      try { fs.writeFileSync(path.join(runDir, `${p.b.name}-summary.md`), p.b.summarize({ results: run.benchmarks[i].results, models: run.models, notes: run.notes })); } catch (e) { log(`summary failed: ${e.message}`); }
+    }
   };
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { abortRun(`received ${sig}`); });
 
-  log(`Run ${path.basename(runDir)}: ${models.length} model(s), ${total} case run(s). Report: ${runDir}`);
+  log(`Run ${path.basename(runDir)}: ${models.length + ownPlan.reduce((a, p) => a + ownSel(p.b).length, 0)} model(s), ${total} case run(s). Report: ${runDir}`);
   try {
     for (const p of plan) {
       if (!p.b.prepareRun) continue;
@@ -310,12 +341,18 @@ async function main() {
       if (run.aborted) break;
       log(`[${mi + 1}/${models.length}] loading ${model}`);
       gpu.setLabel(`${model}:load`);
-      const lr = await router.load(model, { log: (m) => log(`  ${m}`) });
+      let lr = await router.load(model, { log: (m) => log(`  ${m}`) });
+      if (!lr.ok && !run.aborted) {
+        log(`  load failed (${lr.error}); retrying once`);
+        await new Promise((r) => setTimeout(r, 15_000));
+        lr = await router.load(model, { log: (m) => log(`  ${m}`) });
+      }
       const mrec = { id: model, load_status: lr.ok ? 'loaded' : 'load_failed', load_ms: lr.ms, load_error: lr.error || null, gpu_peak: null };
       run.models.push(mrec);
       log(lr.ok ? `  loaded in ${Math.round(lr.ms / 1000)} s` : `  LOAD FAILED: ${lr.error}`);
       gpu.setLabel(`${model}:run`);
       for (const [pi, p] of plan.entries()) {
+        if (p.b.ownModels) continue;
         if (!lr.ok) {
           for (const c of p.cases) run.benchmarks[pi].results.push({
             benchmark: p.b.name, model, case_id: c.id, group: c.profile || c.group || '', kind: c.kind || '', repeat: 1,
@@ -335,6 +372,39 @@ async function main() {
       mrec.gpu_peak = gpu.peakFor(`${model}:`);
       save();
     }
+    // Speech benchmarks: own model lists, no llama.cpp calls. Nothing else of ours should be running.
+    for (const [pi, p] of plan.entries()) {
+      if (!p.b.ownModels || run.aborted) continue;
+      const own = ownSel(p.b);
+      gpu.setLabel('baseline');
+      const base = await require('./lib/gpu').sampleOnce().catch(() => null);
+      if (base) {
+        const note = `${p.b.name}: baseline VRAM in use before the run ${base.vram_used_gib} GiB${base.vram_used_gib > 3 ? ' (an LLM or other GPU model appears to be loaded: latency numbers are not idle-GPU numbers)' : ' (idle GPU: no LLM loaded)'}`;
+        run.notes.push(note);
+        log(note);
+      }
+      for (const [mi, m] of own.entries()) {
+        if (run.aborted) break;
+        log(`[${p.b.name} ${mi + 1}/${own.length}] ${m.id}`);
+        const mrec = { id: m.id, load_status: 'loaded', load_ms: null, load_error: null, gpu_peak: null, baseline_vram_gib: base ? base.vram_used_gib : null };
+        run.models.push(mrec);
+        gpu.setLabel(`${m.id}:run`);
+        try {
+          const rows = await p.b.run({
+            model: m.id, modelInfo: m, mrec, gpu, cases: p.cases, repeat: opts.repeat, runDir, log, signal: ac.signal,
+            isAborted: () => run.aborted, notes: run.notes,
+            onRow: (row) => { run.benchmarks[pi].results.push(row); },
+          });
+          for (const r of rows) if (!run.benchmarks[pi].results.includes(r)) run.benchmarks[pi].results.push(r);
+        } catch (e) {
+          mrec.load_status = 'load_failed';
+          mrec.load_error = e.message;
+          log(`  ${m.id} failed: ${e.message}`);
+        }
+        mrec.gpu_peak = gpu.peakFor(`${m.id}:`);
+        save();
+      }
+    }
   } catch (e) {
     run.notes.push(`runner error: ${e.stack || e.message}`);
     log(`runner error: ${e.message}`);
@@ -351,10 +421,12 @@ async function main() {
         log(`  cleanup error: ${e.message}`);
       }
     }
-    gpu.setLabel('restore');
-    log(`restoring production model ${PRODUCTION_MODEL}`);
-    const r = await router.load(PRODUCTION_MODEL, { log: (m) => log(`  ${m}`) }).catch((e) => ({ ok: false, error: e.message }));
-    run.notes.push(r.ok ? `production model ${PRODUCTION_MODEL} reloaded` : `could not reload ${PRODUCTION_MODEL}: ${r.error}`);
+    if (routerPlan.length) {
+      gpu.setLabel('restore');
+      log(`restoring production model ${PRODUCTION_MODEL}`);
+      const r = await router.load(PRODUCTION_MODEL, { log: (m) => log(`  ${m}`) }).catch((e) => ({ ok: false, error: e.message }));
+      run.notes.push(r.ok ? `production model ${PRODUCTION_MODEL} reloaded` : `could not reload ${PRODUCTION_MODEL}: ${r.error}`);
+    }
     gpu.stop();
     run.finished_at = new Date().toISOString();
     save();

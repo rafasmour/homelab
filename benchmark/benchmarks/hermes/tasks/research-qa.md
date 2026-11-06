@@ -2,6 +2,7 @@
 case: research-qa
 kind: chat
 profile: ai-news
+web: true  # needs the web search/extract tools: opt-in (--web or --cases), not in the default selection
 order: 14
 toolsets: cli
 write_tools: false

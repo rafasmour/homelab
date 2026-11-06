@@ -3,6 +3,7 @@ case: cron-llamacpp-rocm
 kind: cron
 job: llamacpp-rocm
 profile: llamacpp-rocm
+web: true  # needs the web search/extract tools: opt-in (--web or --cases), not in the default selection
 order: 4
 heading: "llama.cpp ROCm"
 research: true

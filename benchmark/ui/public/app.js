@@ -74,7 +74,8 @@
     error: ['Error', 'The run itself broke (crash, non-zero exit or verification error). Scores 0.'],
     timeout: ['Timeout', 'The run hit the case time limit. Scores 0.'],
     load_failed: ['Load failed', 'The model could not be loaded. Scores 0.'],
-    skipped: ['Skipped', 'The case was not run.'],
+    skipped: ['Skipped', 'The case was not run (refused: the profile cannot run on this preset). No score.'],
+    infra: ['Infra', 'The environment failed twice (model swapped or crashed, MCP or network down, source rate-limited). Excluded from the score.'],
   };
   const CHECK_INFO = {
     completed: ['Run finished', 'The Hermes run ended normally: no timeout, crash, empty answer, tool-call parse error, truncation or max-turns stop. It says nothing about whether the answer is right.'],
@@ -82,7 +83,8 @@
     read_only: ['No data changed', 'A read-only case left the Firefly or Nextcloud data unchanged.'],
     links_real: ['Links are real', 'Every link in the answer appears in a tool result (no invented URLs).'],
     no_reasoning_leak: ['No reasoning leak', 'The answer contains no leaked thinking or internal markup.'],
-    no_forbidden_tools: ['Allowed tools only', 'No forbidden tools, no tools outside those named in the prompt (cron), no write tools in read-only cases and no repeated identical calls.'],
+    no_forbidden_tools: ['Allowed tools only', 'No forbidden tools, no tools outside those named in the prompt (cron; memory and clock are always allowed), no write tools in read-only cases and no repeated identical calls.'],
+    spoken_style: ['Spoken style', 'ai-assistant cases: at most 3 short sentences, no Markdown, URLs, emoji, ISO dates or ids, answered in the language of the request.'],
     silent_ok: ['Silent marker OK', 'Cron: [SILENT] is either the whole answer or absent, never mixed with content.'],
     size_ok: ['Size OK', 'Cron: the answer is shorter than 3,500 characters.'],
     timeout: ['Timeout', STATUS_DEF.timeout[1]],
@@ -140,7 +142,7 @@
     thermo: '<path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0z"/>',
   };
   const icon = (n, cls = '') => `<svg class="i${cls ? ` ${cls}` : ''}" viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
-  const STATUS_ICON = { pass: 'check', fail: 'x', error: 'alert', timeout: 'clock', load_failed: 'alert', skipped: 'chev' };
+  const STATUS_ICON = { pass: 'check', fail: 'x', error: 'alert', timeout: 'clock', load_failed: 'alert', skipped: 'chev', infra: 'alert' };
   const statusTone = (st) => (st === 'pass' ? 'tone-good' : st === 'skipped' ? 'tone-mid' : 'tone-bad');
   const badge = (st, withDef = true) => {
     const d = STATUS_DEF[st];
@@ -771,6 +773,8 @@
     const hasRole = (k) => data.rows.some((r) => r[k] != null);
     const has = (k) => data.rows.some((r) => r[k] != null);
     const failSum = (r) => Object.values(r.failures).reduce((a, b) => a + b, 0);
+    const isSpeech = data.rows.some((r) => r.speech);
+    const has2 = (k) => data.rows.some((r) => r.speech && r.speech[k] != null);
     const cols = [
       { key: 'model', label: 'Model', sticky: true, get: (r) => r.model, def: ['Model', 'llama.cpp router preset. Click a row for every case result of the model.'],
         html: (r) => `<div class="model-cell"><span class="rank${rankOf(r) <= 3 ? ` r${rankOf(r)}` : ''}"${r.partial ? ' title="Partial: not ranked"' : ''}>${r.partial ? '–' : rankOf(r)}</span><span class="model-name">${modelLink(r.model)}<small>${esc([r.meta?.quant, r.meta?.ctx ? `ctx ${fmtCompact(r.meta.ctx)}` : null].filter(Boolean).join(' · ') || `${r.runs} run${r.runs === 1 ? '' : 's'}`)}</small></span>${partialBadge(r)}${runningBadge(r)}${r.chat_disqualified.length ? `<span class="warn" tabindex="0" ${defAttrs('Chat disqualified', r.chat_disqualified.join(' | '))}>${icon('alert')}</span>` : ''}</div>` },
@@ -779,15 +783,29 @@
       ...(hasRole('cron_score') ? [{ key: 'cron_score', label: 'Cron score', num: true, get: (r) => r.cron_score, html: (r) => (r.cron_score == null ? '<span class="zero">–</span>' : `<span class="scorecell">${fmt(r.cron_score)}${meter(r.cron_score)}</span>`) }] : []),
       ...(hasRole('chat_score') ? [{ key: 'chat_score', label: 'Chat score', num: true, get: (r) => r.chat_score,
         html: (r) => (r.chat_score == null ? '<span class="zero">–</span>' : `<span class="scorecell" tabindex="0" data-tip="${esc(`<b>${esc(r.model)} chat</b><br>case score ${fmt(r.chat_case_score)}<br>speed score ${fmt(r.speed_score)}<br>median chat time ${fmt(r.chat_median_s)} s`)}">${fmt(r.chat_score)}${meter(r.chat_score, 'm-bad')}</span>`) }] : []),
-      { key: 'median_duration_s', label: 'Median time / case', num: true, get: (r) => r.median_duration_s, html: (r) => fmtDur(r.median_duration_s) },
-      { key: 'median_decode_tps', label: 'Generation speed (tok/s)', num: true, get: (r) => r.median_decode_tps },
-      { key: 'tool_used_pct', label: 'Tool used %', num: true, get: (r) => r.tool_used_pct },
+      ...(isSpeech ? [
+        { key: 'wer', label: 'WER %', num: true, get: (r) => r.speech?.wer, def: ['WER %', 'Corpus word error rate (all word edits / all reference words), lower is better. TTS: the round-trip WER when the judge STT transcribes the generated audio.'] },
+        ...(has2('wer_el') ? [{ key: 'wer_el', label: 'WER el %', num: true, get: (r) => r.speech?.wer_el, def: ['WER el %', 'Corpus WER over the Greek cases only.'] }] : []),
+        ...(has2('wer_en') ? [{ key: 'wer_en', label: 'WER en %', num: true, get: (r) => r.speech?.wer_en, def: ['WER en %', 'Corpus WER over the English cases only.'] }] : []),
+        { key: 'cer', label: 'CER %', num: true, get: (r) => r.speech?.cer, def: ['CER %', 'Corpus character error rate, lower is better.'] },
+        { key: 'rtf', label: 'RTF', num: true, get: (r) => r.speech?.rtf, html: (r) => fmt(r.speech?.rtf, 3), def: ['RTF', 'Median real-time factor: processing time / audio length. Below 1 is faster than real time.'] },
+        ...(has2('parsed_back_pct') ? [{ key: 'parsed_back_pct', label: 'Parsed back %', num: true, get: (r) => r.speech?.parsed_back_pct, def: ['Parsed back %', 'Share of TTS clips the judge STT transcribed back close enough to the original text.'] }] : []),
+      ] : [
+        { key: 'median_duration_s', label: 'Median time / case', num: true, get: (r) => r.median_duration_s, html: (r) => fmtDur(r.median_duration_s) },
+        { key: 'median_decode_tps', label: 'Generation speed (tok/s)', num: true, get: (r) => r.median_decode_tps },
+        { key: 'tool_used_pct', label: 'Tool used %', num: true, get: (r) => r.tool_used_pct },
+      ]),
       { key: 'failures', label: 'Failures', num: true, get: failSum,
         html: (r) => { const n = failSum(r); return n ? `<span class="fails" tabindex="0" data-tip="${esc(`<b>${esc(r.model)}</b><br>${Object.entries(r.failures).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(checkLabel(k))}: ${v}`).join('<br>')}`)}">${n}</span>` : '<span class="zero">0</span>'; } },
       { key: 'n', label: 'Results', num: true, get: (r) => r.n },
     ];
     if (!all) return cols;
-    const more = [
+    const more = isSpeech ? [
+      { key: 'median_duration_s', label: 'Median time / case', num: true, get: (r) => r.median_duration_s, html: (r) => fmtDur(r.median_duration_s) },
+      { key: 'peak_rss_mb', label: 'Peak RAM (MB)', num: true, get: (r) => r.speech?.peak_rss_mb },
+      { key: 'load_s', label: 'Load time (s)', num: true, get: (r) => r.load_s },
+      ...(has('gpu_peak_vram_gib') ? [{ key: 'gpu_peak_vram_gib', label: 'VRAM peak (GiB)', num: true, get: (r) => r.gpu_peak_vram_gib }] : []),
+    ] : [
       { key: 'median_prompt_tps', label: 'Prompt speed (tok/s)', num: true, get: (r) => r.median_prompt_tps },
       { key: 'prompt_tokens_mean', label: 'Avg prompt tokens / case', num: true, get: (r) => r.prompt_tokens_mean, html: (r) => fmtInt(r.prompt_tokens_mean) },
       { key: 'output_tokens_mean', label: 'Avg output tokens / case', num: true, get: (r) => r.output_tokens_mean, html: (r) => fmtInt(r.output_tokens_mean) },
@@ -864,7 +882,7 @@
     const rankOf = (r) => rankMap.get(r.model) || 0;
     const partialLast = (rows) => [...rows.filter((r) => !r.partial), ...rows.filter((r) => r.partial)];
     const top = ranked.find((r) => !r.partial) || ranked[0];
-    const ran = res.rows.filter((r) => !['load_failed', 'skipped'].includes(r.status));
+    const ran = res.rows.filter((r) => !['load_failed', 'skipped', 'infra'].includes(r.status));
     const nTot = data.rows.reduce((a, r) => a + r.n, 0);
     const wavg = (k) => { let w = 0; let t = 0; for (const r of data.rows) if (r[k] != null) { w += r.n; t += r[k] * r.n; } return w ? t / w : null; };
     const passRate = wavg('pass_rate');
@@ -874,6 +892,7 @@
     const passed = res.rows.filter((r) => r.status === 'pass').length;
     const fastest = [...data.rows].filter((r) => r.median_duration_s != null && !r.partial).sort((x, y) => x.median_duration_s - y.median_duration_s)[0];
     const partialN = data.rows.filter((r) => r.partial).length;
+    const bestWer = [...data.rows].filter((r) => r.speech?.wer != null && !r.partial).sort((x, y) => x.speech.wer - y.speech.wer)[0];
 
     const kpis = `<div class="kpis">
       ${kpi({ hero: true, label: 'Top model', ic: 'trophy', def: 'Highest average score among models with results for every case in the selection (partial models are not ranked).', value: `${modelLink(top.model)}`, sub: `<span class="big">${fmt(top.avg_score)}</span> avg score · ${fmt(top.pass_rate)}% pass`, extra: meter(top.avg_score) })}
@@ -881,7 +900,8 @@
       ${kpi({ label: 'Pass rate', ic: 'pct', def: 'Share of all results where every check passed.', value: `${fmt(passRate)}<small>%</small>`, sub: `${fmtInt(passed)} of ${fmtInt(res.rows.length)} passed`, extra: meter(passRate) })}
       ${kpi({ label: 'Avg score', ic: 'target', def: DEF.avg_score[1], value: `${fmt(avgScore)}<small>/100</small>`, sub: 'mean over all results', extra: meter(avgScore) })}
       ${kpi({ label: 'Median time / case', ic: 'clock', def: DEF.median_duration_s[1], value: fmtDur(median(ran.map((r) => r.duration_s))), sub: fastest ? `fastest: ${esc(fastest.model)} ${fmtDur(fastest.median_duration_s)}` : '' })}
-      ${kpi({ label: 'Tokens', ic: 'zap', def: 'All prompt and output tokens over the included results.', value: fmtCompact(tokIn + tokOut), sub: `${fmtCompact(tokIn)} prompt · ${fmtCompact(tokOut)} output` })}
+      ${bestWer ? kpi({ label: 'Lowest WER', ic: 'zap', def: 'Lowest corpus word error rate among complete models.', value: `${fmt(bestWer.speech.wer)}<small>%</small>`, sub: esc(bestWer.model) })
+    : kpi({ label: 'Tokens', ic: 'zap', def: 'All prompt and output tokens over the included results.', value: fmtCompact(tokIn + tokOut), sub: `${fmtCompact(tokIn)} prompt · ${fmtCompact(tokOut)} output` })}
     </div>`;
 
     const allCols = s.get('cols') === 'all';
@@ -907,8 +927,9 @@
         ${chartSlot(hbar(byScore.map((r) => ({ label: r.partial ? `${r.model} (partial)` : r.model, dim: r.partial, values: [r.avg_score || 0], tip: `<b>${esc(r.model)}</b><br>avg score ${fmt(r.avg_score)} (${r.n} results)<br>pass ${fmt(r.pass_rate)}%<br>${r.cases} / ${r.cases_total} cases${r.partial ? ' · partial' : ''}` })), { max: 100, track: true }), 'Bar chart of average score per model')}</div></section>
       <section class="card">${cardHead('Speed vs score', 'Each dot is a model: up is better, left is faster. The top model is highlighted.')}<div class="card-body">
         ${chartSlot(scatter(data.rows.filter((r) => r.median_duration_s != null).map((r) => ({ x: r.median_duration_s, y: r.avg_score || 0, label: r.model, top: r.model === top.model, dim: r.partial, tip: `<b>${esc(r.model)}</b>${r.partial ? ' (partial)' : ''}<br>avg score ${fmt(r.avg_score)}<br>median time / case ${fmtDur(r.median_duration_s)}<br>generation ${fmt(r.median_decode_tps)} tok/s` }))), 'Scatter plot of average score against median time per case')}</div></section>
-      <section class="card">${cardHead('Tokens per case', 'Average prompt and output tokens of one case result.')}<div class="card-body">${legend([['s1', 'Avg prompt tokens / case'], ['s2', 'Avg output tokens / case']])}
-        ${chartSlot(hbar([...data.rows].sort((x, y) => (y.prompt_tokens_mean + y.output_tokens_mean) - (x.prompt_tokens_mean + x.output_tokens_mean)).map((r) => ({ label: r.model, values: [r.prompt_tokens_mean || 0, r.output_tokens_mean || 0], display: fmtCompact((r.prompt_tokens_mean || 0) + (r.output_tokens_mean || 0)), tip: `<b>${esc(r.model)}</b><br>prompt ${fmtInt(r.prompt_tokens_mean)} / case<br>output ${fmtInt(r.output_tokens_mean)} / case` })), { series: ['s1', 's2'], names: ['prompt', 'output'], fmtV: (v) => fmtCompact(v) }), 'Stacked bar chart of prompt and output tokens per case')}</div></section>
+      ${bestWer ? `<section class="card">${cardHead('WER per model', 'Corpus word error rate, lower is better. Partial models are faded.')}<div class="card-body">
+        ${chartSlot(hbar([...data.rows].filter((r) => r.speech?.wer != null).sort((x, y) => x.speech.wer - y.speech.wer).map((r) => ({ label: r.model, dim: r.partial, values: [r.speech.wer], display: `${fmt(r.speech.wer)}%`, tip: `<b>${esc(r.model)}</b><br>WER ${fmt(r.speech.wer)}%${r.speech.wer_el != null ? `<br>el ${fmt(r.speech.wer_el)}%` : ''}${r.speech.wer_en != null ? `<br>en ${fmt(r.speech.wer_en)}%` : ''}<br>RTF ${fmt(r.speech.rtf, 3)}` })), { series: ['s2'], fmtV: (v) => fmt(v) }), 'Bar chart of word error rate per model')}</div></section>` : `<section class="card">${cardHead('Tokens per case', 'Average prompt and output tokens of one case result.')}<div class="card-body">${legend([['s1', 'Avg prompt tokens / case'], ['s2', 'Avg output tokens / case']])}
+        ${chartSlot(hbar([...data.rows].sort((x, y) => (y.prompt_tokens_mean + y.output_tokens_mean) - (x.prompt_tokens_mean + x.output_tokens_mean)).map((r) => ({ label: r.model, values: [r.prompt_tokens_mean || 0, r.output_tokens_mean || 0], display: fmtCompact((r.prompt_tokens_mean || 0) + (r.output_tokens_mean || 0)), tip: `<b>${esc(r.model)}</b><br>prompt ${fmtInt(r.prompt_tokens_mean)} / case<br>output ${fmtInt(r.output_tokens_mean)} / case` })), { series: ['s1', 's2'], names: ['prompt', 'output'], fmtV: (v) => fmtCompact(v) }), 'Stacked bar chart of prompt and output tokens per case')}</div></section>`}
       <section class="card">${cardHead('Failures by type', 'Failed checks plus timeouts and errors, all models.')}<div class="card-body">
         ${chartSlot(hbar(Object.entries(failTotals).sort((x, y) => y[1] - x[1]).map(([k, v]) => ({ label: checkLabel(k), values: [v], tip: `<b>${esc(checkLabel(k))}</b><br>${v} failure(s)<br>${data.rows.filter((r) => r.failures[k]).map((r) => `${esc(r.model)}: ${r.failures[k]}`).join('<br>')}` })), { series: ['s2'], fmtV: (v) => fmtInt(v) }), 'Bar chart of failures by type')}</div></section>
     </div>`;
@@ -1019,7 +1040,7 @@
   }
 
   // ------------------------------------------------------------------ model run view (one model in one run)
-  const CHECK_ORDER = ['completed', 'correct', 'read_only', 'links_real', 'no_reasoning_leak', 'no_forbidden_tools', 'silent_ok', 'size_ok'];
+  const CHECK_ORDER = ['completed', 'correct', 'read_only', 'links_real', 'no_reasoning_leak', 'no_forbidden_tools', 'spoken_style', 'silent_ok', 'size_ok'];
   const checkRank = (n) => { const i = CHECK_ORDER.indexOf(n); return i < 0 ? CHECK_ORDER.length : i; };
   const epoch = (v) => { const t = v ? Date.parse(v) : NaN; return Number.isFinite(t) ? t / 1000 : null; };
   const delta = (v) => (v == null ? '<span class="zero">–</span>' : Math.abs(v) < 0.05 ? '<span class="delta">±0</span>'

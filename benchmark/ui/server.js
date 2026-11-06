@@ -2,6 +2,7 @@
 // benchmark-ui: read-only JSON API + static single-page UI over benchmark/data/benchmark.db.
 // Node built-ins only (node:http, node:sqlite). The DB is opened read-only; every query is parameterised.
 const http = require('node:http');
+const zlib = require('node:zlib');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -150,8 +151,55 @@ function leaderboard(q) {
 
   const groups = {};
   for (const r of rows) (groups[r.model] || (groups[r.model] = [])).push(r);
-  // Case coverage: N = distinct cases among all filtered results; a model with fewer is partial.
-  const casesTotal = new Set(rows.map((r) => r.case_key)).size;
+  // Case coverage. With no run/case filter, only the benchmark's current case set counts: cases run
+  // within 24 h of its newest run, so retired or opt-in cases from older runs do not mark every new
+  // model partial. Speech benchmarks (stt/tts) are scored per language: a Greek-only voice is
+  // complete when it covers every Greek case.
+  const explicit = list(q.get('runs')).length || list(q.get('cases')).length;
+  const activeCases = (() => {
+    if (explicit || !rows.length) return new Set(rows.map((r) => r.case_key));
+    const ids = [...new Set(rows.map((r) => r.run_id))];
+    const started = Object.fromEntries(all(`SELECT id, started_at FROM runs WHERE id IN (${ids.map(() => '?').join(',')})`, ids).map((x) => [x.id, Date.parse(x.started_at)]));
+    const newest = Math.max(...Object.values(started).filter(Number.isFinite));
+    if (!Number.isFinite(newest)) return new Set(rows.map((r) => r.case_key));
+    return new Set(rows.filter((r) => started[r.run_id] >= newest - 864e5).map((r) => r.case_key));
+  })();
+  const casesTotal = activeCases.size;
+  const isSpeech = rows.length > 0 && rows.every((r) => r.kind === 'stt' || r.kind === 'tts');
+  const profileOf = Object.fromEntries(rows.map((r) => [r.case_key, r.profile]));
+  const expectedFor = (rs) => {
+    if (!isSpeech) return activeCases;
+    const langs = new Set(rs.map((r) => r.profile));
+    return new Set([...activeCases].filter((k) => langs.has(profileOf[k])));
+  };
+  // Speech metrics per model: corpus WER/CER (sum of edits / sum of reference size) per language.
+  const speech = {};
+  if (isSpeech) {
+    const sm = byIds(`SELECT result_id, name, value FROM metrics WHERE name IN ('word_edits','ref_words','char_edits','ref_chars','rtf','parsed_back','peak_rss_mb') AND result_id IN (?)`, ids);
+    const byRes = {};
+    for (const x of sm) (byRes[x.result_id] || (byRes[x.result_id] = {}))[x.name] = x.value;
+    for (const [model, rs] of Object.entries(groups)) {
+      const acc = { all: {}, el: {}, en: {} };
+      const add = (a, k, v) => { if (v != null) a[k] = (a[k] || 0) + v; };
+      const rtf = []; const pb = []; const rss = [];
+      for (const r of rs) {
+        const m = byRes[r.id] || {};
+        for (const a of [acc.all, acc[r.profile] || {}]) for (const k of ['word_edits', 'ref_words', 'char_edits', 'ref_chars']) add(a, k, m[k]);
+        if (m.rtf != null) rtf.push(m.rtf);
+        if (m.parsed_back != null) pb.push(m.parsed_back);
+        if (m.peak_rss_mb != null) rss.push(m.peak_rss_mb);
+      }
+      const pct = (a, e, n) => (a[n] ? r1((100 * (a[e] || 0)) / a[n]) : null);
+      speech[model] = {
+        wer: pct(acc.all, 'word_edits', 'ref_words'), cer: pct(acc.all, 'char_edits', 'ref_chars'),
+        wer_el: pct(acc.el, 'word_edits', 'ref_words'), wer_en: pct(acc.en, 'word_edits', 'ref_words'),
+        rtf: rtf.length ? Math.round(median(rtf) * 1000) / 1000 : null,
+        parsed_back_pct: pb.length ? r1(100 * mean(pb)) : null,
+        peak_rss_mb: rss.length ? Math.round(median(rss)) : null,
+        languages: [...new Set(rs.map((r) => r.profile))].sort(),
+      };
+    }
+  }
   const runStatus = Object.fromEntries(all('SELECT name, status, finished_at FROM runs').map((x) => [x.name, x]));
   const inProgress = (name) => { const x = runStatus[name]; return Boolean(x && (x.status === 'running' || !x.finished_at)); };
   const checkNames = new Set();
@@ -172,9 +220,10 @@ function leaderboard(q) {
       meta: modelMeta[model] || null,
       n: rs.length,
       runs: new Set(rs.map((r) => r.run)).size,
-      cases: new Set(rs.map((r) => r.case_key)).size,
-      cases_total: casesTotal,
-      partial: new Set(rs.map((r) => r.case_key)).size < casesTotal,
+      cases: [...expectedFor(rs)].filter((k) => rs.some((r) => r.case_key === k)).length,
+      cases_total: expectedFor(rs).size,
+      partial: [...expectedFor(rs)].some((k) => !rs.some((r) => r.case_key === k)),
+      speech: speech[model] || null,
       runs_in_progress: [...new Set(rs.map((r) => r.run))].filter(inProgress),
       avg_score: r1(mean(rs.map((r) => r.score))),
       pass_rate: rs.length ? r1((100 * rs.filter((r) => r.status === 'pass').length) / rs.length) : null,
@@ -416,8 +465,15 @@ const SEC = {
 };
 
 function send(res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
-  const buf = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
-  res.writeHead(status, { ...SEC, 'Content-Type': type, 'Content-Length': buf.length, 'Cache-Control': 'no-store', ...extra });
+  let buf = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
+  // Gzip text responses: result lists are ~1 MB of JSON, which is slow over the VPN uncompressed.
+  const enc = {};
+  if (buf.length > 1024 && /^(application\/json|text\/|application\/javascript|image\/svg)/.test(type) && /\bgzip\b/.test(res.req?.headers['accept-encoding'] || '')) {
+    buf = zlib.gzipSync(buf, { level: 6 });
+    enc['Content-Encoding'] = 'gzip';
+    enc.Vary = 'Accept-Encoding';
+  }
+  res.writeHead(status, { ...SEC, 'Content-Type': type, 'Content-Length': buf.length, 'Cache-Control': 'no-store', ...enc, ...extra });
   res.end(buf);
 }
 

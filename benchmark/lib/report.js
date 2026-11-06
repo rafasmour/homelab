@@ -15,7 +15,9 @@
 //   completed 15 + correctness 50 (split over evaluable correctness checks, links_real included)
 //   + rules 20 (split evenly over evaluable rule checks), normalised to 100 over the applicable parts.
 //   A failed `completed` caps the case at 25, a failed `correct` (the task itself) at 50.
-//   timeout (> 15 min), error and load_failed score 0.
+//   timeout (> 15 min), error and load_failed score 0. infra (environment fault that survived one retry: model swapped or
+//   crashed, MCP/network down, source rate-limited) and skipped have no score and are excluded from all aggregates.
+
 // Rankings per model:
 //   cron score = mean case score over kind=cron rows.
 //   chat score = 0.75 x mean chat case score + 0.25 x speed score (100 at the fastest median chat time,
@@ -39,7 +41,11 @@ const sum = (xs) => xs.reduce((a, b) => a + (Number(b) || 0), 0);
 const r1 = (x) => (x == null ? null : Math.round(x * 10) / 10);
 
 function scoreRow(row) {
-  if (['timeout', 'error', 'load_failed', 'skipped'].includes(row.status)) return 0;
+  // infra / skipped: the environment, not the model, failed: no score, left out of every mean and pass rate.
+  if (['infra', 'skipped'].includes(row.status)) return null;
+  if (['timeout', 'error', 'load_failed'].includes(row.status)) return 0;
+  // Speech benchmarks compute their own 0-100 score (WER-based etc.) and carry it as metrics.speech_score.
+  if (row.metrics && typeof row.metrics.speech_score === 'number') return r1(row.metrics.speech_score);
   let earned = 0;
   let max = 0;
   let completedFailed = false;
@@ -66,7 +72,9 @@ function aggregate(run) {
     for (const r of b.results) r.score = scoreRow(r);
     const models = [...new Set(b.results.map((r) => r.model))];
     for (const model of models) {
-      const rows = b.results.filter((r) => r.model === model);
+      const allRows = b.results.filter((r) => r.model === model);
+      const infraN = allRows.filter((r) => r.status === 'infra').length;
+      const rows = allRows.filter((r) => !['infra', 'skipped'].includes(r.status));
       const ran = rows.filter((r) => !['load_failed', 'skipped'].includes(r.status));
       const cron = rows.filter((r) => r.kind === 'cron');
       const chat = rows.filter((r) => r.kind === 'chat');
@@ -79,6 +87,7 @@ function aggregate(run) {
         benchmark: b.name,
         model,
         cases: rows.length,
+        infra_cases: infraN,
         passed,
         pass_rate: rows.length ? Math.round((passed / rows.length) * 1000) / 10 : 0,
         score: r1(mean(rows.map((r) => r.score))),
@@ -158,6 +167,7 @@ function renderMarkdown(run, agg, ranks) {
   for (const n of run.notes || []) L.push(`- Note: ${n}`);
   L.push('');
   for (const [bench, rk] of Object.entries(ranks)) {
+    if (!rk.cron.length && !rk.chat.length) continue; // speech benchmarks: see <name>-summary.md
     L.push(`## Recommendation (${bench})`, '');
     L.push(`- Cron role: best **${rk.recommend.cron.best || '-'}**, runner-up ${rk.recommend.cron.runner_up || '-'}`);
     L.push(`- Chat role: best **${rk.recommend.chat.best || '-'}**, runner-up ${rk.recommend.chat.runner_up || '-'}`);
@@ -195,6 +205,7 @@ function renderMarkdown(run, agg, ranks) {
       for (const r of bad) {
         const why = (r.checks || []).filter((c) => c.pass === false).map((c) => `${c.name}: ${c.reason}`);
         if (r.notes) why.push(r.notes);
+        if (r.metrics && r.metrics.consults) why.push(`${r.metrics.consults} ask_agent consult(s), ${r.metrics.consult_seconds ?? 0}s`);
         L.push(`- **${r.model}** / ${r.case_id}${r.repeat > 1 ? ` #${r.repeat}` : ''} (${r.status}, score ${r.score}): ${mdEscape(why.join('; ')).slice(0, 600)}${r.transcript ? ` ([transcript](${r.transcript}))` : ''}`);
       }
       L.push('');

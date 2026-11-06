@@ -21,7 +21,7 @@ BENCH_API_TOKEN = os.environ.get("BENCH_API_TOKEN", "")
 LISTEN_PORT = 8793
 ALLOWED_HOSTS = ["benchmark-mcp:8793", "benchmark-mcp", "localhost:8793", "127.0.0.1:8793"]
 SUITES = ("all", "cron", "chat")
-PROFILES = ("ai-news", "calories", "default", "finance", "gpu-watch", "hf-models",
+PROFILES = ("ai-news", "calories", "default", "finance", "hf-models",
             "llamacpp-rocm", "llamacpp-vulkan", "nextcloud", "selfhosted")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 RUN_RE = re.compile(r"^(latest|\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(-\d{1,3})?)$")

@@ -72,8 +72,11 @@ during a run: recreating `benchmark` kills the run). To rebuild only the UI:
 docker exec benchmark npm run benchmark -- qwen-3.6-35b-a3b --only hermes --cases cron-ai-news
 docker exec benchmark npm run benchmark -- --list            # benchmarks, cases, models
 docker exec benchmark npm run benchmark -- all --dry-run     # plan only, no model calls
-docker exec benchmark npm run benchmark -- qwen-3.8-27b gemma-4-26b-a4b --profiles finance,nextcloud
-docker exec benchmark npm run benchmark -- spark-x2.6-4b --repeat 3 --cases research-qa
+docker exec benchmark npm run benchmark -- qwen-3.8-27b mellum-2.1-thinking --profiles finance,nextcloud
+docker exec benchmark npm run benchmark -- ornith-1.5-9b-dflash --profiles ai-assistant   # the opt-in "assistant" group only
+docker exec benchmark npm run benchmark -- m1 m2 m3 --only hermes --with-optin             # default selection + assistant group
+docker exec benchmark npm run benchmark -- m1 --only hermes --web                          # default selection + web cases
+docker exec benchmark npm run benchmark -- lfm-3-1.7b --repeat 3 --cases research-qa
 ```
 
 | Argument | Meaning |
@@ -81,7 +84,9 @@ docker exec benchmark npm run benchmark -- spark-x2.6-4b --repeat 3 --cases rese
 | `model ...` | Router model ids or aliases from `GET /models`. Use `all` or give none to test every preset, skipping `-vision` variants and disabled presets. |
 | `--only a,b` | Run only these benchmarks (folders under `benchmarks/`). |
 | `--cases x,y` | Run only these case ids. |
-| `--profiles p,q` | Run only cases of these Hermes profiles (`default`, `finance`, `nextcloud`, ...). |
+| `--profiles p,q` | Run only cases of these Hermes profiles (`default`, `finance`, `nextcloud`, ...). `--profiles ai-assistant` is the "assistant" group, see [Assistant cases](#assistant-cases-ai-assistant). |
+| `--with-optin` | Add the opt-in assistant group to the default selection. |
+| `--web` | Add the web cases (`web: true`, need web search/extract). |
 | `--repeat N` | Run every case N times. |
 | `--list` | Print benchmarks, cases with their resolved toolsets, and router models. |
 | `--dry-run` | Print the plan without loading or calling any model. |
@@ -102,7 +107,7 @@ For each model, the runner unloads every other model, loads the one under
 test (`POST /models/load`) and records the load time; a model that fails to
 load gets `load_failed` for all its cases. It then runs the cases. After the
 run (and after an abort), it reloads `PRODUCTION_MODEL`
-(`qwen-3.6-35b-a3b`). The GPU is sampled every 15 s through
+(default `ornith-1.5-9b-dflash`, the Hermes model; the compose default was `qwen-3.6-35b-a3b` until 2026-11-03, so an unset `PRODUCTION_MODEL` reloaded the wrong model). The GPU is sampled every 15 s through
 `llama-server` sysfs. If the VRAM temperature (temp3) stays at or above 104 °C
 for 60 s, the run aborts and writes a partial report.
 
@@ -191,7 +196,7 @@ still being written can be imported; importing it again later replaces it.
 
 ```sh
 docker exec benchmark npm run import -- reports/2026-10-24_09-07
-docker exec benchmark npm run import -- reports/2026-10-24_09-14 --models flint-40b-a2.5b
+docker exec benchmark npm run import -- reports/2026-10-24_09-14 --models mellum-2.1-12b-a2.5b
 ```
 
 `--models a,b` keeps only these models' rows (for example to drop a model
@@ -287,9 +292,8 @@ after every case:
     tool results of the run (`benchmarks/hermes/content.js`): the digest must
     list at least 60 % of the items the job's rules keep (date window, topic,
     item limit), at least 80 % of its items must qualify, and `[SILENT]` or the
-    error line only count when nothing qualified or every source failed. For
-    gpu-watch, `[SILENT]` needs at least one shop page that was read, and every
-    price must appear in a tool result.
+    error line only count when nothing qualified or every source failed. Reddit
+    posts are expected within 24 h of `clock_now` and accepted up to 25 h.
   - Rules splits evenly over `no_reasoning_leak`, `no_forbidden_tools`,
     `silent_ok` and `size_ok`.
   - A failed `completed` caps the case at 25 and a failed `correct` (the task
@@ -316,15 +320,68 @@ after every case:
 Every case runs:
 
 ```sh
-docker exec -u hermes -e HERMES_BENCHMARK=1 -e HERMES_BENCHMARK_TALK_ROOM=<mock room> \
+docker exec -u hermes -e HERMES_BENCHMARK=1 -e HERMES_HOME=/tmp/bench-home -e HERMES_BENCHMARK_TALK_ROOM=<mock room> \
   -e NEXTCLOUD_TALK_HOME_ROOM=<mock room> -e NEXTCLOUD_TALK_PROFILE_ROOMS= \
-  hermes-api timeout 900 hermes [-p <profile>] chat --query-file /tmp/bench_q.txt \
+  hermes-api timeout 900 hermes chat --query-file /tmp/bench_q.txt \
   -m <model> -t <toolsets> --quiet --max-turns 25 --source tool
 ```
 
-`--source tool` keeps benchmark sessions out of the user's session lists. A
+`--source tool` marks benchmark sessions; they live in the throw-away home anyway. A
 benchmark run never posts to the user's Talk rooms (see
 [Talk isolation](#talk-isolation)).
+
+### Sandbox (no real data is read or changed)
+
+Every case runs with `HERMES_HOME=/tmp/bench-home` inside `hermes-api`: a throw-away copy of the profile's
+`config.yaml`, `.env`, `SOUL.md`, `auth.json`, plugins, skills, hooks and platforms (no `-p`). It starts with empty
+`memories/`, `sessions/`, `cron/`, `logs/` and a fresh `state.db`, and is deleted after the case. Consequences:
+
+- **Memory**: the built-in `memory` tool (MEMORY.md/USER.md) works but only on the copy; the user's real memories are
+  never read, and what the model wrote is saved in the transcript (`sandbox.memory`) before the folder is removed.
+  Hindsight has no config in the copy and is unavailable (nothing recalled or retained). `session_search`, skill
+  creation (`skill_manage`) and `cronjob` also only see the copy; benchmark sessions never appear in the real session
+  history, search or `agent.log`.
+- **Writes to real systems** are handled by `hermes/plugins/local_only/benchmark_sandbox.py`, active only with
+  `HERMES_BENCHMARK=1` (set by the runner, always refreshed from the mounted plugin folder into the copy). It wraps
+  tool dispatch and records every write in `benchmark-calls.jsonl`:
+
+| Tool | In a benchmark case |
+| --- | --- |
+| `talk_send`, `send_message`, `cronjob`, `delegate_task`, `terminal`, `write_file`, `patch`, `execute_code`, `process` | not executed, fake success |
+| MCP writes: Nextcloud notes, WebDAV, contacts, shares, mail, Talk; Firefly `store_*`/`update_*`/`delete_*`; n8n create/test/activate; `start_benchmark`; every other tool whose verb is a write | not executed, fake success (`{"success": true, "id": ...}`) |
+| `nc_calendar_create_event`, `nc_calendar_create_todo`, wger `log_ingredient` | real (the checks read the real state); deleted by recorded id after the case, plus the hooks' snapshot/diff cleanup |
+| update/complete/delete of an event, to-do or wger log item | real only for an id this case created; fake for any existing item |
+| wger `create_meal` (the MCP cannot delete a meal) | fake meal id; the real `log_ingredient` is called without it and the reply shows the fake meal again |
+| `kanban_*` | real, on the throw-away board (`HERMES_KANBAN_DB`, see below) |
+
+  The plugin refuses to run unsandboxed: if the first case's `benchmark-calls.jsonl` lacks the plugin's marker, all
+  remaining cases are `skipped`. Transcripts keep the recorded calls (`sandbox.calls`, `fake: true/false`) and each row's
+  notes say how many writes were faked. Reads after a faked write do not show it (a fake note is not in
+  `nc_notes_search_notes`): that is the price of never touching the real data.
+
+### Infra faults versus model faults
+
+The harness must never be why a model fails. A model that misbehaves (garbage, loops, tool spam, malformed tool calls,
+refusals, context overflow, HTTP 400/500 for a bad request, timeouts) is scored and the run goes on; cleanup always runs.
+An **environment fault** is retried: the case is run once more after reloading the model (60 s pause for rate limits), and
+when the second attempt still fails with an environment fault the row gets status `infra`: no score, left out of means,
+pass rates and rankings (the aggregates carry `infra_cases`), listed in the Failures section. Detected faults: model
+unloaded/swapped during the case or another model answering, llama.cpp connection errors or "loading model", Hermes not
+starting, MCP/network errors in tool results (ConnectError, 502/503/504, 429, timeouts), research sources that are
+rate-limited, erroring or an empty Reddit feed, failed reloads, and any harness exception (setup, verification, snapshot).
+Both attempts keep a transcript (`<case>.json`, `<case>-retry.json`). `skipped` = refused before running (profile slot
+needs more `parallel` than the preset has, or the sandbox is broken): no score either.
+
+### Case selection
+
+| Group | Cases | How to run |
+| --- | --- | --- |
+| default | `cron-hf-models`, `cron-payments-unpaid`, `cron-morning-digest`, `cron-calories-report`, `food-log`, `reminder-todo`, `calendar-event`, `subscriptions-read` | no flags |
+| opt-in `assistant` (`optin: true`) | the nine `assistant-*` cases | `--profiles ai-assistant`, `--with-optin`, or `--cases` |
+| web (`web: true`) | `cron-ai-news`, `cron-selfhosted`, `cron-llamacpp-vulkan`, `cron-llamacpp-rocm`, `research-qa`: their prompts need `web_search`/`fetch_url` | `--web` or `--cases`; never selected by `--profiles` |
+
+The web cases are kept (not deleted) and stay graded (Reddit RSS, GitHub, link checks); add `web: true` to any task file
+whose job depends on the web tools. GPU watch (case, profile, room) was removed in November 2026.
 
 ### Talk isolation
 
@@ -367,8 +424,7 @@ case needs no code (see [Task files](#task-files)). The cron cases are
 benchmark tasks of their own: Hermes no longer runs these jobs (the schedules
 moved to n8n), and the runner does not read `jobs.json`. Their prompts were
 frozen from the `ensure_cron_job` heredocs in `hermes/start.sh` with
-`${CRON_RULES}` expanded and, for `gpu-watch`, the watchlist from
-`hermes/gpu-watchlist.example.yml` embedded the way `start.sh` did. The
+`${CRON_RULES}` expanded. The
 runner prepends Hermes' exact cron wrapper.
 
 The runner reads the toolsets live from the profile config (`toolsets` in the
@@ -376,12 +432,12 @@ task file):
 
 - `cron` (cron cases): `platform_toolsets.cron`;
 - `cli` (default for other kinds): `platform_toolsets.cli` without `kanban`,
-  `clarify` and `talk`;
+  `clarify` and `talk` (a case with `kanban: true` keeps `kanban`);
 - or an explicit comma-separated list such as `nextcloud,clock`.
 
 | Case | Profile | What is checked |
 | --- | --- | --- |
-| `cron-ai-news`, `cron-hf-models`, `cron-llamacpp-vulkan`, `cron-llamacpp-rocm`, `cron-gpu-watch`, `cron-selfhosted` | own profile | Frozen task prompt with Hermes' exact cron wrapper. Checks the heading or `[SILENT]`, that every link appears in a tool result, the size, and that only the tools named in the prompt are used. |
+| `cron-hf-models` (default); `cron-ai-news`, `cron-llamacpp-vulkan`, `cron-llamacpp-rocm`, `cron-selfhosted` (web, opt-in) | own profile | Frozen task prompt with Hermes' exact cron wrapper. Checks the heading or `[SILENT]`, that every link appears in a tool result, the size, and that only the tools named in the prompt are used (Hermes built-ins `memory` and `clock_*` are always allowed). |
 | `cron-payments-unpaid` | finance | Same checks. The expected unpaid bills are computed from Firefly `list_bill`. |
 | `cron-morning-digest` | nextcloud | Same checks. Must not be `[SILENT]` while open to-dos exist. |
 | `cron-calories-report` | calories | Same checks. `[SILENT]` only when today has 0 kcal; otherwise the kcal total must appear. |
@@ -389,16 +445,91 @@ task file):
 | `reminder-todo` | nextcloud | One VTODO (not a VEVENT) on `homelab`, due 2027-01-15 08:00Z. Then deleted. |
 | `calendar-event` | default | One VEVENT on `personal`, 15:00Z-16:00Z. Then deleted. |
 | `subscriptions-read` | finance | All 6 bills listed. Bills are unchanged (`list_bill` before and after). |
-| `research-qa` | ai-news | Short answer about router mode, no leaked reasoning. |
+| `research-qa` (web, opt-in) | ai-news | Short answer about router mode, no leaked reasoning. |
+
+### Assistant cases (ai-assistant)
+
+Nine opt-in cases for the `ai-assistant` profile (Jarvis persona, minimal Nextcloud tools, Kanban delegation and the `ask_agent` consult tool), taken
+from the owner's real requests of 2026-10-30 to 2026-11-03 (personal details paraphrased, dates moved to the
+2027-01-15 test day). They are the "assistant" group: **opt-in**, they run only with `--profiles ai-assistant` or
+`--cases` (or `--with-optin`), and never in the default selection (so `all` stays comparable with the earlier
+default runs). The benchmark job API starts them with `profile: ai-assistant`.
+
+| Case | Source request | What is checked |
+| --- | --- | --- |
+| `assistant-event-en` | "Create a calendar event for tomorrow to check the Todo, because many tasks are overdue" (the real answer said "Done" without ever calling `nc_calendar_create_event`) | Exactly one VEVENT on `personal`, 08:00Z-09:00Z, about the to-do check, no extra to-do; spoken style. |
+| `assistant-reminders-el` | Greek: three reminders for Monday (accountant about income tax 10:00, pay the loans 13:00, pay for the house furniture 17:00) | Exactly three VTODOs on `personal-1` (furniture also `tasks`), due 08:00Z / 11:00Z / 15:00Z, no events; Greek answer. |
+| `assistant-reminder-delegate` | "Remind me tomorrow at 9 to check my phone and note that I have ate a toast" | One VTODO (`tasks` or `personal-1`) due 07:00Z and and, for the toast, either a Kanban card assigned to `calories` mentioning the toast or an `ask_agent` consult of `calories` whose request mentions it (the assistant has no food tools). |
+| `assistant-delegate-n8n` | Greek: ask the n8n agent why the workflow "firefly subs to nextcloud payments" does not work | A card for `n8n` (or `default`) naming the workflow, or an `ask_agent` consult of `n8n` naming it; nothing created in Nextcloud ("Hermes tasks go to the Kanban"). |
+| `assistant-delegate-plan` | Planner agent should research fine-tuning a small model for Greek and homelab tools and not return before Monday 10:00 | One card for `planner` mentioning fine-tuning and Greek; nothing created in Nextcloud. |
+| `assistant-agenda` | "What do I have to do for the day?" / "What is on my calendar today?" | Calls `nc_calendar_search_todos` and an events tool, creates nothing, names at least one item the tools returned (live data, so no fixed titles). |
+| `assistant-garbled-el` | Speech-recognition noise in Greek (a book passage read aloud) that the real assistant answered with a Kanban loop and a lecture | No card, no Nextcloud item, at most one tool call, short Greek reply. |
+| `assistant-time-el` | "What time is it right now?" in Greek | Calls `clock_now`, at most 2 tool calls, Greek, no ISO/UTC reading. |
+| `assistant-event-el` | Greek appointment request on the pattern of `calendar-event` | One VEVENT on `personal`, 15:00Z-16:00Z, dentist; Greek answer. |
+
+Every assistant case also runs the `spoken_style` check (rules): no Markdown, URLs, emoji, ISO dates, UTC times or
+ids (the reply language is not checked). There is no sentence limit (the owner removed it). The assistant has no `kanban` toolset: it queues cards with the `agents` plugin's `delegate(assignee, title, details)` and
+reads them with `task_status(card_id?)`. Both are allowed in chat cases (one call each; identical repeats are still a loop) and
+flagged like `ask_agent` in cron cases. `delegate` writes to the throw-away board (`HERMES_KANBAN_DB`), so the card is
+verified there (see [Kanban isolation](#kanban-isolation)); `kanban: true` cases additionally tolerate the old `kanban_*` tools. The assistant's toolsets are
+`nextcloud_assistant, web_search, agents, clock, memory`. Nextcloud items are cleaned up by the
+usual test-date and keyword cleanup (`nextcloudNew`), through the benchmark's own full Nextcloud MCP (the assistant itself cannot delete).
+
+**Consults (`ask_agent`).** The `agents` toolset lets ai-assistant (and 12 specialist profiles) run another profile as a
+separate `hermes chat` process. `ask_agent` is allowed in chat cases (it is not in the forbidden list; repeated identical
+calls are still flagged; a cron case that calls it fails "tools not named in the prompt"). The verifier takes optional
+`consults: [{profile, request_patterns: [{pattern, label}], label}]`, matched against the case's `ask_agent` calls
+(`args.profile`, `args.request`, accent-insensitive), and `any_of: ["cards", "consults"]`, which passes that part when the
+Kanban card check OR the consult check passes (the check notes say which matched). Used by `assistant-reminder-delegate`
+and `assistant-delegate-n8n`; `assistant-delegate-plan` still needs the planner card (deferred work).
+
+*Consult sandbox.* The consulted profile runs with `HERMES_HOME=/tmp/bench-home/profiles/<p>`, so `prepareHome` builds a
+throw-away copy there for each consultable profile (calories, finance, nextcloud, planner, web-search, n8n, models,
+hf-models, ai-news, selfhosted, llamacpp-vulkan, llamacpp-rocm) in the same docker exec as the main copy: same file
+list, shared `local_only` and `talk_send` plugins refreshed, the `id_slot` remap applied to every copy, and a clear
+failure when a copy lacks `plugins/local_only/benchmark_sandbox.py`. The copies are a few hundred KB each (skills
+included). The runner passes `HERMES_ASK_AGENT_MODEL=<model under test>` (so the consulted agent uses the same model)
+and `HERMES_PROFILE=<case profile>` (the caller name); `HERMES_BENCHMARK`, `HERMES_KANBAN_DB` and the Talk variables are
+inherited, and a consult still running after 120 s is killed (`status: timeout`). Writes a consulted profile makes (for
+example `log_ingredient` for the toast) are recorded in its own `benchmark-calls.jsonl`; `readSandbox` reads those files
+too (tagged with the profile), and the cleanup deletes them like the main profile's writes. They are never counted
+against the ai-assistant's own tool calls (it did not call a wger tool). `BENCH_HOME/logs/ask_agent.log` is stored as
+`consults` in the transcript; the row carries `consults` and `consult_seconds` (also metrics, and shown in the report's
+failure list). All of it is removed with `/tmp/bench-home`.
+
+Not verified by a real run yet (written without sending model requests): the exact `calendar_name` strings
+returned for `personal-1` and `tasks`, the Greek `summary_pattern` regexes and `mention_from_results` need one
+real run to calibrate. `ai-assistant` carries `extra_body` `id_slot: 1` and a reasoning budget (1024 tokens, read live from the profile config):
+on a preset with fewer slots (`parallel=1`) the runner sets `id_slot: 0` in the throw-away profile copy (the pin
+only picks the prompt-cache slot; production config is untouched) and notes it on the case. On `ornith-1.5-9b-dflash` the run overwrites slot 1, the
+prompt the primer keeps warm; the primer replays it within about 2.5 minutes after the run, so the next real
+ai-assistant request after a benchmark can be cold. The reasoning budget also makes its scores incomparable with
+other profiles.
+
+### Kanban isolation
+
+Hermes profiles with the `kanban` toolset can create cards, and the real dispatcher would start a specialist
+for each. Every case therefore runs with `HERMES_KANBAN_DB=/tmp/bench-kanban/kanban.db` in `hermes-api`, an empty
+throw-away board that is created before and deleted after each case. A card the model creates never reaches the
+real board; the `assistantOutcome` verifier reads the cards from that file and the transcript stores them as
+`kanban_cards`. Other cases still treat `kanban_*` calls as forbidden. Consulted profiles (`ask_agent`) inherit `HERMES_KANBAN_DB`, so their cards go to the same
+throw-away board.
 
 These checks run on every case:
 
 - `completed`: exit 0, no truncation, no tool-call parse error, normal end of
   the turn;
 - `no_reasoning_leak`: no planning phrases, tool names or raw markup in the
-  answer;
-- `no_forbidden_tools`: no `talk_send`, `send_message`, kanban or clarify
-  calls, no repeated identical calls, and no write tools in read-only cases.
+  answer, and not the reasoning-budget message ("That is enough thinking;
+  answer now."). Phrase patterns ignore link text and URLs, so a quoted
+  Reddit title such as "I should've listened..." no longer fails a digest, and
+  "I should" counts only before an action verb;
+- `no_forbidden_tools`: no `talk_send`, `send_message`, kanban (except
+  `kanban: true` cases), clarify, `delegate_task` or cronjob calls (`ask_agent` is allowed in chat cases), no repeated
+  identical calls (`clock_*` excepted in chat cases) and no write tools in
+  read-only cases (calendar, notes, webdav, wger and Firefly writes);
+  `memory`, `clock_*` and `hindsight_*` are built-ins and always allowed;
+- `spoken_style` (ai-assistant cases only; no Markdown, URLs, emoji, ISO/UTC/ids, no language check, no sentence limit): see [Assistant cases](#assistant-cases-ai-assistant).
 
 `cron-llamacpp-rocm` was added on 2026-10-24 after the first full run;
 the 2026-10-24 runs (Flint in `2026-10-24_09-14`, the other 12 models in
@@ -429,6 +560,7 @@ profile: nextcloud           # Hermes profile (-p); must exist in hermes-api
 order: 11                    # position in the run (cron 1-9, chat 10+)
 toolsets: cli                # cli | cron | explicit list "a,b"
 write_tools: true            # false: any write tool call fails no_forbidden_tools
+web: false                   # true: needs the web search/extract tools; opt-in via --web or --cases
 research: false              # true: also check that answer links appear in tool results
 needs: nextcloud             # informational: MCP data the hooks use
 setup: nextcloudSnapshot     # hooks.js setup.<name>(clients, params) -> before
@@ -456,7 +588,8 @@ Remind me on {{TEST_DATE}} at 10:00 to update the llama.cpp ROCm image on the se
   chat role). Shared snapshot helpers live in `helpers.js`.
 - Available hooks: setup `wgerTestDateAndToday`, `nextcloudSnapshot`,
   `fireflyBillsSnapshot`; verify `wgerMealLogged`, `nextcloudTodoCreated`,
-  `nextcloudEventCreated`, `fireflyBillsListedReadOnly`, `shortAnswer`;
+  `nextcloudEventCreated`, `fireflyBillsListedReadOnly`, `shortAnswer`,
+  `assistantOutcome` (to-dos, events and Kanban cards together, plus spoken style);
   cleanup `wgerTestDate`, `nextcloudNew`. Their `params` are documented in
   `hooks.js`.
 - Cases without hooks get only the generic checks. Any kind other than `cron`
@@ -465,6 +598,97 @@ Remind me on {{TEST_DATE}} at 10:00 to update the llama.cpp ROCm image on the se
 - A new case for a new profile needs that profile in `hermes-api` (the case
   fails with `profile ... not found` otherwise). `npm run benchmark -- --list`
   shows every case with its resolved toolsets.
+
+## Speech benchmarks (stt, tts)
+
+Two opt-in benchmarks compare the audio.cpp speech models of the `speech` stack. They are not part of the default
+selection (`npm run benchmark -- all` still means the Hermes benchmark only); name them with `--only`. They never call
+llama.cpp: they have their own model lists (the benchmark module exports `ownModels()`; main.js runs those models after
+any router models and skips the "restore production model" step when only speech benchmarks ran), and store rows in the
+same SQLite database and report folder (`report.md`, `results.json`, `report.xlsx`, plus `stt-summary.md` or
+`tts-summary.md` with the per-language leaderboards).
+
+- **Runtime:** `audiocpp_cli` through `docker exec audiocpp-tts` (offline batch per model, Vulkan). The audio.cpp server
+  keeps running; the CLI is a second process on the same GPU, so run the speech benchmarks when nothing else of ours uses
+  the card. The runner mounts `speech/audiocpp/models` read-only at `/speech-models` (model discovery, STT clips).
+- **Quantized models only.** Models are discovered from the GGUF headers (`audiocpp.model_spec.family`, `category`) under
+  `speech/audiocpp/models`; float variants (f16, f32, bf16, fp16) are never listed. Q6_K is the default quant, Q8_0/Q4_K
+  are comparisons. `npm run benchmark -- --only stt --list` prints what was found.
+- **Idle GPU:** the runner samples VRAM before the first model and writes it into the report (`baseline VRAM`, and a
+  warning above 3 GiB, which means an LLM or another model is resident and latencies are not idle-GPU numbers). Peak VRAM per
+  model is the whole-GPU peak while it ran, also shown as the increase over that baseline.
+- **Time to first audio** is not measured: the benchmark uses offline batch synthesis, so only the total synthesis time (and
+  RTF) is reported.
+- **Selection:** `--profiles el` (or `en`) selects a language, `--cases en/en01,el/el02` single items; `SPEECH_LIMIT=N` keeps the first N items per language
+  (smoke runs).
+
+### STT benchmark
+
+Cases are the fixed FLEURS subset in `speech/audiocpp/models/_asr-eval/clips/{el,en}/*.wav` with `manifest.jsonl`
+(`lang`, `path`, `text`, `duration`; 100 clips per language). Scoring normalisation is the STT evaluation's (`score.py`):
+NFKC, lowercase, everything that is not a letter or digit becomes a space; Greek also drops accents and folds final sigma.
+Per language and model: pooled WER and CER, mean/median seconds per clip, RTF (processing / audio seconds), failures (no
+output or empty transcript). Per model: load time (process time minus the per-clip times, so it includes the first
+warmup), peak VRAM and RSS. A clip passes at WER <= 25%; the per-clip score is 100 x (1 - min(1, WER)).
+Per-model overrides (skip a GGUF, restrict languages, extra CLI args, per-language CLI args such as Nemotron's `--language el-GR` and Cohere's `--language el`) go in `benchmarks/stt/models.json`; a model with `langArgs` runs one audiocpp_cli process per language (so its load time is summed over both). Folders starting with `_` or `.` (for example `_asr-eval/`) are never scanned for models.
+
+```sh
+docker exec benchmark npm run benchmark -- --only stt                       # every quantized ASR GGUF, 200 clips each
+docker exec benchmark npm run benchmark -- phonon-2.5-q6_k --only stt       # one model
+docker exec benchmark npm run benchmark -- --only stt --profiles el         # Greek clips only
+```
+
+### TTS benchmark
+
+Each quantized TTS GGUF x voice is a "model" named `<gguf>@<voice>`; voices per model, the language each voice may be
+used for, and the extra CLI arguments (voice id, VoxCPM2 voice-design prefix, OmniVoice `--instruct`, clone reference WAVs
+from `speech/audiocpp/voices`) are in `benchmarks/tts/voices.json` (they mirror `TTS_BACKENDS` in `speech/docker-compose.yml`).
+Greek text only goes to voices that list `el`. A model without an entry gets a `default` voice for the languages it supports;
+`"default": false` keeps a model out of default runs (name it explicitly).
+
+**Texts.** `data/tts-texts.json` is a fixed snapshot built from the Hermes answers stored in the database
+(`case_results.answer_text`): markdown, code, tables, URLs and emoji removed, split into chunks of at most 400 characters,
+single-script prose only (an English chunk has no Greek letters, a Greek chunk at most 15% Latin letters), numbers/dates
+and tool-like text dropped, at most a third of an item set from one case, newest passing answers first.
+It contains personal data (calendar, tasks, finance), lives under the ignored `data/` folder and must never be committed.
+Rebuild it (also after a new Hermes run, e.g. the Greek `assistant-*-el` cases):
+
+```sh
+docker exec benchmark npm run tts-texts -- --en 20 --el 15 --max 400      # writes data/tts-texts.json
+```
+
+**Round trip.** After each model x voice x language batch the audio is transcribed by an STT judge and scored against the
+original text with the same normalisation as the STT benchmark. Default judges (best of the STT run 2026-11-03_22-12):
+`parakeet-tdt-0.6b-v3-greek-q6_k` for Greek (WER 12.4%) and `qwen3-asr-1.7b-q6_k` for English (WER 3.3%). Override with
+`TTS_JUDGE_EN` / `TTS_JUDGE_EL` / `TTS_JUDGE` (a model id, passed with `docker exec -e`), or set `TTS_JUDGE_AUTO=1` to take the
+lowest-WER model of the latest finished `stt` run. The judge is named in the report. The judge's own errors count against the
+TTS model, which is why the strongest STT model per language is used.
+
+**Metrics per item:** round-trip WER/CER, `parsed back` (WER <= 10%), synthesis seconds, RTF, characters of text per audio
+second, leading/trailing/internal silence, clipping ratio, RMS and peak dBFS, sample rate, median pitch (crude
+autocorrelation; for consistency per voice only). Failures (no audio, unreadable WAV, no judge transcript) are counted per
+model. There is no fallback voice here (the gateway's `TTS_FALLBACK` is not involved). Generated audio is kept under
+`reports/<run>/audio/<model>@<voice>/<item>.wav` (ignored by Git) and linked from `tts-summary.md`.
+
+**Score (per item, 0-100):** 60% intelligibility (round-trip WER 0 scores 1, WER >= 50% scores 0, linear) + 25% audio sanity
+(share of five checks passed: speech rate 8-25 chars/s, clipping < 0.1% of samples, leading <= 1.5 s and trailing <= 2 s
+silence, internal silence <= 35% of the spoken span, peak -30..-0.5 dBFS and RMS -40..-8 dBFS) + 15% speed (RTF <= 0.1
+scores 1, RTF >= 1.0 scores 0). A failed synthesis scores 0. A model's score is the mean over its items; a language's
+leaderboard is sorted by it.
+
+```sh
+docker exec benchmark npm run benchmark -- --only tts --list              # models/voices and texts
+docker exec benchmark npm run benchmark -- --only tts --dry-run
+docker exec benchmark npm run benchmark -- --only tts                     # every model x voice
+docker exec benchmark npm run benchmark -- --only tts supertonic-3-q8_0@M1 chatterbox-q6_k@spyros-ref
+docker exec -e TTS_JUDGE_EL=<best-greek-stt-model> benchmark npm run benchmark -- --only tts
+```
+
+MOSS-TTS-Local (Q6_K, about 5.8 GB of weights) only fits when the production LLM is unloaded (`ornith-1.5-9b-dflash` leaves about 4 GB free); the benchmark does not touch llama.cpp, so unload it first or exclude the model (`voices.json`: `"default": false`). Run order matters: STT first, then the TTS benchmark when the LLM benchmarks are done
+and no LLM is loaded.
+
+Unit tests (normalisation, WER, WAV analysis, CLI output parsing): `cd benchmark && npm test` on the host (the image does not
+contain `test/`).
 
 ## Adding a benchmark
 
@@ -505,3 +729,12 @@ database when no run is writing, or use
 `sqlite3 data/benchmark.db ".backup benchmark-backup.db"`. Reports in
 `reports/` can be regenerated from the database except for the transcripts;
 keep them if you want transcript links in the UI.
+
+### Preset sampling variant (Hermes override removed)
+
+`hermes/start.sh` writes `temperature` and `presence_penalty` (`HERMES_SAMPLING_*`) into every non-default profile's custom
+provider `extra_body`, which overrides the llama.cpp preset. To benchmark a model under its preset's own sampling (for example
+LFM3's vendor tool-use sampling), start the run with `-e HERMES_BENCH_PRESET_SAMPLING=1`: the runner then deletes those two keys
+from every `extra_body` in the sandbox copies (`BENCH_HOME/config.yaml`, `BENCH_HOME/profiles/*/config.yaml`; production config is
+untouched), refuses the case if nothing was removed, and adds the case note "preset sampling (Hermes temperature/presence override
+removed)". Test: `node --test test/hermes.test.js`.

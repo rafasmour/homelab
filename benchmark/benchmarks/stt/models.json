@@ -1,0 +1,33 @@
+{
+  "_comment": "Optional per-model overrides keyed by GGUF file name without .gguf: {skip, id, family, languages: ['el','en'], extraArgs: [CLI args for every clip], langArgs: {el: [CLI args], en: [...]} (one process per language)}. Models are otherwise discovered from the GGUF headers under speech/audiocpp/models (quantized files only; folders starting with _ or . are ignored).",
+  "nemotron-3.5-asr-streaming-0.6b-q6_k": {
+    "langArgs": {
+      "el": [
+        "--language",
+        "el-GR"
+      ],
+      "en": [
+        "--language",
+        "en-US"
+      ]
+    },
+    "notes": "Nemotron needs an explicit ASR prompt language (el-GR / en-US)."
+  },
+  "cohere-transcribe-03-2026-q6_k": {
+    "langArgs": {
+      "el": [
+        "--language",
+        "el"
+      ],
+      "en": [
+        "--language",
+        "en"
+      ]
+    },
+    "notes": "Cohere defaults to English; pass the language per clip set."
+  },
+  "moss-transcribe-diarize-q8_0": {
+    "languages": ["el", "en"],
+    "notes": "Default prompt only: a plain-text --instruct made it hallucinate Vietnamese on an English clip. Output [start][S01]text[end] is stripped before scoring (stt-benchmark.js)."
+  }
+}
