@@ -123,7 +123,7 @@ RAM and an 8-core Ryzen 7 1800X:
 | --- | --- | --- | --- | --- |
 | `ornith-1.5-9b` | Ornith 1.5 9B Q6_K, plain (no drafter; the ngram-mod drafter was dropped 2026-11-06) | f16, 64k x 3 | 12.74 GiB (13.01 peak) | ~60 tok/s; 110 tok/s total with 3 requests |
 | `ornith-1.5-9b-dflash` | same + DFlash draft Q8_0 | q8_0, 64k x 3 (since 2026-11-03; was 4) | ~14.8 GiB alone (15.9 GB in use incl. other stacks), 18.0 GB with Jarvis Q4_K | ~60 tok/s; DFlash, `checkpoint-min-step` 2048 |
-| `ornith-1.5-9b-q4-dflash` | Ornith 1.5 9B Q4_K_M (5.38 GiB) + official DFlash drafter Q8_0 (1.29 GiB); benchmark candidate, not production | q8_0, 64k x 3 (f16 measured 15.5 GiB, over budget) | 13.22 GiB after load, 13.42 GiB after a 200-token essay (2026-11-06; process VRAM) | ~53-60 tok/s; DFlash accepted 24% of drafts on prose |
+| `ornith-1.5-9b-q4-dflash` | Ornith 1.5 9B Q4_K_M (5.38 GiB) + official DFlash drafter Q8_0 (1.29 GiB); **production since 2026-11-07** | f16, 64k x 3 | 15.32 GiB after load, 15.79 GiB peak under 3 x ~30k parallel prefills (card 18.68 GiB with audio.cpp; q8_0 was 13.22-13.70) | ~53-60 tok/s; DFlash accepted 24% of drafts on prose |
 | `mellum-2.1-thinking` | JetBrains Mellum 2.1 Thinking (MoE 12B, 2.5B active, Apache-2.0) Q5_K_M, fully on GPU | f16, 128k x 1 | 11.6 GiB (idle card baseline 0.03) | ~94 tok/s |
 | `mellum-2.1-thinking-mtp` | same file + built-in MTP head (`draft-mtp`, n-max 2) | f16, 128k x 1 | 12.1 GiB | ~136 tok/s (1.45x; n-max 1: 131, 3: 130, 4: 112, 6: 97; 57% of drafts accepted at 2) |
 | `ocr-xiaomi-0` | Xiaomi-OCR-0 Q6_K + BF16 projector (OCR) | f16, 16k x 2 | 1.77 GiB | ~210 tok/s, about 3 s per page |

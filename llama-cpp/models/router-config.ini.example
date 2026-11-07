@@ -346,7 +346,8 @@ presence-penalty = 0.0
 ; with Jarvis the card hit 19.0 GiB), so q8_0 KV: 13.22 GiB after load, 13.41 GiB
 ; after a request and 13.42 GiB after a 200-token essay; ~53-60 tok/s decode
 ; (8-token reply 53, 200-token essay 60; DFlash accepted 24% of 402 drafts).
-; Not production: no load-on-startup, no sleep-idle override.
+; Production since 2026-11-07, f16 KV 3 x 64k (owner): llama-server 15.32 GiB after load,
+; 15.79 GiB peak under 4 rounds of 3 x ~30k-token parallel prefills (q8_0 was 13.2-13.7).
 model = /models/ornith/ornith-1.5-9b-q4/Ornith-1.5-9B-Q4_K_M.gguf
 model-draft = /models/ornith/ornith-1.5-9b-q4/Ornith-1.5-9B-DFlash-Q8_0.gguf
 ctx-size = 196608
@@ -355,8 +356,8 @@ kv-unified = false
 cache-ram = 512
 checkpoint-min-step = 2048
 ctx-checkpoints = 8
-cache-type-k = q8_0
-cache-type-v = q8_0
+cache-type-k = f16
+cache-type-v = f16
 spec-type = draft-dflash
 spec-draft-n-max = 4
 spec-draft-ngl = all
