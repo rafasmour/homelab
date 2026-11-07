@@ -13,6 +13,8 @@ const DB_PATH = process.env.BENCH_DB || '/data/benchmark.db';
 const REPORTS = path.resolve(process.env.REPORTS_DIR || '/reports');
 const PUBLIC = path.join(__dirname, 'public');
 const MAX_TRANSCRIPT = 32 * 1024 * 1024;
+// Source clips of the STT benchmark (read-only mount of speech/audiocpp/models/_asr-eval/clips: <lang>/<stem>.wav).
+const CLIPS_DIR = path.resolve(process.env.STT_CLIPS_DIR || '/stt-clips');
 const USERNAME = process.env.BENCHMARK_UI_USERNAME || '';
 const PASSWORD = process.env.BENCHMARK_UI_PASSWORD || '';
 if (!USERNAME || !PASSWORD) {
@@ -60,12 +62,13 @@ const FROM = `case_results cr
   JOIN benchmarks b ON b.id = cr.benchmark_id
   JOIN models m ON m.id = cr.model_id
   JOIN cases c ON c.id = cr.case_id
+  LEFT JOIN run_benchmarks rb ON rb.run_id = cr.run_id AND rb.benchmark_id = cr.benchmark_id
   LEFT JOIN metrics tu ON tu.result_id = cr.id AND tu.name = 'tool_used_pct'
   LEFT JOIN metrics dt ON dt.result_id = cr.id AND dt.name = 'decode_tps'
   LEFT JOIN metrics pt ON pt.result_id = cr.id AND pt.name = 'prompt_tps'
   LEFT JOIN metrics tc ON tc.result_id = cr.id AND tc.name = 'tool_calls_total'`;
 
-const COLS = `cr.id, r.name AS run, r.id AS run_id, b.name AS benchmark, m.alias AS model, c.case_key AS case_key, c.profile, c.kind, c.title,
+const COLS = `cr.id, r.name AS run, r.id AS run_id, b.name AS benchmark, rb.version AS bench_version, m.alias AS model, c.case_key AS case_key, c.profile, c.kind, c.title,
   cr.repeat_idx, cr.status, cr.score, cr.completed, cr.duration_s, cr.model_calls, cr.prompt_tokens, cr.output_tokens, cr.answer_chars,
   cr.error, cr.transcript_path, tu.value AS tool_used_pct, dt.value AS decode_tps, pt.value AS prompt_tps, tc.value AS tool_calls`;
 
@@ -80,6 +83,15 @@ function filter(q) {
     if (z != null) { where.push(`${expr} <= ?`); p.push(z); }
   };
   if (q.get('benchmark')) { where.push('b.name = ?'); p.push(q.get('benchmark')); }
+  // Benchmark version(s); 'none' = runs without a recorded version. Absent or 'all' = every version.
+  const vers = list(q.get('versions')).filter((v) => v !== 'all');
+  if (vers.length) {
+    const real = vers.filter((v) => v !== 'none');
+    const parts = [];
+    if (real.length) { parts.push(`rb.version IN (${real.map(() => '?').join(',')})`); p.push(...real); }
+    if (vers.includes('none')) parts.push('rb.version IS NULL');
+    where.push(`(${parts.join(' OR ')})`);
+  }
   inList('r.name', list(q.get('runs')));
   inList('m.alias', list(q.get('models')));
   inList('c.case_key', list(q.get('cases')));
@@ -126,7 +138,47 @@ function meta() {
   const checks = all(`SELECT DISTINCT ch.name, ch.category FROM checks ch ORDER BY ch.category, ch.name`);
   const statuses = all(`SELECT DISTINCT status FROM case_results ORDER BY status`).map((x) => x.status);
   const metrics = all(`SELECT name, unit, COUNT(*) AS n FROM metrics GROUP BY name, unit ORDER BY name`);
-  return { benchmarks, runs, models, cases, checks, statuses, metrics };
+  const versionRows = benchmarkVersions();
+  for (const b of benchmarks) b.versions = versionRows.filter((v) => v.benchmark === b.name);
+  const rv = all('SELECT rb.run_id, b.name AS benchmark, rb.version FROM run_benchmarks rb JOIN benchmarks b ON b.id = rb.benchmark_id');
+  for (const r of runs) r.versions = Object.fromEntries(rv.filter((x) => x.run_id === r.id).map((x) => [x.benchmark, x.version]));
+  return { benchmarks, runs, models, cases, checks, statuses, metrics, versions: versionRows };
+}
+
+/** Per benchmark and version: runs, models, results, scores, date range, fingerprints (more than one = measured thing changed without a bump), top model, changelog text. Newest version first. */
+function benchmarkVersions() {
+  const rows = all(`SELECT b.name AS benchmark, COALESCE(rb.version, 'none') AS version, m.alias AS model, r.name AS run, r.started_at, rb.fingerprint, rb.source,
+      c.case_key, cr.score, cr.status
+    FROM case_results cr JOIN runs r ON r.id = cr.run_id JOIN benchmarks b ON b.id = cr.benchmark_id JOIN models m ON m.id = cr.model_id JOIN cases c ON c.id = cr.case_id
+    LEFT JOIN run_benchmarks rb ON rb.run_id = cr.run_id AND rb.benchmark_id = cr.benchmark_id`);
+  const info = Object.fromEntries(all(`SELECT b.name AS benchmark, v.version, v.released_on, v.summary FROM benchmark_versions v JOIN benchmarks b ON b.id = v.benchmark_id`).map((x) => [`${x.benchmark}@${x.version}`, x]));
+  const groups = {};
+  for (const x of rows) (groups[`${x.benchmark}@${x.version}`] || (groups[`${x.benchmark}@${x.version}`] = [])).push(x);
+  const out = Object.values(groups).map((rs) => {
+    const { benchmark, version } = rs[0];
+    const byModel = {};
+    for (const x of rs) (byModel[x.model] || (byModel[x.model] = [])).push(x);
+    const cases = new Set(rs.map((x) => x.case_key));
+    const models = Object.entries(byModel).map(([model, ms]) => ({
+      model, cases: new Set(ms.map((x) => x.case_key)).size, avg_score: mean(ms.map((x) => x.score)), pass_rate: rate(ms.map((x) => x.status === 'pass')),
+    }));
+    // Top model: best average score among models that covered the version's whole case set (else among all).
+    const maxCases = Math.max(...models.map((m) => m.cases));
+    const full = models.filter((m) => m.cases >= maxCases);
+    const top = [...(full.length ? full : models)].sort((a, b) => (b.avg_score ?? -1) - (a.avg_score ?? -1) || a.model.localeCompare(b.model))[0];
+    const runs = [...new Set(rs.map((x) => x.run))].sort();
+    const fps = [...new Set(rs.map((x) => x.fingerprint).filter(Boolean))];
+    const meta = info[`${benchmark}@${version}`] || {};
+    return {
+      benchmark, version, runs: runs.length, first_run: runs[0], last_run: runs[runs.length - 1], models: models.length, results: rs.length, cases: cases.size,
+      avg_score: r1(mean(rs.map((x) => x.score))), pass_rate: rate(rs.map((x) => x.status === 'pass')),
+      top_model: top ? top.model : null, top_score: top ? r1(top.avg_score) : null,
+      fingerprints: fps, drift: fps.length > 1, backfilled: rs.some((x) => x.source === 'backfill'), released_on: meta.released_on || null, summary: meta.summary || null,
+    };
+  });
+  const semver = (v) => v.split('.').map((n) => Number(n) || 0);
+  const cmp = (a, b) => { const x = semver(a); const y = semver(b); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+  return out.sort((a, b) => a.benchmark.localeCompare(b.benchmark) || (a.version === 'none' ? -1 : b.version === 'none' ? 1 : cmp(b.version, a.version)));
 }
 
 function leaderboard(q) {
@@ -141,6 +193,8 @@ function leaderboard(q) {
   let statWhere = '';
   if (q.get('benchmark')) { statWhere += ' AND b.name = ?'; statParams.push(q.get('benchmark')); }
   if (runs.length) { statWhere += ` AND r.name IN (${runs.map(() => '?').join(',')})`; statParams.push(...runs); }
+  const vf = list(q.get('versions')).filter((v) => v !== 'all' && v !== 'none');
+  if (vf.length) { statWhere += ` AND EXISTS (SELECT 1 FROM run_benchmarks rb WHERE rb.run_id = r.id AND rb.benchmark_id = b.id AND rb.version IN (${vf.map(() => '?').join(',')}))`; statParams.push(...vf); }
   const stats = all(`SELECT m.alias AS model, s.name, AVG(s.value) AS value, COUNT(s.value) AS n FROM run_model_stats s
       JOIN runs r ON r.id = s.run_id JOIN benchmarks b ON b.id = s.benchmark_id JOIN models m ON m.id = s.model_id
       WHERE s.value IS NOT NULL AND s.name IN ('load_s', 'gpu_peak_mem_c', 'gpu_peak_vram_gib')${statWhere}
@@ -269,7 +323,67 @@ function results(q) {
   const checks = failedChecks(rows.map((r) => r.id));
   const by = {};
   for (const c of checks) (by[c.result_id] || (by[c.result_id] = [])).push({ name: c.name, category: c.category, passed: c.passed == null ? null : Boolean(c.passed), detail: c.detail });
-  return { rows: rows.map((r) => ({ ...r, has_transcript: Boolean(r.transcript_path), transcript_path: undefined, checks: by[r.id] || [] })) };
+  // Speech rows: audio availability and the reference text (TTS: the text that was spoken, STT: the clip's reference transcript).
+  const speechIds = rows.filter((r) => r.benchmark === 'stt' || r.benchmark === 'tts').map((r) => r.id);
+  const refs = {};
+  for (const x of byIds('SELECT id, extra_json, answer_text FROM case_results WHERE id IN (?)', speechIds)) refs[x.id] = { reference: referenceText(parse(x.extra_json, {}).notes), answer_text: x.answer_text };
+  return { rows: rows.map((r) => ({ ...r, has_transcript: Boolean(r.transcript_path), transcript_path: undefined, checks: by[r.id] || [],
+    audio: audioKind(r) && Boolean(audioFile(r)) ? audioKind(r) : null, reference: refs[r.id]?.reference ?? null, answer_text: refs[r.id]?.answer_text ?? null })) };
+}
+
+/** The text a speech result is about, from the row notes: TTS "... | text: <spoken text>", STT "ref: <reference transcript>". */
+function referenceText(notes) {
+  if (!notes) return null;
+  const t = notes.match(/\| text: ([\s\S]*)$/);
+  if (t) return t[1];
+  return notes.startsWith('ref: ') ? notes.slice(5) : null;
+}
+
+// ------------------------------------------------------------------ audio
+// Only two things are ever served as audio, both resolved from the database row (never from a client-supplied path):
+//   tts: reports/<run>/audio/<model@voice>/<item>.wav  (the generated speech)
+//   stt: <STT_CLIPS_DIR>/<lang>/<clip>.wav             (the source clip)
+const audioKind = (r) => (r.benchmark === 'tts' ? 'tts' : r.benchmark === 'stt' ? 'stt' : null);
+const SAFE_NAME = /^[\w][\w.@+-]*$/;
+
+function inside(root, full) {
+  try {
+    const rootReal = fs.realpathSync(root);
+    const real = fs.realpathSync(full);
+    return real.startsWith(rootReal + path.sep) && fs.statSync(real).isFile() ? real : null;
+  } catch { return null; }
+}
+
+/** Absolute path of the audio of a result row ({benchmark, run, model, case_key}); null when none exists or a name is unsafe. */
+function audioFile(r) {
+  const kind = audioKind(r);
+  const [lang, stem] = String(r.case_key || '').split('/');
+  if (!kind || !stem || !/^[a-z]{2,3}$/.test(lang) || !SAFE_NAME.test(stem) || stem.includes('..')) return null;
+  if (kind === 'stt') return inside(CLIPS_DIR, path.join(CLIPS_DIR, lang, `${stem}.wav`));
+  if (!SAFE_NAME.test(String(r.run)) || !SAFE_NAME.test(String(r.model)) || String(r.model).includes('..')) return null;
+  const root = path.join(REPORTS, r.run, 'audio');
+  return inside(root, path.join(root, r.model, `${stem}.wav`));
+}
+
+/** Serve a WAV with single-range support (players seek with Range requests). */
+function serveAudio(req, res, file) {
+  const size = fs.statSync(file).size;
+  const head = { ...SEC, 'Content-Type': 'audio/wav', 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=300' };
+  let start = 0; let end = size - 1; let status = 200;
+  const range = req.headers.range;
+  if (range) {
+    const m = String(range).match(/^bytes=(\d*)-(\d*)$/);
+    if (!m || (m[1] === '' && m[2] === '')) { res.writeHead(416, { ...head, 'Content-Range': `bytes */${size}` }); return res.end(); }
+    if (m[1] === '') { start = Math.max(0, size - Number(m[2])); } else { start = Number(m[1]); if (m[2] !== '') end = Math.min(end, Number(m[2])); }
+    if (start > end || start >= size) { res.writeHead(416, { ...head, 'Content-Range': `bytes */${size}` }); return res.end(); }
+    status = 206;
+    head['Content-Range'] = `bytes ${start}-${end}/${size}`;
+  }
+  res.writeHead(status, { ...head, 'Content-Length': end - start + 1 });
+  if (req.method === 'HEAD') return res.end();
+  const stream = fs.createReadStream(file, { start, end });
+  stream.on('error', () => res.destroy());
+  return stream.pipe(res);
 }
 
 function result(id) {
@@ -281,7 +395,9 @@ function result(id) {
   const tools = all('SELECT seq, tool, ok, duration_s, args_hash FROM tool_calls WHERE result_id = ? ORDER BY seq', [id])
     .map((t) => ({ ...t, ok: t.ok == null ? null : Boolean(t.ok) }));
   const { extra_json: ej, transcript_path: tp, ...rest } = r;
-  return { ...rest, extra: parse(ej, {}), has_transcript: Boolean(tp && transcriptFile(tp)), checks, metrics, tool_calls: tools };
+  const extra = parse(ej, {});
+  const audio = audioKind(r) && audioFile(r) ? audioKind(r) : null;
+  return { ...rest, extra, has_transcript: Boolean(tp && transcriptFile(tp)), audio, reference: audio ? referenceText(extra.notes) : null, checks, metrics, tool_calls: tools };
 }
 
 /** Rows of `sql ... IN (ids)` in chunks of 500 (SQLite's variable limit). */
@@ -303,7 +419,7 @@ function modelRun(q) {
   if (!runRow) return null;
   const bw = bench ? ' AND b.name = ?' : '';
   const bp = bench ? [bench] : [];
-  const rows = all(`SELECT ${COLS}, cr.created_at, cr.extra_json FROM ${FROM} WHERE r.name = ? AND m.alias = ?${bw} ORDER BY cr.created_at, cr.id`, [run, model, ...bp]);
+  const rows = all(`SELECT ${COLS}, cr.created_at, cr.extra_json, CASE WHEN b.name IN ('stt', 'tts') THEN cr.answer_text END AS answer_text FROM ${FROM} WHERE r.name = ? AND m.alias = ?${bw} ORDER BY cr.created_at, cr.id`, [run, model, ...bp]);
   const meta = parse(runRow.meta_json, {});
   const load = (meta.models || []).find((x) => x.id === model) || null;
   if (!rows.length && !load) return null;
@@ -333,7 +449,7 @@ function modelRun(q) {
     load,
     stats,
     results: rows.map(({ extra_json: ej, transcript_path: tp, ...r }) => ({
-      ...r, extra: parse(ej, {}), has_transcript: Boolean(tp), checks: checks[r.id] || [], tool_calls_list: tools[r.id] || [], tool_calls_failed: failedTools[r.id] ?? null,
+      ...r, extra: parse(ej, {}), audio: audioKind(r) && audioFile(r) ? audioKind(r) : null, reference: audioKind(r) ? referenceText(parse(ej, {}).notes) : null, has_transcript: Boolean(tp), checks: checks[r.id] || [], tool_calls_list: tools[r.id] || [], tool_calls_failed: failedTools[r.id] ?? null,
     })),
     peers,
     history,
@@ -511,6 +627,16 @@ const server = http.createServer(async (req, res) => {
     if ((m = p.match(/^\/api\/result\/(\d+)$/))) {
       const r = result(Number(m[1]));
       return r ? send(res, 200, r) : send(res, 404, { error: 'not found' });
+    }
+    if ((m = p.match(/^\/api\/audio\/(\d+)\.wav$/))) {
+      const row = get(`SELECT cr.id, r.name AS run, b.name AS benchmark, m.alias AS model, c.case_key FROM ${FROM} WHERE cr.id = ?`, [Number(m[1])]);
+      const f = row && audioFile(row);
+      if (!f) return send(res, 404, { error: 'audio not available' });
+      return serveAudio(req, res, f);
+    }
+    if (p === '/api/versions') {
+      const bench = url.searchParams.get('benchmark');
+      return send(res, 200, benchmarkVersions().filter((v) => !bench || v.benchmark === bench));
     }
     if ((m = p.match(/^\/api\/result\/(\d+)\/transcript$/))) {
       const row = get('SELECT transcript_path FROM case_results WHERE id = ?', [Number(m[1])]);

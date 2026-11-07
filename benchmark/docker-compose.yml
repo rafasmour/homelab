@@ -106,11 +106,14 @@ services:
       TZ: "${TZ:-Europe/Athens}"
       BENCH_DB: /data/benchmark.db
       REPORTS_DIR: /reports
+      # Source clips of the STT benchmark (audio player in the UI); only this folder of the speech models is mounted.
+      STT_CLIPS_DIR: /stt-clips
       BENCHMARK_UI_USERNAME: "${BENCHMARK_UI_USERNAME:?Set BENCHMARK_UI_USERNAME in .env}"
       BENCHMARK_UI_PASSWORD: "${BENCHMARK_UI_PASSWORD:?Set BENCHMARK_UI_PASSWORD in .env}"
     volumes:
       - ./data:/data:ro
       - ./reports:/reports:ro
+      - "${SPEECH_MODELS_DIR:-../speech/audiocpp/models}/_asr-eval/clips:/stt-clips:ro"
     networks:
       - webgateway
     labels:

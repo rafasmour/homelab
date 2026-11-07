@@ -9,7 +9,8 @@
     "import": "node --disable-warning=ExperimentalWarning main.js import",
     "test": "node --test test/*.test.js",
     "tts-texts": "node --disable-warning=ExperimentalWarning benchmarks/tts/build-texts.js",
-    "rescore": "node --disable-warning=ExperimentalWarning main.js rescore"
+    "rescore": "node --disable-warning=ExperimentalWarning main.js rescore",
+    "backfill-versions": "node --disable-warning=ExperimentalWarning main.js backfill-versions"
   },
   "engines": {
     "node": ">=24"

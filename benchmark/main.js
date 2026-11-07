@@ -9,8 +9,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const router = require('./lib/router');
 const { GpuMonitor } = require('./lib/gpu');
-const { writeReport, aggregate, renderFiles, scoreRow } = require('./lib/report');
+const { writeReport, aggregate, renderFiles, scoreRow, versionLine } = require('./lib/report');
 const db = require('./lib/db');
+const versions = require('./lib/version');
 
 const REPORTS = path.join(__dirname, 'reports');
 const LOCK = path.join(REPORTS, '.running.lock');
@@ -39,6 +40,10 @@ Import an existing report folder into the SQLite DB (idempotent upsert by run + 
 
 Re-grade stored runs (default: all) with the current checks and scoring; backs up the DB first:
   npm run rescore -- [YYYY-MM-DD_HH-MM ...]
+
+Assign versions to stored runs that have none (historical thresholds in benchmarks/<name>/version.js; also patches
+reports/<run>/results.json and report.md; the DB is backed up first). --dry-run only prints the plan:
+  npm run backfill-versions -- [--dry-run] [--force]
 
 Example:
   docker exec benchmark npm run benchmark -- qwen-3.6-35b-a3b --only hermes --cases cron-ai-news`;
@@ -154,6 +159,7 @@ function importReports(argv) {
       models: (data.models || []).filter((m) => keep(m.id)),
       benchmarks: (data.benchmarks || []).map((b) => ({
         name: b.name, description: b.description,
+        ...(b.version ? { version: b.version, fingerprint: b.fingerprint ?? null, version_source: b.version_source } : {}),
         results: (b.results || []).filter((r) => keep(r.model)).map((r) => {
           const row = { ...r };
           const hook = benches[b.name] && benches[b.name].enrichFromTranscript;
@@ -220,7 +226,81 @@ async function rescore(argv) {
   return 0;
 }
 
+/**
+ * `main.js backfill-versions [--dry-run] [--force]`: give every stored run x benchmark without a version the historical
+ * version of its benchmark (benchmarks/<name>/version.js backfill()). The fingerprint stays NULL (not knowable), the source
+ * is 'backfill'. results.json and report.md of the run folder get the same version line. --force also overwrites versions
+ * previously set by a backfill (never versions recorded by a real run).
+ */
+function backfillVersions(argv) {
+  const dry = argv.includes('--dry-run');
+  const force = argv.includes('--force');
+  const benches = Object.fromEntries(discoverBenchmarks().map((b) => [b.name, b]));
+  const conn = db.open();
+  if (!dry) {
+    let bak = `${db.DEFAULT_PATH}.bak-${stamp()}`;
+    for (let n = 2; fs.existsSync(bak); n++) bak = `${db.DEFAULT_PATH}.bak-${stamp()}-${n}`;
+    conn.exec(`VACUUM INTO '${bak.replace(/'/g, "''")}'`);
+    console.log(`backup: ${bak}`);
+  }
+  const counts = {};
+  const rows = conn.prepare(`SELECT r.id AS run_id, r.name AS run, b.id AS bid, b.name AS bench, rb.source AS source, rb.version AS cur
+    FROM (SELECT DISTINCT run_id, benchmark_id FROM case_results) x JOIN runs r ON r.id = x.run_id JOIN benchmarks b ON b.id = x.benchmark_id
+    LEFT JOIN run_benchmarks rb ON rb.run_id = x.run_id AND rb.benchmark_id = x.benchmark_id ORDER BY r.name, b.name`).all();
+  for (const x of rows) {
+    const mod = benches[x.bench];
+    if (x.cur && !(force && x.source === 'backfill')) continue;
+    const v = mod && mod.backfill ? mod.backfill(x.run) : null;
+    if (!v) { console.log(`${x.run} ${x.bench}: no historical version known, skipped`); continue; }
+    const entry = (mod.changelog || []).find((c) => c.version === v);
+    const key = `${x.bench}@${v}`;
+    counts[key] = (counts[key] || 0) + 1;
+    console.log(`${x.run} ${x.bench}: ${x.cur ? `${x.cur} -> ` : ''}${v}${dry ? ' (dry run)' : ''}`);
+    if (dry) continue;
+    db.saveVersion(conn, x.run_id, x.bid, { version: v, fingerprint: null, version_summary: entry && entry.summary, version_date: entry && entry.date }, 'backfill');
+    patchReportFiles(path.join(REPORTS, x.run), x.bench, v);
+  }
+  if (!dry) for (const mod of Object.values(benches)) { // changelog rows for every version, also those without runs
+    if (!mod.changelog) continue;
+    const bid = conn.prepare('SELECT id FROM benchmarks WHERE name = ?').get(mod.name);
+    if (!bid) continue;
+    for (const c of mod.changelog) {
+      conn.prepare(`INSERT INTO benchmark_versions (benchmark_id, version, released_on, summary) VALUES (?, ?, ?, ?)
+        ON CONFLICT(benchmark_id, version) DO UPDATE SET released_on = excluded.released_on, summary = excluded.summary`).run(bid.id, c.version, c.date, c.summary);
+    }
+  }
+  console.log(`${dry ? 'would assign' : 'assigned'} (run x benchmark pairs per version):`);
+  for (const [k, n] of Object.entries(counts).sort()) console.log(`  ${k}: ${n}`);
+  return 0;
+}
+
+/** Add the version to results.json (benchmarks[].version, fingerprint null, version_source) and a line to report.md; idempotent. */
+function patchReportFiles(dir, bench, version) {
+  const jf = path.join(dir, 'results.json');
+  if (fs.existsSync(jf)) {
+    const data = JSON.parse(fs.readFileSync(jf, 'utf8'));
+    const b = (data.benchmarks || []).find((x) => x.name === bench);
+    if (b && (b.version !== version || b.version_source !== 'backfill')) {
+      b.version = version; b.fingerprint = null; b.version_source = 'backfill';
+      fs.writeFileSync(jf, JSON.stringify(data, null, 2));
+    }
+  }
+  const mf = path.join(dir, 'report.md');
+  if (fs.existsSync(mf)) {
+    const lines = fs.readFileSync(mf, 'utf8').split('\n');
+    const i = lines.indexOf(`## ${bench}`);
+    const text = versionLine({ version, fingerprint: null, version_source: 'backfill' });
+    if (i >= 0) {
+      const j = lines.findIndex((l, k) => k > i && l.startsWith('Benchmark version:'));
+      const stop = lines.findIndex((l, k) => k > i && l.startsWith('#'));
+      if (j >= 0 && (stop < 0 || j < stop)) lines[j] = text; else lines.splice(i + 2, 0, text, '');
+      fs.writeFileSync(mf, lines.join('\n'));
+    }
+  }
+}
+
 async function main() {
+  if (process.argv[2] === 'backfill-versions') return backfillVersions(process.argv.slice(3));
   if (process.argv[2] === 'import') return importReports(process.argv.slice(3));
   if (process.argv[2] === 'rescore') return rescore(process.argv.slice(3));
   const opts = parseArgs(process.argv.slice(2));
@@ -236,7 +316,8 @@ async function main() {
 
   if (opts.list) {
     for (const b of benches) {
-      console.log(`\nBenchmark ${b.name}: ${b.description}`);
+      const v = versions.info(b);
+      console.log(`\nBenchmark ${b.name}${v.version ? ` v${v.version} (fingerprint ${v.fingerprint})` : ''}: ${b.description}`);
       for (const c of b.listCases({ web: true, withOptin: true })) console.log(`  ${b.describeCase ? await b.describeCase(c) : c.id}`);
     }
     for (const b of benches.filter((x) => x.ownModels)) {
@@ -302,7 +383,11 @@ async function main() {
     abort_reason: null,
     notes: [],
     models: [],
-    benchmarks: plan.map((p) => ({ name: p.b.name, description: p.b.description, results: [] })),
+    benchmarks: plan.map((p) => {
+      const v = versions.info(p.b);
+      const entry = (p.b.changelog || []).find((c) => c.version === v.version);
+      return { name: p.b.name, description: p.b.description, version: v.version, fingerprint: v.fingerprint, version_summary: v.summary, version_date: entry ? entry.date : null, results: [] };
+    }),
     gpu: null,
     cleanup: {},
   };

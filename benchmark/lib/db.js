@@ -16,6 +16,8 @@
 //   metrics          benchmark-specific numbers per result (decode_tps, tool_used_pct, ...)
 //   tool_calls       every tool call of a result (seq, tool, ok, args_hash)
 //   run_model_stats  per run x benchmark x model aggregates (cron_score, chat_score, load_s, ...)
+//   run_benchmarks   benchmark version + content fingerprint per run x benchmark (lib/version.js); source 'run' or 'backfill'
+//   benchmark_versions  changelog entry (released_on, summary) per benchmark version
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -130,6 +132,29 @@ CREATE INDEX idx_checks_name ON checks (name, passed);
 CREATE INDEX idx_metrics_name ON metrics (name);
 CREATE INDEX idx_tool_calls_result ON tool_calls (result_id);
 CREATE INDEX idx_stats_run ON run_model_stats (run_id, benchmark_id, model_id);
+`,
+  },
+  {
+    version: 2,
+    name: 'benchmark versions',
+    // Existing rows are untouched; runs without a row in run_benchmarks have no version until `backfill-versions`.
+    sql: `
+CREATE TABLE run_benchmarks (
+  run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  benchmark_id INTEGER NOT NULL REFERENCES benchmarks(id),
+  version TEXT,
+  fingerprint TEXT,
+  source TEXT NOT NULL DEFAULT 'run',
+  PRIMARY KEY (run_id, benchmark_id)
+);
+CREATE TABLE benchmark_versions (
+  benchmark_id INTEGER NOT NULL REFERENCES benchmarks(id),
+  version TEXT NOT NULL,
+  released_on TEXT,
+  summary TEXT,
+  PRIMARY KEY (benchmark_id, version)
+);
+CREATE INDEX idx_run_benchmarks_version ON run_benchmarks (benchmark_id, version);
 `,
   },
 ];
@@ -250,7 +275,7 @@ function upsertRun(db, run, { name = path.basename(run.run_dir), status, host = 
   const meta = {
     run_dir: run.run_dir, aborted: Boolean(run.aborted), abort_reason: run.abort_reason || null, notes: run.notes || [],
     models: run.models || [], gpu: run.gpu || null, cleanup: run.cleanup || {},
-    benchmarks: (run.benchmarks || []).map((b) => ({ name: b.name, description: b.description || '' })),
+    benchmarks: (run.benchmarks || []).map((b) => ({ name: b.name, description: b.description || '', ...(b.version ? { version: b.version, fingerprint: b.fingerprint ?? null, ...(b.version_source ? { version_source: b.version_source } : {}) } : {}) })),
   };
   const flags = { argv: String(run.command || '').replace(/^npm run benchmark --\s*/, '').split(/\s+/).filter(Boolean) };
   db.prepare(`INSERT INTO runs (name, started_at, finished_at, host, command, flags_json, status, meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -268,6 +293,18 @@ function checkWeights(checks) {
     const cat = c.category || 'correctness';
     return (c.pass === true || c.pass === false) && WEIGHTS[cat] ? Math.round((WEIGHTS[cat] / n[cat]) * 100) / 100 : null;
   });
+}
+
+/** Record the benchmark version (and fingerprint) of a run; a changelog summary also lands in benchmark_versions. */
+function saveVersion(db, runId, benchmarkId, b, source = b.version_source || 'run') {
+  db.prepare(`INSERT INTO run_benchmarks (run_id, benchmark_id, version, fingerprint, source) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(run_id, benchmark_id) DO UPDATE SET version = excluded.version, fingerprint = excluded.fingerprint, source = excluded.source`)
+    .run(runId, benchmarkId, b.version, b.fingerprint ?? null, source);
+  if (b.version_summary || b.version_date) {
+    db.prepare(`INSERT INTO benchmark_versions (benchmark_id, version, released_on, summary) VALUES (?, ?, ?, ?)
+      ON CONFLICT(benchmark_id, version) DO UPDATE SET released_on = COALESCE(excluded.released_on, benchmark_versions.released_on), summary = COALESCE(excluded.summary, benchmark_versions.summary)`)
+      .run(benchmarkId, b.version, b.version_date ?? null, b.version_summary ?? null);
+  }
 }
 
 /** Upsert one standard row (see lib/report.js) under runId, replacing its checks, metrics and tool calls. */
@@ -330,6 +367,7 @@ function saveRun(db, run, opts = {}) {
     const runId = upsertRun(db, run, { name, status: opts.status });
     for (const b of run.benchmarks || []) {
       const bId = upsertBenchmark(db, b.name, b.description || null);
+      if (b.version) saveVersion(db, runId, bId, b);
       for (const row of b.results || []) {
         if (opts.models && !opts.models.includes(row.model)) continue;
         saveRow(db, runId, row, { runName: name, benchmarkId: bId, presets });
@@ -370,6 +408,13 @@ function loadRun(db, name) {
   const checksBy = groupBy(db.prepare('SELECT ch.* FROM checks ch JOIN case_results cr ON cr.id = ch.result_id WHERE cr.run_id = ? ORDER BY ch.id').all(r.id));
   const metricsBy = groupBy(db.prepare('SELECT mt.* FROM metrics mt JOIN case_results cr ON cr.id = mt.result_id WHERE cr.run_id = ? ORDER BY mt.id').all(r.id));
   const benches = (meta.benchmarks && meta.benchmarks.length ? meta.benchmarks : []).map((b) => ({ ...b, results: [] }));
+  const vers = db.prepare('SELECT b.name, rb.version, rb.fingerprint, rb.source FROM run_benchmarks rb JOIN benchmarks b ON b.id = rb.benchmark_id WHERE rb.run_id = ?').all(r.id);
+  for (const v of vers) {
+    let b = benches.find((y) => y.name === v.name);
+    if (!b) benches.push(b = { name: v.name, description: '', results: [] });
+    b.version = v.version; b.fingerprint = v.fingerprint;
+    if (v.source && v.source !== 'run') b.version_source = v.source; else delete b.version_source;
+  }
   const prefix = `${name}/`;
   for (const x of rows) {
     let b = benches.find((y) => y.name === x.benchmark);
@@ -401,4 +446,4 @@ function groupBy(rows) {
   return out;
 }
 
-module.exports = { DEFAULT_PATH, MIGRATIONS, open, migrate, saveRun, saveRow, saveStats, loadRun, routerPresets, upsertRun, runStatus };
+module.exports = { DEFAULT_PATH, WEIGHTS, MIGRATIONS, saveVersion, upsertBenchmark, open, migrate, saveRun, saveRow, saveStats, loadRun, routerPresets, upsertRun, runStatus };

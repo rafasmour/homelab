@@ -176,6 +176,8 @@ schema.
 | `checks` | `id, result_id, name, category, passed, weight, detail` | `category` is `completed`, `correctness`, `rules` or `other`; `passed` is 1, 0 or NULL (not applicable); `weight` is the points the check carries in the case score. |
 | `metrics` | `id, result_id, name, value, unit` | Benchmark-specific numbers: `decode_tps`, `prompt_tps`, `tool_calls_total`, `tool_calls_failed`, `tool_used_pct`, `model_calls_with_tools`, `exit_code`, ... |
 | `tool_calls` | `id, result_id, seq, tool, ok, duration_s, args_hash` | Every tool call in order. `args_hash` is a SHA-1 prefix of the canonical arguments. |
+| `run_benchmarks` | `run_id, benchmark_id, version, fingerprint, source` | Benchmark version and content fingerprint of each benchmark in a run (see "Benchmark versions"). `source` is `run` (recorded by the runner) or `backfill` (assigned afterwards, no fingerprint). |
+| `benchmark_versions` | `benchmark_id, version, released_on, summary` | Changelog entry of each version, filled by the runner and by `backfill-versions`; the UI shows it. |
 | `run_model_stats` | `id, run_id, benchmark_id, model_id, name, value, text` | Per-run aggregates from `lib/report.js`: `score`, `cron_score`, `chat_score`, `chat_case_score`, `speed_score`, `pass_rate`, `load_s`, `gpu_peak_mem_c`, `gpu_peak_vram_gib`, `chat_disqualified`, ... |
 
 Indexes cover `case_results (benchmark_id, model_id)`, `(run_id)`,
@@ -203,6 +205,47 @@ docker exec benchmark npm run import -- reports/2026-10-24_09-14 --models mellum
 that a stopped run had just started). From the host, with Node 24:
 `cd benchmark && ROUTER_CONFIG=../llama-cpp/models/router-config.ini npm run import -- reports/<run>`.
 
+## Benchmark versions
+
+What a benchmark measures changes over time, and scores from different versions are not comparable. Every benchmark therefore
+has a version, recorded per run and benchmark in `run_benchmarks` (also in `results.json` as `benchmarks[].version` /
+`fingerprint`, and as the line `Benchmark version: X (fingerprint Y)` under the benchmark heading of `report.md`).
+
+- **Explicit version.** `benchmarks/<name>/version.js` exports `BENCHMARK_VERSION` (semver-like) and a `CHANGELOG`
+  (`{version, date, summary}`, the current version last); `benchmarks/<name>/index.js` attaches them to the benchmark module.
+  Bump it by hand, add the changelog entry and a row to the table below whenever what is measured changes: the case or task
+  set, a case's prompt, checks or verifier, the scoring rules, and (Hermes) the Hermes setup under test (SOUL, plugins, hooks,
+  sampling). Rule of thumb: major = the case set or the setup changed, minor = a check, verifier or scoring tweak.
+- **Content fingerprint.** `lib/version.js` hashes (SHA-256, first 12 hex) the files that define the measurement plus the
+  scoring code (`scoreRow` and the weights in `lib/report.js`): Hermes `tasks/*.md` and the case/check/verifier/hook code,
+  STT/TTS the benchmark code, `models.json` / `voices.json`, `lib/speech.js` (normalisation, WER) and the clip manifest or
+  `data/tts-texts.json`. It is stored next to the version. If one version shows more than one fingerprint, something that is
+  measured changed without a version bump; the UI flags that version ("changed"). The Hermes setup itself lives outside this
+  container (the `hermes` stack), so a change there is not fingerprinted: bump the version by hand.
+- **Rescoring** keeps the stored version and fingerprint of a run.
+- **Backfill.** `docker exec benchmark npm run backfill-versions -- --dry-run` prints the plan; without `--dry-run` it backs up
+  the DB (`data/benchmark.db.bak-<time>`), gives every stored run x benchmark without a version its historical version
+  (`backfill()` in `benchmarks/<name>/version.js`, a table of run-folder name thresholds), writes the changelog rows and patches
+  `reports/<run>/results.json` and `report.md` (no fingerprint, `version_source: "backfill"`). It is idempotent and never
+  touches versions recorded by a real run; `--force` re-assigns earlier backfilled ones. Existing report.xlsx files are not rewritten.
+
+### Version table
+
+| Benchmark | Version | Date | Runs (folders) | What changed |
+| --- | --- | --- | --- | --- |
+| hermes | 1.0.0 | 2026-10-24 | `2026-10-24_09-07` to `2026-10-27_17-09` (10 runs) | First release: 13 cases (8 cron, 5 chat). The 2026-10-27 model evaluation uses the same set. |
+| hermes | 1.1.0 | 2026-10-28 | `2026-10-28_16-41`, `2026-11-02_13-28`, `2026-11-02_14-36` | `cron-llamacpp-rocm` added (14 cases). |
+| hermes | 2.0.0 | 2026-11-03 | `2026-11-03_21-43` to `2026-11-04_08-15` (4 runs) | Opt-in `ai-assistant` group (9 spoken-style cases): 17 cases with `--with-optin`; web cases and GPU watch left the default set. |
+| hermes | 3.0.0 | 2026-11-06 | `2026-11-06_10-33` | New setup: the assistant consults specialist agents with `ask_agent`, no sentence limit. |
+| hermes | 3.1.0 | 2026-11-06 | `2026-11-06_16-12` | ai-assistant slim Kanban toolset (delegate plugin) and SOUL fixes. |
+| hermes | 3.2.0 | 2026-11-06 | `2026-11-06_18-19` to `2026-11-06_22-12` (4 runs) | Clock hooks, last SOUL fixes, reply language not checked; optional preset-sampling switch (the LFM3 runs `2026-11-06_21-12`). |
+| hermes | 3.3.0 | 2026-11-07 | `hermes-3.3.0-2026-11-07` run | Reminder argument repair (clock hook), ai-assistant reply cleaner (`spoken_reply`). |
+| stt | 1.0.0 | 2026-11-03 | all 5 stt runs | FLEURS el/en subset, WER/CER, pass at WER <= 25%. |
+| tts | 1.0.0 | 2026-11-04 | all 3 tts runs | Texts from Hermes answers, round-trip WER by an STT judge, five sanity checks. |
+
+The historical Hermes versions are reconstructed from report dates, notes and the milestones above (the repository has only
+two commits touching the benchmark), so the boundaries inside one day (3.0.0 / 3.1.0 / 3.2.0) are best effort.
+
 ## Results UI
 
 `benchmark-ui` (`ui/server.js`, Node built-ins only) serves a single-page UI
@@ -222,6 +265,22 @@ filter bar, then the content in a centred container (max 1440 px).
   filters appear as removable chips with Clear all and Copy link. Free-text
   search covers model, case, answer text and error. On a phone the dropdowns
   fold behind a Filters button.
+- **Benchmark version:** a Version dropdown next to Benchmark and a version bar above the leaderboard (segmented: All versions,
+  v3.2.0, v3.1.0, ...). The newest version of the selected benchmark is selected by default, so models are only compared
+  within one version; choose All versions to mix them (a warning says the scores are not comparable). Selecting a run
+  explicitly (for example "Only this run") shows it regardless of version. The bar shows the changelog line of the selected
+  version, a `backfilled` badge for versions assigned afterwards and a warning when the content fingerprint changed without
+  a bump. The **Versions** card lists every version with its runs, models, cases, results, average score, pass rate, top
+  model (best average among models covering the version's whole case set) and what changed. Results and Runs tables have a
+  Version column. URL parameter: `versions=3.2.0` (or `all`).
+- **Audio (stt, tts):** results of the speech benchmarks have an audio player. TTS: the speech the model and voice generated
+  (`reports/<run>/audio/<model@voice>/<item>.wav`) next to the text that was spoken and what the STT judge heard. STT: the
+  source clip (`_asr-eval/clips/<lang>/<clip>.wav`) next to the reference text and the model's transcript. The player is in the
+  Results table (Audio, Reference text, Transcript columns), the model and model-run case tables, and the result page; files
+  load on demand. `/api/audio/<result id>.wav` resolves the file from the database row (never from a client path), accepts only
+  safe names, requires the real path to stay inside `reports/<run>/audio` or the clips folder, is read-only, behind the login,
+  and supports `Range` requests. `benchmark-ui` mounts only `_asr-eval/clips` of the speech models read-only at `/stt-clips`
+  (`STT_CLIPS_DIR`), plus the existing read-only `reports/` and `data/`.
 - **Leaderboard view:** KPI cards (top model, results, pass rate, average
   score, median time per case, tokens), then the leaderboard: one row per model
   with the average score over all selected runs and repeats, pass rate with
@@ -257,13 +316,17 @@ filter bar, then the content in a centred container (max 1440 px).
   `tailwind.config.js`), dark blue and red, with chart colours checked for
   colour-blind separation and contrast.
 
+API additions: `/api/versions[?benchmark=]` (per benchmark version summary), `/api/audio/<result id>.wav`; every result row has
+`bench_version`, speech rows `audio` (`tts`, `stt` or null), `reference` and `answer_text`; `/api/meta` lists `versions`.
+Filter parameter `versions` (comma-separated, `none` = unversioned runs, absent or `all` = every version).
+
 API (the leaderboard rows also carry `cases`, `cases_total`, `partial`,
 `runs_in_progress` and `gpu_peak_vram_gib`): `/api/meta`, `/api/benchmarks`, `/api/runs`, `/api/models`,
 `/api/leaderboard`, `/api/results`, `/api/result/<id>`,
 `/api/result/<id>/transcript` and `/api/run/<run>/(report.md|report.xlsx|results.json)`.
 The filter parameters are `benchmark`, `runs`, `models`, `cases`,
 `profiles`, `kinds`, `status`, `check_pass`, `check_fail` (comma-separated),
-`q`, and `score_min/max`, `tool_min/max`, `tokens_min/max`, `dur_min/max`.
+`versions`, `q`, and `score_min/max`, `tool_min/max`, `tokens_min/max`, `dur_min/max`.
 
 ## Reports
 
@@ -703,6 +766,10 @@ module.exports = {
   // optional: describeCase(c), abort(), prepareRun() -> snapshot, finalCleanup(snapshot) -> {removed, leftovers, verification}
 };
 ```
+
+Also give it a `version.js` like the existing benchmarks (`version`, `changelog`, `fingerprintFiles()`, optional
+`backfill(runName)`) and attach it in `index.js` (`Object.assign(b, require('./version'))`); see "Benchmark versions".
+A benchmark without a version is stored unversioned.
 
 Each row must use the standard shape documented at the top of
 `lib/report.js`. Give every check a `category` (`completed`, `correctness` or

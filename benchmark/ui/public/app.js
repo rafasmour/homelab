@@ -24,7 +24,7 @@
     || ((y.correct_rate ?? -1) - (x.correct_rate ?? -1)) || x.model.localeCompare(y.model);
   const tone = (v) => (v == null ? 'tone-none' : v >= 80 ? 'tone-good' : v >= 50 ? 'tone-mid' : 'tone-bad');
 
-  const FILTER_KEYS = ['benchmark', 'runs', 'models', 'cases', 'profiles', 'kinds', 'status', 'check_pass', 'check_fail', 'q',
+  const FILTER_KEYS = ['benchmark', 'versions', 'runs', 'models', 'cases', 'profiles', 'kinds', 'status', 'check_pass', 'check_fail', 'q',
     'score_min', 'score_max', 'tool_min', 'tool_max', 'tokens_min', 'tokens_max', 'dur_min', 'dur_max'];
   const RANGES = [
     { key: 'score', label: 'Score', max: 100, hint: '0–100' },
@@ -184,7 +184,9 @@
   const listOf = (s, k) => (s.get(k) ? s.get(k).split(',').filter(Boolean) : []);
   function apiQuery(s, extra = {}) {
     const q = new URLSearchParams();
-    for (const k of FILTER_KEYS) if (s.get(k)) q.set(k, s.get(k));
+    for (const k of FILTER_KEYS) if (k !== 'versions' && s.get(k)) q.set(k, s.get(k));
+    const ev = effectiveVersions(s);
+    if (ev.length) q.set('versions', ev.join(','));
     for (const [k, v] of Object.entries(extra)) q.set(k, v);
     return q.toString();
   }
@@ -194,6 +196,19 @@
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
     return body;
+  }
+  // Benchmark versions: comparisons stay within one version. Without a `versions` parameter the newest version of the
+  // selected benchmark is used (unless runs are selected explicitly); `versions=all` mixes every version.
+  const versionsOf = (bench) => ((META && META.versions) || []).filter((v) => v.benchmark === bench);
+  function effectiveVersions(s) {
+    const bench = s.get('benchmark');
+    if (!bench) return [];
+    const v = listOf(s, 'versions');
+    if (v.includes('all')) return [];
+    if (v.length) return v;
+    if (listOf(s, 'runs').length) return [];
+    const vs = versionsOf(bench).filter((x) => x.version !== 'none');
+    return vs.length ? [vs[0].version] : [];
   }
   const isRunning = (r) => r && (r.status === 'running' || !r.finished_at);
 
@@ -408,7 +423,8 @@
     <div class="panel-foot"><button type="button" class="btn btn-ghost btn-sm" data-act="clear-ranges">Reset ranges</button><button type="button" class="btn btn-primary btn-sm" data-act="done">Done</button></div>`;
 
   const dd = {
-    benchmark: makeDropdown($('#f-benchmark'), { key: 'benchmark', label: 'Benchmark', kind: 'single', icon: 'db', onChange: (v) => setState({ benchmark: v, cases: [], profiles: [], kinds: [] }) }),
+    benchmark: makeDropdown($('#f-benchmark'), { key: 'benchmark', label: 'Benchmark', kind: 'single', icon: 'db', onChange: (v) => setState({ benchmark: v, versions: null, cases: [], profiles: [], kinds: [] }) }),
+    versions: makeDropdown($('#f-version'), { key: 'versions', label: 'Version', kind: 'single', icon: 'tag', onChange: (v) => setState({ versions: v }) }),
     runs: makeDropdown($('#f-runs'), { key: 'runs', label: 'Runs', icon: 'play', search: true, onChange: (v) => setState({ runs: v }) }),
     models: makeDropdown($('#f-models'), { key: 'models', label: 'Models', icon: 'box', search: true, onChange: (v) => setState({ models: v }) }),
     cases: makeDropdown($('#f-cases'), { key: 'cases', label: 'Cases', icon: 'list', search: true, onChange: (v) => setState({ cases: v }) }),
@@ -436,6 +452,8 @@
       if (v.length > 4) chips.push({ k: `${n}s`, v: `${v.length} selected`, rm: { [k]: [] } });
       else for (const x of v) chips.push({ k: n, v: x, rm: { [k]: v.filter((y) => y !== x) } });
     }
+    const vsel = listOf(s, 'versions');
+    if (vsel.length) chips.push({ k: 'Version', v: vsel.includes('all') ? 'all versions' : vsel.map((x) => `v${x}`).join(', '), rm: { versions: null } });
     const cp = listOf(s, 'check_pass');
     const cf = listOf(s, 'check_fail');
     for (const x of cp) chips.push({ k: 'Must pass', v: checkLabel(x), tone: 'tone-good', rm: { check_pass: cp.filter((y) => y !== x) } });
@@ -473,6 +491,11 @@
     const bench = s.get('benchmark');
     const cases = META.cases.filter((c) => !bench || c.benchmark === bench);
     dd.benchmark.set(META.benchmarks.map((b) => ({ value: b.name, label: b.name, meta: b.description || '', count: b.results })), [bench]);
+    const vs = versionsOf(bench);
+    const ev = effectiveVersions(s);
+    dd.versions.set([{ value: 'all', label: 'All versions', meta: 'Mixes results measured with different benchmark versions' },
+      ...vs.map((v, i) => ({ value: v.version, label: v.version === 'none' ? 'unversioned' : `v${v.version}`, meta: `${i === 0 ? 'newest · ' : ''}${v.runs} run${v.runs === 1 ? '' : 's'}, ${v.results} results${v.summary ? ` · ${v.summary}` : ''}`, count: v.results }))],
+    [ev.length ? ev[0] : 'all']);
     dd.runs.set(META.runs.map((r) => ({
       value: r.name, label: r.name, short: r.name,
       meta: `${r.status} · ${r.models} model${r.models === 1 ? '' : 's'} · started ${fmtDate(r.started_at)}`,
@@ -526,7 +549,7 @@
       return;
     }
     const tr = e.target.closest('tr[data-href-model], tr[data-href-id]');
-    if (tr && !e.target.closest('a, button, [tabindex]')) {
+    if (tr && !e.target.closest('a, button, [tabindex], audio')) {
       if (tr.dataset.hrefRun) setState({ view: 'modelrun', model: tr.dataset.hrefModel, run: tr.dataset.hrefRun, id: null });
       else if (tr.dataset.hrefModel) setState({ view: 'model', model: tr.dataset.hrefModel, run: null, id: null });
       else setState({ view: 'result', id: tr.dataset.hrefId });
@@ -824,10 +847,21 @@
     return [...cols, ...more];
   }
 
-  function resultColumns({ withModel, detailedChecks }) {
+  const audioCell = (x) => (x.audio
+    ? `<audio class="aud" controls preload="none" src="/api/audio/${esc(x.id)}.wav" aria-label="${x.audio === 'tts' ? `Generated speech of ${esc(x.model)}` : 'Source clip'}"></audio>`
+    : '<span class="zero">–</span>');
+  const textCell = (v) => (v ? `<span class="clip-text" title="${esc(v)}">${esc(v)}</span>` : '<span class="zero">–</span>');
+  /** Speech benchmarks (stt, tts): audio player and the text next to it. */
+  const speechColumns = () => [
+    { key: 'audio', label: 'Audio', get: (x) => (x.audio ? 1 : 0), html: audioCell, def: ['Audio', 'TTS: the speech this model and voice generated. STT: the source clip the model transcribed. Press play; the file loads on demand.'] },
+    { key: 'reference', label: 'Reference text', cls: 'wrap', get: (x) => x.reference, html: (x) => textCell(x.reference), def: ['Reference text', 'TTS: the text that was spoken. STT: the reference transcript of the clip.'] },
+    { key: 'answer_text', label: 'Transcript', cls: 'wrap', get: (x) => x.answer_text, html: (x) => textCell(x.answer_text), def: ['Transcript', 'STT: what the model heard. TTS: what the STT judge heard in the generated audio (round trip).'] },
+  ];
+  function resultColumns({ withModel, detailedChecks, speech = false }) {
     return [
       ...(withModel ? [{ key: 'model', label: 'Model', get: (x) => x.model, cls: 'nowrap', html: (x) => modelLink(x.model) }] : []),
       { key: 'case_key', label: 'Case', cls: 'nowrap', get: (x) => x.case_key, html: (x) => resultLink(x.id, `<b>${esc(x.case_key)}</b>`) + (x.repeat_idx > 1 ? ` <span class="muted">#${x.repeat_idx}</span>` : ''), def: ['Case', 'Benchmark task. Click for checks, metrics, tool calls and the transcript.'] },
+      ...(speech ? speechColumns() : []),
       { key: 'status', label: 'Status', get: (x) => x.status, html: (x) => badge(x.status), def: ['Status', 'pass = every check passed; fail = the run finished but a check failed; error / timeout = the run itself broke.'] },
       { key: 'score', label: 'Score', num: true, get: (x) => x.score, html: (x) => `<span class="scorecell">${fmt(x.score)}${meter(x.score)}</span>` },
       { key: 'completed', label: 'Run finished', get: (x) => ckState(x, 'completed'), html: (x) => ckCell(x, 'completed'), def: CHECK_INFO.completed },
@@ -836,6 +870,7 @@
       { key: 'kind', label: 'Kind', get: (x) => x.kind, def: ['Kind', 'cron = scheduled job prompt; chat = interactive request.'] },
       { key: 'profile', label: 'Profile', get: (x) => x.profile, def: ['Profile', 'Hermes profile (tool set) the case runs with.'] },
       { key: 'run', label: 'Run', cls: 'nowrap', get: (x) => x.run },
+      { key: 'bench_version', label: 'Version', cls: 'nowrap', get: (x) => x.bench_version || 'none', html: (x) => (x.bench_version ? `v${esc(x.bench_version)}` : '<span class="zero">–</span>'), def: ['Benchmark version', 'Version of the benchmark this result was measured with. Results of different versions are not directly comparable.'] },
       { key: 'duration_s', label: 'Time', num: true, get: (x) => x.duration_s, html: (x) => fmtDur(x.duration_s) },
       { key: 'prompt_tokens', label: 'Prompt tokens', num: true, get: (x) => x.prompt_tokens, html: (x) => fmtInt(x.prompt_tokens) },
       { key: 'output_tokens', label: 'Output tokens', num: true, get: (x) => x.output_tokens, html: (x) => fmtInt(x.output_tokens) },
@@ -863,6 +898,42 @@
     return `${failed.map((c) => `<span class="ck fail"><b>${esc(checkLabel(c.name))}</b>: ${esc((c.detail || '').slice(0, 160))}</span>`).join('')}<span class="ck pass">${ok} passed</span>`;
   }
 
+  // ------------------------------------------------------------------ benchmark versions
+  const verLabel = (v) => (v === 'none' ? 'unversioned' : `v${v}`);
+  function versionTag(s) {
+    const ev = effectiveVersions(s);
+    return `<span class="tag">${icon('tag')}${ev.length ? `<b>${esc(ev.map(verLabel).join(', '))}</b>` : '<b>all versions</b>'}</span>`;
+  }
+  /** Version selector (segmented) with the changelog line of the selected version and a warning when versions are mixed. */
+  function versionBarHtml(s, b) {
+    const vs = versionsOf(b ? b.name : s.get('benchmark'));
+    if (!vs.length) return '';
+    const ev = effectiveVersions(s);
+    const sel = vs.filter((v) => ev.includes(v.version));
+    const seg = [stateLink({ versions: 'all' }, 'All versions', `aria-current="${!ev.length}"`, false),
+      ...vs.map((v) => stateLink({ versions: v.version }, `${esc(verLabel(v.version))} <span class="muted">${v.runs} run${v.runs === 1 ? '' : 's'}</span>`, `aria-current="${ev.includes(v.version)}"`, false))].join('');
+    const notes = [];
+    if (!ev.length && vs.length > 1) notes.push(`<div class="alert warn" role="note">${icon('alert')}<div><b>Mixed versions.</b> These results were measured with ${vs.length} different benchmark versions (what is measured changed between them), so scores are not directly comparable. Pick a version to compare within it.</div></div>`);
+    for (const v of sel) {
+      notes.push(`<p class="ver-note"><b>${esc(verLabel(v.version))}</b>${v.released_on ? ` · ${esc(v.released_on)}` : ''} · ${esc(v.summary || 'no changelog entry')}${v.backfilled ? ' <span class="badge tone-mid" ' + defAttrs('Backfilled', 'The version was assigned afterwards from the run date (git history and report notes); no content fingerprint was recorded.') + ' tabindex="0">backfilled</span>' : ''}</p>`);
+      if (v.drift) notes.push(`<div class="alert warn" role="note">${icon('alert')}<div><b>Changed without a version bump.</b> ${v.fingerprints.length} different content fingerprints (${v.fingerprints.map((f) => `<code>${esc(f)}</code>`).join(', ')}) were recorded for ${esc(verLabel(v.version))}: the tasks, checks or scoring changed but the version constant did not. Bump the version.</div></div>`);
+    }
+    return `<section class="card version-bar" aria-label="Benchmark version"><div class="switch-row"><span class="muted">${icon('tag')}Benchmark version</span>
+      <nav class="segmented wrap-seg" aria-label="Benchmark version">${seg}</nav></div>${notes.join('')}</section>`;
+  }
+  /** Per-version summary table of the selected benchmark. */
+  function versionsCard(s, b) {
+    const vs = versionsOf(b ? b.name : s.get('benchmark'));
+    if (!vs.length) return '';
+    const ev = effectiveVersions(s);
+    const rows = vs.map((v) => `<tr${ev.includes(v.version) ? ' class="sel"' : ''}><td class="nowrap"><b>${esc(verLabel(v.version))}</b>${v.drift ? ' <span class="badge tone-bad" tabindex="0" ' + defAttrs('Fingerprint changed', 'More than one content fingerprint under this version: something measured changed without a version bump.') + '>changed</span>' : ''}</td>
+      <td class="nowrap">${esc(v.released_on || '–')}</td><td class="nowrap">${esc(v.first_run)}${v.last_run !== v.first_run ? ` – ${esc(v.last_run)}` : ''}</td><td class="num">${v.runs}</td><td class="num">${v.models}</td><td class="num">${v.cases}</td><td class="num">${fmtInt(v.results)}</td>
+      <td class="num">${fmt(v.avg_score)}</td><td class="num">${fmt(v.pass_rate)}%</td><td class="nowrap">${v.top_model ? `${modelLink(v.top_model)} <span class="muted">${fmt(v.top_score)}</span>` : '–'}</td>
+      <td class="wrap">${esc(v.summary || '')}</td><td class="nowrap">${ev.includes(v.version) ? '<span class="muted">selected</span>' : stateLink({ versions: v.version }, 'Show this version', 'class="link-btn"')}</td></tr>`).join('');
+    return `<section class="card" aria-labelledby="ver-h">${cardHead('<span id="ver-h">Versions</span>', 'Per benchmark version: runs, models and the best model (highest average score among models that covered the version\'s whole case set). Scores are comparable within a version only.')}
+      <div class="table-wrap"><table class="data"><thead><tr><th scope="col">Version</th><th scope="col">Released</th><th scope="col">Run range</th><th scope="col" class="num">Runs</th><th scope="col" class="num">Models</th><th scope="col" class="num">Cases</th><th scope="col" class="num">Results</th><th scope="col" class="num">Avg score</th><th scope="col" class="num">Pass</th><th scope="col">Top model</th><th scope="col">What changed</th><th scope="col"><span class="sr-only">Select</span></th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+  }
+
   async function viewLeaderboard(s, my) {
     crumbs(['<span aria-current="page">Leaderboard</span>']);
     const [data, res] = await Promise.all([api(`/api/leaderboard?${apiQuery(s)}`), api(`/api/results?${apiQuery(s)}`)]);
@@ -873,8 +944,8 @@
     const main = $('#main');
     const b = META.benchmarks.find((x) => x.name === s.get('benchmark'));
     const head = `<div class="page-head"><div><p class="eyebrow">Benchmark</p><h1>${esc(b ? b.name : 'Benchmark')}</h1>${b?.description ? `<p class="lede">${esc(b.description)}</p>` : ''}</div>
-      <div class="tags"><span class="tag">${icon('list')}<b>${data.cases_total ?? '–'}</b> cases</span><span class="tag">${icon('play')}<b>${runCount}</b> run${runCount === 1 ? '' : 's'}</span>${META.runs.some(isRunning) ? '<span class="badge tone-bad running"><span class="pulse" aria-hidden="true"></span>run in progress</span>' : ''}</div></div>`;
-    if (!data.rows.length) { CHARTS = []; main.innerHTML = `${head}${emptyCard('No results match these filters', 'Remove a filter chip above or clear all filters.')}`; return; }
+      <div class="tags">${versionTag(s)}<span class="tag">${icon('list')}<b>${data.cases_total ?? '–'}</b> cases</span><span class="tag">${icon('play')}<b>${runCount}</b> run${runCount === 1 ? '' : 's'}</span>${META.runs.some(isRunning) ? '<span class="badge tone-bad running"><span class="pulse" aria-hidden="true"></span>run in progress</span>' : ''}</div></div>`;
+    if (!data.rows.length) { CHARTS = []; main.innerHTML = `${head}${versionBarHtml(s, b)}${emptyCard('No results match these filters', 'Remove a filter chip above or clear all filters.')}`; return; }
 
     // Complete models rank above partial ones; within each group by avg score.
     const ranked = [...data.rows].sort((x, y) => (x.partial - y.partial) || byRank(x, y));
@@ -894,6 +965,7 @@
     const partialN = data.rows.filter((r) => r.partial).length;
     const bestWer = [...data.rows].filter((r) => r.speech?.wer != null && !r.partial).sort((x, y) => x.speech.wer - y.speech.wer)[0];
 
+    const versionBar = versionBarHtml(s, b);
     const kpis = `<div class="kpis">
       ${kpi({ hero: true, label: 'Top model', ic: 'trophy', def: 'Highest average score among models with results for every case in the selection (partial models are not ranked).', value: `${modelLink(top.model)}`, sub: `<span class="big">${fmt(top.avg_score)}</span> avg score · ${fmt(top.pass_rate)}% pass`, extra: meter(top.avg_score) })}
       ${kpi({ label: 'Results', ic: 'hash', def: DEF.n[1], value: fmtInt(nTot), sub: `${data.rows.length} models${partialN ? ` (${partialN} partial)` : ''} · ${runCount} run${runCount === 1 ? '' : 's'}` })}
@@ -934,7 +1006,7 @@
         ${chartSlot(hbar(Object.entries(failTotals).sort((x, y) => y[1] - x[1]).map(([k, v]) => ({ label: checkLabel(k), values: [v], tip: `<b>${esc(checkLabel(k))}</b><br>${v} failure(s)<br>${data.rows.filter((r) => r.failures[k]).map((r) => `${esc(r.model)}: ${r.failures[k]}`).join('<br>')}` })), { series: ['s2'], fmtV: (v) => fmtInt(v) }), 'Bar chart of failures by type')}</div></section>
     </div>`;
 
-    const rcols = resultColumns({ withModel: true, detailedChecks: false });
+    const rcols = resultColumns({ withModel: true, detailedChecks: false, speech: res.rows.some((x) => x.audio) });
     const total = res.rows.length;
     const pages = Math.max(1, Math.ceil(total / PAGE));
     const pg = Math.min(pages, Math.max(1, Number(s.get('rpage')) || 1));
@@ -949,15 +1021,15 @@
 
     const runs = META.runs;
     const runsCard = `<section class="card" aria-labelledby="runs-h">${cardHead('<span id="runs-h">Runs</span>', 'All recorded runs with their report files. Use “Only this run” to filter the dashboard to one run.')}
-      <div class="table-wrap"><table class="data"><thead><tr><th scope="col">Run</th><th scope="col">Status</th><th scope="col">Started</th><th scope="col">Finished</th><th scope="col" class="num">Models</th><th scope="col" class="num">Results</th><th scope="col">Host</th><th scope="col">Command</th><th scope="col">Files</th><th scope="col"><span class="sr-only">Filter</span></th></tr></thead><tbody>
-      ${runs.map((r) => `<tr><td class="nowrap"><b>${esc(r.name)}</b></td><td>${isRunning(r) ? '<span class="badge tone-bad running"><span class="pulse" aria-hidden="true"></span>running</span>' : `<span class="badge ${r.status === 'finished' ? 'tone-good' : 'tone-mid'}">${esc(r.status)}</span>`}</td>
+      <div class="table-wrap"><table class="data"><thead><tr><th scope="col">Run</th><th scope="col">Version</th><th scope="col">Status</th><th scope="col">Started</th><th scope="col">Finished</th><th scope="col" class="num">Models</th><th scope="col" class="num">Results</th><th scope="col">Host</th><th scope="col">Command</th><th scope="col">Files</th><th scope="col"><span class="sr-only">Filter</span></th></tr></thead><tbody>
+      ${runs.map((r) => `<tr><td class="nowrap"><b>${esc(r.name)}</b></td><td class="nowrap">${Object.entries(r.versions || {}).map(([bn, v]) => `<span class="muted">${esc(bn)}</span> ${v ? `v${esc(v)}` : '–'}`).join('<br>') || '<span class="zero">–</span>'}</td><td>${isRunning(r) ? '<span class="badge tone-bad running"><span class="pulse" aria-hidden="true"></span>running</span>' : `<span class="badge ${r.status === 'finished' ? 'tone-good' : 'tone-mid'}">${esc(r.status)}</span>`}</td>
         <td class="nowrap">${esc(fmtDate(r.started_at))}</td><td class="nowrap">${esc(fmtDate(r.finished_at))}</td><td class="num">${r.models}</td><td class="num">${r.results}</td><td class="nowrap">${esc(r.host || '–')}</td>
         <td><code class="cmd" title="${esc(r.command || '')}">${esc(r.command || '–')}</code></td>
         <td class="nowrap"><a class="dl" href="/api/run/${esc(r.name)}/report.md">${icon('download')}md</a> <a class="dl" href="/api/run/${esc(r.name)}/report.xlsx">${icon('download')}xlsx</a> <a class="dl" href="/api/run/${esc(r.name)}/results.json">${icon('download')}json</a></td>
-        <td class="nowrap">${runsSel.length === 1 && runsSel[0] === r.name ? '<span class="muted">selected</span>' : stateLink({ runs: r.name }, 'Only this run', 'class="link-btn"')}</td></tr>`).join('')}
+        <td class="nowrap">${runsSel.length === 1 && runsSel[0] === r.name ? '<span class="muted">selected</span>' : stateLink({ runs: r.name, versions: null, ...(Object.keys(r.versions || {})[0] ? { benchmark: Object.keys(r.versions)[0] } : {}) }, 'Only this run', 'class="link-btn"')}</td></tr>`).join('')}
       </tbody></table></div></section>`;
 
-    main.innerHTML = `${head}${kpis}${leaderboard}${charts}${results}${runsCard}`;
+    main.innerHTML = `${head}${versionBar}${kpis}${leaderboard}${versionsCard(s, b)}${charts}${results}${runsCard}`;
     applyWidths(main);
     drawCharts();
     wireSort(main.querySelector('[aria-labelledby="lb-h"]'), s);
@@ -1029,7 +1101,7 @@
     const runsCard = runRows.length ? `<section class="card" aria-labelledby="mruns-h">${cardHead('<span id="mruns-h">Runs</span>', 'This model in each run, within the filters. Open a run for the in-depth analysis: timeline, checks, tool use and the other models of that run.')}
       <div class="table-wrap"><table class="data"><thead><tr><th scope="col">Run</th><th scope="col">Status</th><th scope="col">Started</th><th scope="col" class="num">Cases</th><th scope="col" class="num">Avg score</th><th scope="col" class="num">Pass rate</th><th scope="col" class="num">Total time</th><th scope="col" class="num">Median time / case</th><th scope="col" class="num">Tokens</th><th scope="col" class="num">Failures</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead>
       <tbody>${runRows.join('')}</tbody></table></div></section>` : '';
-    const cols = resultColumns({ withModel: false, detailedChecks: true });
+    const cols = resultColumns({ withModel: false, detailedChecks: true, speech: res.rows.some((x) => x.audio) });
     const t = table(cols, res.rows, s, { sortKey: 'msort', dirKey: 'mdir', rowAttr: (x) => ` class="click" data-href-id="${x.id}"`, tall: true });
     const cases = `<section class="card" id="cases" aria-labelledby="cases-h">${cardHead('<span id="cases-h">Case results</span>', `${res.rows.length} result(s). Click a row for the full drill-down.`)}
       ${res.rows.length ? t.html : '<p class="empty">No results match these filters.</p>'}<div class="card-foot">${statusLegend()}</div></section>`;
@@ -1220,7 +1292,7 @@
     }
 
     // ---- all results and run info
-    const t = table(resultColumns({ withModel: false, detailedChecks: false }).filter((c) => c.key !== 'run'), rs, s, { sortKey: 'xsort', dirKey: 'xdir', rowAttr: (x) => ` class="click" data-href-id="${x.id}"` });
+    const t = table(resultColumns({ withModel: false, detailedChecks: false, speech: rs.some((x) => x.audio) }).filter((c) => c.key !== 'run'), rs, s, { sortKey: 'xsort', dirKey: 'xdir', rowAttr: (x) => ` class="click" data-href-id="${x.id}"` });
     const resultsHtml = `<section class="card" id="mr-results" aria-labelledby="mrr-h">${cardHead('<span id="mrr-h">Case results</span>', `${rs.length} result(s) in run order. Click a row for the answer, checks and transcript.`)}
       ${rs.length ? t.html : '<p class="empty">No results.</p>'}<div class="card-foot">${statusLegend()}</div></section>`;
     const runDur = epoch(d.run.finished_at) && epoch(d.run.started_at) ? epoch(d.run.finished_at) - epoch(d.run.started_at) : null;
@@ -1255,7 +1327,7 @@
     const extra = r.extra || {};
     const otherExtra = Object.entries(extra).filter(([k]) => !['notes', 'leftovers'].includes(k));
     const kv = [
-      ['Run', `${runLink(r.model, r.run)}${r.run_started_at ? ` <span class="muted">started ${esc(fmtDate(r.run_started_at))}</span>` : ''}`], ['Benchmark', esc(r.benchmark)], ['Model', modelLink(r.model)],
+      ['Benchmark version', r.bench_version ? `v${esc(r.bench_version)}` : '–'], ['Run', `${runLink(r.model, r.run)}${r.run_started_at ? ` <span class="muted">started ${esc(fmtDate(r.run_started_at))}</span>` : ''}`], ['Benchmark', esc(r.benchmark)], ['Model', modelLink(r.model)],
       ['Case', `<b>${esc(r.case_key)}</b>${r.title && r.title !== r.case_key ? ` — ${esc(r.title)}` : ''}`], ['Kind / profile', `${esc(r.kind || '–')} · ${esc(r.profile || '–')}`], ['Repeat', esc(r.repeat_idx)],
       ['Status', badge(r.status)], ['Run finished (completed)', r.completed == null ? '–' : r.completed ? 'yes' : 'no'], ['Recorded', esc(fmtDate(r.created_at))],
       ['Answer chars', fmtInt(r.answer_chars)], ['Notes', esc(extra.notes || '–')], ['Leftovers', esc((extra.leftovers || []).join('; ') || '–')],
@@ -1298,6 +1370,9 @@
       ${r.tool_calls.length ? `<section class="card">${cardHead('Tool call sequence', 'In call order. Args hash identifies repeated identical calls.')}<div class="table-wrap tall"><table class="data"><thead><tr><th scope="col" class="num">#</th><th scope="col">Tool</th><th scope="col">OK</th><th scope="col" class="num">Time</th><th scope="col">Args hash</th></tr></thead><tbody>
         ${r.tool_calls.map((t) => `<tr><td class="num">${t.seq}</td><td class="mono">${esc(t.tool)}</td><td>${t.ok === false ? `<span class="badge tone-bad">${icon('x')}failed</span>` : t.ok ? `<span class="badge tone-good">${icon('check')}ok</span>` : '–'}</td><td class="num">${t.duration_s != null ? `${fmt(t.duration_s, 2)} s` : '–'}</td><td class="mono">${esc(t.args_hash || '')}</td></tr>`).join('')}
       </tbody></table></div></section>` : ''}
+      ${r.audio ? `<section class="card" aria-labelledby="aud-h">${cardHead('<span id="aud-h">Audio</span>', r.audio === 'tts' ? `Speech generated by ${esc(r.model)}.` : 'Source clip the model transcribed.')}<div class="card-body">
+        <audio class="aud wide" controls preload="none" src="/api/audio/${esc(r.id)}.wav" aria-label="${r.audio === 'tts' ? 'Generated speech' : 'Source clip'}"></audio>
+        <dl class="kv"><dt>${r.audio === 'tts' ? 'Text spoken' : 'Reference transcript'}</dt><dd>${esc(r.reference || '–')}</dd><dt>${r.audio === 'tts' ? 'Heard back (STT judge)' : 'Model transcript'}</dt><dd>${esc(r.answer_text || '–')}</dd></dl></div></section>` : ''}
       <section class="card">${cardHead('Answer', `${fmtInt(r.answer_chars)} characters`)}<div class="card-body"><pre class="answer">${esc(r.answer_text || '(no answer text stored)')}</pre></div></section>
       <section class="card">${cardHead('Transcript', r.has_transcript ? 'Full conversation from reports/.' : 'Transcript file not available.', r.has_transcript ? `<div class="actions-row"><a class="btn btn-sm" href="/api/result/${esc(r.id)}/transcript" target="_blank" rel="noopener">${icon('external')}Raw JSON</a><a class="btn btn-sm" href="/api/result/${esc(r.id)}/transcript?download=1">${icon('download')}Download</a><button type="button" class="btn btn-sm btn-primary" id="show-tr">Show conversation</button></div>` : '')}
         <div class="card-body" id="tr"></div></section>`;

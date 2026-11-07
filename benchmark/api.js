@@ -109,6 +109,7 @@ function runSummary(conn, name) {
     run_id: run.name, status: run.status, started_at: run.started_at, finished_at: run.finished_at, aborted: run.aborted,
     abort_reason: run.abort_reason, models: run.models.map((m) => ({ id: m.id, load_status: m.load_status, load_ms: m.load_ms })),
     scores: byModel,
+    benchmark_versions: Object.fromEntries(run.benchmarks.filter((b) => b.version).map((b) => [b.name, b.version])),
     cases: rows.map((r) => ({ model: r.model, case_id: r.case_id, kind: r.kind, status: r.status, score: r.score, duration_s: r.duration_s,
       tool_calls: r.tool_calls, tool_errors: r.tool_errors, failure_types: r.failure_types })),
     report: `reports/${run.name}/report.md`,

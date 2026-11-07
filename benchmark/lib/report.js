@@ -158,6 +158,11 @@ function table(headers, rows) {
   ].join('\n');
 }
 
+/** "Benchmark version: 3.2.0 (fingerprint abc123def456)" line of report.md; a backfilled version has no fingerprint. */
+function versionLine(b) {
+  return `Benchmark version: ${b.version}${b.fingerprint ? ` (fingerprint ${b.fingerprint})` : (b.version_source === 'backfill' ? ' (assigned afterwards from the run date, no fingerprint)' : '')}`;
+}
+
 function renderMarkdown(run, agg, ranks) {
   const L = [];
   L.push(`# Benchmark report ${path.basename(run.run_dir)}`, '');
@@ -186,7 +191,9 @@ function renderMarkdown(run, agg, ranks) {
   L.push('');
   for (const b of run.benchmarks) {
     const a = agg.filter((x) => x.benchmark === b.name).sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
-    L.push(`## ${b.name}`, '', b.description || '', '');
+    L.push(`## ${b.name}`, '');
+    if (b.version) L.push(versionLine(b), '');
+    L.push(b.description || '', '');
     L.push(table(['Model', 'Score', 'Passed', 'Pass %', 'Median s', 'Total s', 'Tokens in', 'Tokens out', 'API calls', 'Tool calls', 'Failures'],
       a.map((x) => [x.model, x.score ?? '', `${x.passed}/${x.cases}`, x.pass_rate, x.median_duration_s ?? '', x.total_duration_s ?? '', x.tokens_in, x.tokens_out, x.api_calls, x.tool_calls,
         Object.entries(x.failures).map(([k, v]) => `${k}:${v}`).join(', ')])));
@@ -277,4 +284,4 @@ function renderFiles(run, { log = console.log, dbInfo = null, outDir = run.run_d
   return { agg, ranks, xlsxOk: py.status === 0 };
 }
 
-module.exports = { writeReport, renderFiles, aggregate, rankings, scoreRow, median };
+module.exports = { writeReport, renderFiles, aggregate, rankings, scoreRow, median, versionLine };
