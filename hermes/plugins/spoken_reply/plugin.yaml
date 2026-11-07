@@ -1,0 +1,4 @@
+name: spoken_reply
+version: 1.0.0
+description: "Cleans the final reply of ai-assistant for speech: Markdown to plain sentences, letters of other scripts and emoji removed."
+author: homelab

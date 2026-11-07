@@ -17,6 +17,8 @@ left exactly as it was):
   value is taken as Athens wall-clock time; an explicit non-UTC offset is
   converted. Date-only values, values already in UTC, all-day events and calls
   with a timezone argument are left alone.
+* pre_tool_call also repairs `reminders` of the same to-do/event tools: each item
+  keeps exactly one of trigger_at / minutes_before / trigger.
 * transform_tool_result: calendar and wger-log results are UTC, which the model
   mis-speaks; one "Athens times:" line is appended with the same instants in
   Athens local time.
@@ -218,11 +220,53 @@ def _fix_args(tool_name: str, args: dict, session_id) -> dict:
     return changed
 
 
+_REMINDER_TOOLS = ("nc_calendar_create_todo", "nc_calendar_update_todo",
+                   "nc_calendar_create_event", "nc_calendar_update_event")
+_REMINDER_KEYS = ("trigger_at", "minutes_before", "trigger")
+
+
+def _fix_reminders(tool_name: str, args: dict):
+    """Normalised `reminders` list (or None when it needs no change).
+
+    The Nextcloud MCP wants exactly one of trigger_at / minutes_before / trigger
+    per reminder; the model often sends two (minutes_before plus trigger "-PT15M").
+    Priority: trigger_at, minutes_before, trigger. Items with none are dropped;
+    other keys (action, description) stay.
+    """
+    if not tool_name.endswith(_REMINDER_TOOLS) or not isinstance(args, dict):
+        return None
+    reminders = args.get("reminders")
+    if not isinstance(reminders, list):
+        return None
+    out = []
+    for item in reminders:
+        if not isinstance(item, dict):
+            out.append(item)
+            continue
+        present = [k for k in _REMINDER_KEYS if item.get(k) not in (None, "")]
+        if not present:
+            continue
+        fixed = {k: v for k, v in item.items() if k not in _REMINDER_KEYS}
+        fixed[present[0]] = item[present[0]]
+        out.append(fixed)
+    if out == reminders:
+        return None
+    log.info("clock: %s reminders %s -> %s", tool_name, reminders, out)
+    return out
+
+
 def _pre_tool_call(tool_name="", args=None, session_id="", **kw):
     try:
         if not tool_name or tool_name.rsplit("__", 1)[-1].startswith("clock_") or not _is_profile():
             return None
         changed = _fix_args(str(tool_name), args or {}, session_id)
+        try:
+            reminders = _fix_reminders(str(tool_name), args or {})
+        except Exception as exc:
+            log.debug("clock reminders: %s", exc)
+            reminders = None
+        if reminders is not None:
+            changed["reminders"] = reminders
         return {"action": "modify", "args": changed} if changed else None
     except Exception as exc:
         log.debug("clock pre_tool_call: %s", exc)

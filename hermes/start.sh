@@ -277,6 +277,7 @@ sources = {
     "local_only": share / "local_only",
     "prompt_prime": share / "prompt_prime",
     "agents": share / "agents",
+    "spoken_reply": share / "spoken_reply",
     "kanban_notify": share / "kanban_notify",
 }
 if cache_ok():
@@ -1106,7 +1107,9 @@ if not relay_plugin and "hermes-relay" in enabled:
     enabled.remove("hermes-relay")
 # agents (ask_agent): ai-assistant and the specialists in AGENT_PROFILES.
 # kanban_notify (Talk message per finished card): the specialists only.
+# spoken_reply (transform_llm_output: plain spoken text): ai-assistant only.
 for plugin_name, plugin_profiles in (("agents", ("ai-assistant",) + AGENT_PROFILES),
+                                     ("spoken_reply", ("ai-assistant",)),
                                      ("kanban_notify", AGENT_PROFILES)):
     if profile in plugin_profiles and plugin_name not in enabled:
         enabled.append(plugin_name)
