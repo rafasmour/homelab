@@ -92,6 +92,13 @@
       }
     },
     {
+      "id": "parakeet-ultra",
+      "family": "parakeet_tdt",
+      "path": "/models/parakeet-ultra-gguf/parakeet-ultra-q6_k.gguf",
+      "task": "asr",
+      "mode": "offline"
+    },
+    {
       "id": "cohere",
       "family": "cohere_asr",
       "path": "/models/cohere-transcribe-gguf/cohere-transcribe-03-2026-q6_k.gguf",

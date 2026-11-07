@@ -95,18 +95,17 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      # STT model "auto" (the default), detector mode: a small CPU Whisper
-      # int8 language-ID model (./lid, mounted at /lid) picks el or en from
-      # the first 15 s, then Cohere Transcribe (audio.cpp, GPU) transcribes
-      # with exactly that language hint (it translates into any hint it is
-      # given, so the hint must not be a guess). A client `language` skips
-      # detection. If detection or Cohere fails, Parakeet (CPU, kept running
-      # as the fallback) answers. Previous mode, still supported:
-      #   {"primary": "parakeet", "greek": "cohere"}
+      # STT model "auto" (the default), single-engine mode: Parakeet Ultra
+      # (audio.cpp, GPU, detects the language itself, takes no language hint);
+      # if it fails, Cohere Transcribe answers (its backend default is "el",
+      # which also keeps English intact). Previous mode (rollback), also
+      # supported: {"detector": "whisper-lid", "model": "base", "engine":
+      # "cohere", "languages": ["el", "en"], "fallback": "parakeet", "seconds":
+      # 15, "threads": 2, "el_bias": 4} (./lid stays on disk for it).
       # STT_BACKENDS: a string is a Wyoming "host:port", an object with "url"
       # is an OpenAI-style HTTP endpoint (audio.cpp) and takes `language`.
       STT_DEFAULT: auto
-      STT_AUTO: '{"detector": "whisper-lid", "model": "base", "engine": "cohere", "languages": ["el", "en"], "fallback": "parakeet", "seconds": 15, "threads": 2, "el_bias": 4}'
+      STT_AUTO: '{"engine": "parakeet-ultra", "fallback": "cohere"}'
       STT_GREEK_TIMEOUT_S: "8"
       # Recording capture: the first STT_SAVE_MAX "auto" requests are saved to
       # ./recordings (16 kHz WAV + JSON with language, probabilities,
@@ -133,8 +132,11 @@ services:
       # loaded at a time, alternating languages reloads models.
       TTS_DEFAULT: assistant
       TTS_ROUTES: >-
-        {"assistant": {"en": {"model": "jarvis", "voice": "jarvis"},
-                       "el": {"model": "jarvis", "voice": "jarvis"}}}
+        {"assistant": {"en": {"model": "audio8-air", "voice": "jarvis"},
+                       "el": {"model": "audio8-air", "voice": "jarvis"}}}
+      # Families that clone a voice-library clip (audio8_tts added 2026-11-07
+      # so audio8-air offers the library voice `jarvis`).
+      CLONE_FAMILIES: "voxcpm2,voxcpm1,omnivoice,chatterbox,chatterbox_multilingual,pocket_tts,audio8_tts"
       # Safety net: a failed request (GPU full, model error) is answered by
       # this small engine instead.
       TTS_FALLBACK: '{"model": "supertonic", "voice": "M1"}'
@@ -146,13 +148,14 @@ services:
       LLAMA_URL: http://llama-server:8080
       LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
       WARM_LLM: "${WARM_LLM:-nemotron-3.5-bolt-e4b-dflash}"
-      # Jarvis (VoxCPM2 Q4_K + LoRA, ~2.9 GiB + the 1 GiB guard) fits next to
-      # the production model, so it stays warm; the Q8_0 + LoRA
-      # variant (4.35 GiB) does not.
-      WARM_TTS: jarvis
+      # Audio8-TTS-Realistic-Air (Q8_0, the assistant voice since 2026-11-07)
+      # stays warm; Jarvis/VoxCPM2 remain configured engines, not warmed.
+      WARM_TTS: audio8-air
+      HEAVY_TTS: "audio8-air,jarvis,voxcpm2,omnivoice"
       WARM_TTS_IDLE: "600"
-      # Cohere Transcribe (Q6_K, ~2.1 GiB) stays loaded beside Jarvis.
-      WARM_STT: cohere
+      # Parakeet Ultra (Q6_K, 0.6 GiB; since 2026-11-07 the "auto" engine)
+      # stays loaded beside Audio8. Cohere is the lazily loaded fallback.
+      WARM_STT: parakeet-ultra
       # audio.cpp holds two models (server.json), so parking loads one small
       # model per slot: this pushes both Jarvis and Cohere out of VRAM.
       PARK_TTS: phonon,kokoro

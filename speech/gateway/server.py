@@ -500,8 +500,9 @@ def _latin_with_greek_leak(text: str) -> bool:
 
 
 async def _stt_single(pcm: bytes, language: str | None) -> str:
-    """STT_AUTO {"engine", "language", "english_rerun"}: one engine for every
-    language. Cohere told "el" also writes English speech correctly (FLEURS
+    """STT_AUTO {"engine", "language", "english_rerun", "fallback",
+    "fallback_language"}: one engine for every language; on an error the
+    fallback engine answers (Cohere, told "el" by its backend default). Cohere told "el" also writes English speech correctly (FLEURS
     2026-11-04: English 5.2% WER with "el" vs 4.5% with "en"; Greek 8.4%),
     while "en" garbles Greek, so the Greek hint is the default. A client
     language overrides it; a mostly-Latin transcript with stray Greek letters
@@ -509,7 +510,15 @@ async def _stt_single(pcm: bytes, language: str | None) -> str:
     engine = STT_AUTO["engine"]
     base = STT_AUTO.get("language") or None
     lang = _lang(language) or base
-    text = await _engine(engine, pcm, lang)
+    try:
+        text = await _engine(engine, pcm, lang)
+    except Exception as err:
+        fallback = STT_AUTO.get("fallback")
+        if not fallback or fallback == engine:
+            raise
+        _LOGGER.warning("STT auto: %s failed (%s: %s), using %s", engine,
+                        type(err).__name__, err, fallback)
+        return await _engine(fallback, pcm, STT_AUTO.get("fallback_language") or None)
     rerun = STT_AUTO.get("english_rerun")
     if rerun and lang == base and _latin_with_greek_leak(text):
         again = await _engine(engine, pcm, rerun)
