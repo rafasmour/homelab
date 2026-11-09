@@ -6,7 +6,7 @@
 const path = require('node:path');
 const { filesIn } = require('../../lib/version');
 
-const BENCHMARK_VERSION = '3.3.0';
+const BENCHMARK_VERSION = '4.0.0';
 
 const CHANGELOG = [
   { version: '1.0.0', date: '2026-10-24', summary: 'First release: 13 cases (8 cron, 5 chat) on the Hermes profiles.' },
@@ -16,6 +16,7 @@ const CHANGELOG = [
   { version: '3.1.0', date: '2026-11-06', summary: 'ai-assistant slimmed Kanban toolset (delegate plugin) and SOUL fixes.' },
   { version: '3.2.0', date: '2026-11-06', summary: 'Clock hooks, last SOUL fixes, no language check; optional preset-sampling switch (HERMES_BENCH_PRESET_SAMPLING, used for the LFM3 runs).' },
   { version: '3.3.0', date: '2026-11-07', summary: 'Reminder argument repair (clock hook), ai-assistant reply cleaner (spoken_reply).' },
+  { version: '4.0.0', date: '2026-11-09', summary: 'Assistant calendar cases by difficulty on relative dates (easy: today; medium: tomorrow and the day after; hard: a later weekday, then tomorrow at the same time) replace the three fixed-date cases. Hermes: clock_to_utc add_days + time with relative/in_past, datetime guard on new items, spoken_reply removed.' },
 ];
 
 /** Version of a stored run without one (run folder name `YYYY-MM-DD_HH-MM[-n]`, local time). First matching threshold from the end. */

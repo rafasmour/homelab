@@ -10,18 +10,31 @@
 //   kind: chat|...  - any other kind runs as an interactive request with optional setup/verify/
 //                     cleanup hooks (hooks.js) and the profile's CLI toolsets.
 // Chat cases write on the test date 2027-01-15 through the real MCP servers, are verified through
-// those servers, and are always cleaned up afterwards.
+// those servers, and are always cleaned up afterwards. The relative-date cases (assistant-cal-*: today, tomorrow,
+// a later weekday) use {{D0}}..{{D7}}, {{LATER}}, {{UTC:...}} (helpers.relativeVars): they get a `bind(now)` that
+// re-renders prompt, params and hooks from the Athens date when the case starts; their items are removed by the
+// case's keyword cleanup and by id (cleanupRecorded), not by the run-level test-date cleanup.
 const fs = require('node:fs');
 const path = require('node:path');
 const H = require('./helpers');
 const hooks = require('./hooks');
 
-const { TEST_DATE, todayAthens, fold, check, asList, wgerItems, ncSnapshot, ncDiff, fireflyBills, fireflyTransactions, onTestDate } = H;
+const { TEST_DATE, todayAthens, fold, check, asList, wgerItems, ncSnapshot, ncDiff, fireflyBills, fireflyTransactions, onTestDate, athensUtc, relativeVars } = H;
 const TASKS_DIR = path.join(__dirname, 'tasks');
 
-/** Replace {{TEST_DATE}} (and other {{NAME}} values) in strings, recursively. */
+/**
+ * Replace {{TEST_DATE}} (and other {{NAME}} values) in strings, recursively. {{UTC:<date var>T<HH:MM or time var>}}
+ * is that Athens wall-clock time in UTC ("...Z"), e.g. {{UTC:D1T10:00}} or {{UTC:D0TLATER}}.
+ */
 function template(v, vars) {
-  if (typeof v === 'string') return v.replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
+  if (typeof v === 'string') {
+    return v
+      .replace(/\{\{UTC:(D\d+|TEST_DATE)T(\d{2}:\d{2}|[A-Z][A-Z0-9_]*)\}\}/g, (m, d, t) => {
+        const time = /^\d/.test(t) ? t : vars[t];
+        return d in vars && time ? athensUtc(vars[d], time) : m;
+      })
+      .replace(/\{\{([A-Z0-9_]+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
+  }
   if (Array.isArray(v)) return v.map((x) => template(x, vars));
   if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, template(x, vars)]));
   return v;
@@ -39,15 +52,30 @@ function parseTask(file) {
     if (/^".*"$/.test(v)) v = v.slice(1, -1);
     meta[kv[1]] = v === 'true' ? true : v === 'false' ? false : v;
   }
-  const vars = { TEST_DATE };
   const id = meta.case || path.basename(file, '.md');
   const kind = meta.kind || (id.startsWith('cron-') ? 'cron' : 'chat');
   if (!meta.profile) throw new Error(`${file}: front matter needs profile`);
-  let params = {};
-  if (meta.params) { try { params = JSON.parse(meta.params); } catch (e) { throw new Error(`${file}: params is not JSON: ${e.message}`); } }
-  params = template(params, vars);
+  let rawParams = {};
+  if (meta.params) { try { rawParams = JSON.parse(meta.params); } catch (e) { throw new Error(`${file}: params is not JSON: ${e.message}`); } }
   // Like the shell's $(cat <<EOF ...) the prompt has no trailing newline.
-  const prompt = template(m[2].replace(/\n+$/, ''), vars);
+  const rawPrompt = m[2].replace(/\n+$/, '');
+  const relative = RELATIVE_RE.test(rawPrompt) || RELATIVE_RE.test(meta.params || '');
+  for (const h of ['setup', 'verify', 'cleanup']) {
+    if (meta[h] && !hooks[h][meta[h]]) throw new Error(`${file}: unknown ${h} hook "${meta[h]}" (see hooks.js)`);
+  }
+  const task = buildTask({ file, meta, id, kind, rawPrompt, rawParams, relative }, relative ? relativeVars() : { TEST_DATE });
+  const unresolved = `${task.prompt}${JSON.stringify(task.params)}`.match(/\{\{[^}]+\}\}/);
+  if (relative && unresolved) throw new Error(`${file}: unknown template ${unresolved[0]}`);
+  return task;
+}
+
+const RELATIVE_RE = /\{\{(?:D\d|LATER|NOW|UTC:)/;
+
+/** The runnable task for one set of template values; relative-date tasks carry bind(now) for a fresh rendering. */
+function buildTask(src, vars) {
+  const { file, meta, id, kind } = src;
+  const prompt = template(src.rawPrompt, vars);
+  const params = template(src.rawParams, vars);
   const task = {
     id, kind, profile: meta.profile, order: Number(meta.order) || 999, file: path.basename(file), prompt, params,
     research: meta.research === true, toolsets: meta.toolsets || (kind === 'cron' ? 'cron' : 'cli'),
@@ -55,10 +83,14 @@ function parseTask(file) {
     job: meta.job || id.replace(/^cron-/, ''), heading: meta.heading || null, schedule: meta.schedule || null,
   };
   if (kind === 'cron' && !task.heading) throw new Error(`${file}: a cron task needs heading`);
+  if (src.relative) {
+    task.relative = true;
+    task.today = vars.D0;
+    task.bind = (now) => buildTask(src, relativeVars(now));
+  }
   for (const h of ['setup', 'verify', 'cleanup']) {
     if (!meta[h]) continue;
     const fn = hooks[h][meta[h]];
-    if (!fn) throw new Error(`${file}: unknown ${h} hook "${meta[h]}" (see hooks.js)`);
     task[`${h}Hook`] = meta[h];
     if (h === 'setup') task.setup = (clients) => fn(clients, params);
     if (h === 'verify') task.verify = (clients, before, run) => fn(clients, before, run, params);

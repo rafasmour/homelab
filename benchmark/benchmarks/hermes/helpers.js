@@ -19,12 +19,58 @@ const fold = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLo
 const check = (name, pass, reason = '') => ({ name, pass, reason });
 const asList = (x, key) => (Array.isArray(x) ? x : (x && Array.isArray(x[key]) ? x[key] : []));
 
+/** UTC ("YYYY-MM-DDTHH:MM:SSZ") of an Athens wall-clock time on an Athens date, with that day's EET/EEST offset. */
+const athensUtc = (ymd, hhmm) => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const [h, mi] = hhmm.split(':').map(Number);
+  for (const off of [2, 3]) {
+    const t = new Date(Date.UTC(y, m - 1, d, h - off, mi));
+    const p = athensParts(t);
+    if (p.date === ymd && p.time === hhmm) return t.toISOString().replace('.000Z', 'Z');
+  }
+  throw new Error(`${ymd} ${hhmm} does not exist in ${TZ}`);
+};
+
+const WEEKDAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// Greek accusative with its article ("την Πέμπτη", "το Σάββατο") and genitive months ("12 Νοεμβρίου").
+const WEEKDAYS_EL = ['την Κυριακή', 'τη Δευτέρα', 'την Τρίτη', 'την Τετάρτη', 'την Πέμπτη', 'την Παρασκευή', 'το Σάββατο'];
+const MONTHS_EL = ['Ιανουαρίου', 'Φεβρουαρίου', 'Μαρτίου', 'Απριλίου', 'Μαΐου', 'Ιουνίου', 'Ιουλίου', 'Αυγούστου', 'Σεπτεμβρίου', 'Οκτωβρίου', 'Νοεμβρίου', 'Δεκεμβρίου'];
+/** "Thursday 12 November" / "την Πέμπτη 12 Νοεμβρίου" for an Athens date. */
+const dateWords = (ymd, lang) => {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  const [wd, day, mon] = [d.getUTCDay(), d.getUTCDate(), d.getUTCMonth()];
+  return lang === 'el' ? `${WEEKDAYS_EL[wd]} ${day} ${MONTHS_EL[mon]}` : `${WEEKDAYS_EN[wd]} ${day} ${MONTHS_EN[mon]}`;
+};
+
+/**
+ * Template variables of the relative-date cases, from the Athens date and time at `now` (bound when a case starts, so
+ * a run that crosses midnight still asks about the right days):
+ *   D0..D7          Athens dates today .. today+7 (YYYY-MM-DD)
+ *   D4_EL, D4_EN    today+4 in words ("την Πέμπτη 12 Νοεμβρίου", "Thursday 12 November")
+ *   LATER/LATER_END a whole hour 2 h ahead (at most 22:00) and one hour after it, HH:MM
+ * plus {{UTC:<date var>T<HH:MM or time var>}} (see cases.js template()).
+ */
+const relativeVars = (now = new Date()) => {
+  const { date, time } = athensParts(now);
+  const vars = { TEST_DATE };
+  for (let i = 0; i <= 7; i++) vars[`D${i}`] = addDays(date, i);
+  vars.D4_EL = dateWords(vars.D4, 'el');
+  vars.D4_EN = dateWords(vars.D4, 'en');
+  const start = Math.min(Number(time.slice(0, 2)) + 2, 22);
+  vars.LATER = `${String(start).padStart(2, '0')}:00`;
+  vars.LATER_END = `${String(start + 1).padStart(2, '0')}:00`;
+  vars.NOW = time;
+  return vars;
+};
+
 // ---------------------------------------------------------------- nextcloud snapshots
 async function ncSnapshot(nc) {
   const todosRaw = await nc.call('nc_calendar_search_todos', {});
   const todos = asList(todosRaw, 'todos').map((t) => ({ uid: t.uid, calendar: t.calendar_name, summary: t.summary, due: t.due, dtstart: t.dtstart, status: t.status }));
   const events = [];
-  const windows = [[addDays(TEST_DATE, -2), addDays(TEST_DATE, 2)], [addDays(todayAthens(), -1), addDays(todayAthens(), 2)]];
+  // Today's window reaches today+8: the relative-date cases write up to today+4 (and a wrong answer may land later).
+  const windows = [[addDays(TEST_DATE, -2), addDays(TEST_DATE, 2)], [addDays(todayAthens(), -1), addDays(todayAthens(), 8)]];
   for (const [start, end] of windows) {
     const r = await nc.call('nc_calendar_list_events', { start_date: start, end_date: end, search_all_calendars: true, limit: 500 });
     for (const e of asList(r, 'events')) if (!events.some((x) => x.uid === e.uid && x.calendar === e.calendar_name)) events.push({ uid: e.uid, calendar: e.calendar_name, summary: e.summary, start: e.start, end: e.end, all_day: e.all_day });
@@ -127,6 +173,7 @@ const onTestDate = (s) => { const d = parseDate(s); return Boolean(d) && athensP
 
 module.exports = {
   TEST_DATE, TZ, athensParts, todayAthens, addDays, parseDate, fold, check, asList, onTestDate,
+  athensUtc, dateWords, relativeVars,
   ncSnapshot, ncDiff, ncCleanup, wgerItems, fireflyBills, fireflyTransactions,
   KANBAN_DIR, KANBAN_DB, kanbanCards,
 };

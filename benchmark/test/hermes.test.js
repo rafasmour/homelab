@@ -9,9 +9,48 @@ const T = hermes._test;
 
 const ids = (o) => hermes.listCases(o).map((c) => c.id);
 
+const H = require('../benchmarks/hermes/helpers');
+const calCase = (id) => hermes.listCases({ withOptin: true }).find((c) => c.id === id).chat;
+
+test('athensUtc: EET in winter, EEST in summer, the offset of the target day', () => {
+  assert.strictEqual(H.athensUtc('2026-11-09', '11:00'), '2026-11-09T09:00:00Z');
+  assert.strictEqual(H.athensUtc('2026-07-01', '11:00'), '2026-07-01T08:00:00Z');
+  assert.strictEqual(H.athensUtc('2026-10-25', '10:00'), '2026-10-25T08:00:00Z'); // first day of EET
+  assert.strictEqual(H.dateWords('2026-11-12', 'el'), 'την Πέμπτη 12 Νοεμβρίου');
+  assert.strictEqual(H.dateWords('2026-11-14', 'el'), 'το Σάββατο 14 Νοεμβρίου');
+  assert.strictEqual(H.dateWords('2026-11-12', 'en'), 'Thursday 12 November');
+});
+
+test('calendar cases by difficulty: relative dates bound when the case starts', () => {
+  for (const id of ['assistant-cal-easy-en', 'assistant-cal-medium-el', 'assistant-cal-medium-event-el', 'assistant-cal-hard-el']) {
+    const c = calCase(id);
+    assert.ok(c.relative && typeof c.bind === 'function', id);
+    assert.ok(!/\{\{/.test(c.prompt + JSON.stringify(c.params)), `${id} has unrendered templates`);
+  }
+  // The failure of 2026-11-08: Sunday 22:26 Athens, a later weekday at 11:00, then "tomorrow" at 11:00.
+  const hard = calCase('assistant-cal-hard-el').bind(new Date('2026-11-08T20:26:30Z'));
+  assert.strictEqual(hard.today, '2026-11-08');
+  assert.match(hard.prompt, /^Θύμισέ μου την Πέμπτη 12 Νοεμβρίου στις 11:00 .*αύριο στις 11:00/);
+  assert.deepStrictEqual(hard.params.todos.map((t) => t.due_utc), ['2026-11-12T09:00:00Z', '2026-11-09T09:00:00Z']);
+  // Late evening in UTC is already the next day in Athens.
+  const med = calCase('assistant-cal-medium-el').bind(new Date('2026-11-08T22:30:00Z'));
+  assert.deepStrictEqual(med.params.todos.map((t) => t.due_utc), ['2026-11-10T08:00:00Z', '2026-11-10T11:00:00Z', '2026-11-11T15:00:00Z']);
+  const ev = calCase('assistant-cal-medium-event-el').bind(new Date('2026-10-23T09:00:00Z'));
+  assert.deepStrictEqual([ev.params.events[0].start_utc, ev.params.events[0].end_utc], ['2026-10-25T15:00:00Z', '2026-10-25T16:00:00Z']);
+  // Easy: a whole hour 2 h ahead, at most 22:00, in the prompt and the expectation.
+  const easy = calCase('assistant-cal-easy-en').bind(new Date('2026-11-09T12:45:00Z'));
+  assert.match(easy.prompt, /today at 16:00 /);
+  assert.deepStrictEqual([easy.params.events[0].start_utc, easy.params.events[0].end_utc], ['2026-11-09T14:00:00Z', '2026-11-09T15:00:00Z']);
+  const late = calCase('assistant-cal-easy-en').bind(new Date('2026-11-09T20:40:00Z'));
+  assert.match(late.prompt, /today at 22:00 /);
+  // Hooks use the bound expectations.
+  assert.strictEqual(typeof hard.verify, 'function');
+  assert.strictEqual(hard.verifyHook, 'assistantOutcome');
+});
+
 test('default selection: no opt-in group, no web cases, no gpu-watch', () => {
   const d = ids({ defaultSelection: true });
-  for (const x of ['cron-ai-news', 'cron-selfhosted', 'cron-llamacpp-vulkan', 'cron-llamacpp-rocm', 'research-qa', 'assistant-event-en', 'cron-gpu-watch']) assert.ok(!d.includes(x), x);
+  for (const x of ['cron-ai-news', 'cron-selfhosted', 'cron-llamacpp-vulkan', 'cron-llamacpp-rocm', 'research-qa', 'assistant-cal-easy-en', 'cron-gpu-watch']) assert.ok(!d.includes(x), x);
   for (const x of ['cron-hf-models', 'food-log', 'reminder-todo', 'calendar-event', 'subscriptions-read', 'cron-calories-report']) assert.ok(d.includes(x), x);
 });
 

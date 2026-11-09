@@ -27,7 +27,10 @@ The stack has two containers:
   router models. `MCP_STATIC_TOKEN` (same as `wger/.env`) authenticates against
   the wger MCP server. Both live only in the ignored `.env` file.
 - The Hermes chat cases write real items **on the test date 2027-01-15**: a wger
-  food log, a Nextcloud to-do and a Nextcloud event. Each case deletes what it
+  food log, a Nextcloud to-do and a Nextcloud event. The four `assistant-cal-*`
+  cases are the exception: they write on **today and the next few days** (see
+  [Assistant cases](#assistant-cases-ai-assistant)), so the items briefly appear on
+  your real lists and phone until the case deletes them. Each case deletes what it
   created. The run also takes a snapshot first and runs a final cleanup in a
   `finally` block, even after an abort or an error. That cleanup removes new
   test-date items in wger and Nextcloud and any Firefly bill or transaction
@@ -240,6 +243,7 @@ has a version, recorded per run and benchmark in `run_benchmarks` (also in `resu
 | hermes | 3.1.0 | 2026-11-06 | `2026-11-06_16-12` | ai-assistant slim Kanban toolset (delegate plugin) and SOUL fixes. |
 | hermes | 3.2.0 | 2026-11-06 | `2026-11-06_18-19` to `2026-11-06_22-12` (4 runs) | Clock hooks, last SOUL fixes, reply language not checked; optional preset-sampling switch (the LFM3 runs `2026-11-06_21-12`). |
 | hermes | 3.3.0 | 2026-11-07 | `hermes-3.3.0-2026-11-07` run | Reminder argument repair (clock hook), ai-assistant reply cleaner (`spoken_reply`). |
+| hermes | 4.0.0 | 2026-11-09 | none yet | Assistant calendar cases by difficulty on relative dates (`assistant-cal-easy-en`, `-medium-el`, `-medium-event-el`, `-hard-el`) replace `assistant-event-en`, `assistant-reminders-el`, `assistant-event-el`. Hermes: `clock_to_utc` `add_days` + `time` with `relative`/`in_past`, datetime guard on new items, `spoken_reply` removed. |
 | stt | 1.0.0 | 2026-11-03 | all 5 stt runs | FLEURS el/en subset, WER/CER, pass at WER <= 25%. |
 | tts | 1.0.0 | 2026-11-04 | all 3 tts runs | Texts from Hermes answers, round-trip WER by an STT judge, five sanity checks. |
 
@@ -512,23 +516,33 @@ task file):
 
 ### Assistant cases (ai-assistant)
 
-Nine opt-in cases for the `ai-assistant` profile (Jarvis persona, minimal Nextcloud tools, Kanban delegation and the `ask_agent` consult tool), taken
-from the owner's real requests of 2026-10-30 to 2026-11-03 (personal details paraphrased, dates moved to the
-2027-01-15 test day). They are the "assistant" group: **opt-in**, they run only with `--profiles ai-assistant` or
+Ten opt-in cases for the `ai-assistant` profile (Jarvis persona, minimal Nextcloud tools, Kanban delegation and the `ask_agent` consult tool), taken
+from the owner's real requests of 2026-10-30 to 2026-11-08 (personal details paraphrased; the four calendar cases use
+dates relative to today, the others the 2027-01-15 test day). They are the "assistant" group: **opt-in**, they run only with `--profiles ai-assistant` or
 `--cases` (or `--with-optin`), and never in the default selection (so `all` stays comparable with the earlier
 default runs). The benchmark job API starts them with `profile: ai-assistant`.
 
 | Case | Source request | What is checked |
 | --- | --- | --- |
-| `assistant-event-en` | "Create a calendar event for tomorrow to check the Todo, because many tasks are overdue" (the real answer said "Done" without ever calling `nc_calendar_create_event`) | Exactly one VEVENT on `personal`, 08:00Z-09:00Z, about the to-do check, no extra to-do; spoken style. |
-| `assistant-reminders-el` | Greek: three reminders for Monday (accountant about income tax 10:00, pay the loans 13:00, pay for the house furniture 17:00) | Exactly three VTODOs on `personal-1` (furniture also `tasks`), due 08:00Z / 11:00Z / 15:00Z, no events; Greek answer. |
+| `assistant-cal-easy-en` (easy) | "Create a calendar event today at `LATER` to check my to-do list, because many tasks are overdue" (the real answer said "Done" without ever calling `nc_calendar_create_event`) | Exactly one VEVENT on `personal` today, `LATER` to `LATER`+1 h Athens, about the to-do check, no extra to-do; spoken style. |
+| `assistant-cal-medium-el` (medium) | Greek: tomorrow 10:00 accountant about income tax, tomorrow 13:00 pay the loans, the day after tomorrow 17:00 pay for the house furniture | Exactly three separate VTODOs on `personal-1` (furniture also `tasks`), due tomorrow 10:00 / 13:00 and the day after 17:00 Athens, no events; Greek answer. |
 | `assistant-reminder-delegate` | "Remind me tomorrow at 9 to check my phone and note that I have ate a toast" | One VTODO (`tasks` or `personal-1`) due 07:00Z and and, for the toast, either a Kanban card assigned to `calories` mentioning the toast or an `ask_agent` consult of `calories` whose request mentions it (the assistant has no food tools). |
 | `assistant-delegate-n8n` | Greek: ask the n8n agent why the workflow "firefly subs to nextcloud payments" does not work | A card for `n8n` (or `default`) naming the workflow, or an `ask_agent` consult of `n8n` naming it; nothing created in Nextcloud ("Hermes tasks go to the Kanban"). |
 | `assistant-delegate-plan` | Planner agent should research fine-tuning a small model for Greek and homelab tools and not return before Monday 10:00 | One card for `planner` mentioning fine-tuning and Greek; nothing created in Nextcloud. |
 | `assistant-agenda` | "What do I have to do for the day?" / "What is on my calendar today?" | Calls `nc_calendar_search_todos` and an events tool, creates nothing, names at least one item the tools returned (live data, so no fixed titles). |
 | `assistant-garbled-el` | Speech-recognition noise in Greek (a book passage read aloud) that the real assistant answered with a Kanban loop and a lecture | No card, no Nextcloud item, at most one tool call, short Greek reply. |
 | `assistant-time-el` | "What time is it right now?" in Greek | Calls `clock_now`, at most 2 tool calls, Greek, no ISO/UTC reading. |
-| `assistant-event-el` | Greek appointment request on the pattern of `calendar-event` | One VEVENT on `personal`, 15:00Z-16:00Z, dentist; Greek answer. |
+| `assistant-cal-medium-event-el` (medium) | Greek: dentist appointment the day after tomorrow from 5 to 6 in the afternoon | One VEVENT on `personal`, the day after tomorrow 17:00-18:00 Athens, dentist; Greek answer. |
+| `assistant-cal-hard-el` (hard) | The failure of 2026-11-08: a later weekday named with its date ("την Παρασκευή 13 Νοεμβρίου", today+4) at 11:00 for the plumber, then "αύριο" at 11:00 for the accountant. The model filed "tomorrow" on the later date it had just resolved | Two VTODOs (`tasks` or `personal-1`): plumber due today+4 11:00, accountant due tomorrow 11:00 Athens; Greek answer. |
+
+**Relative dates.** The four `assistant-cal-*` cases (easy: today; medium: tomorrow and the day after; hard: a later
+date, then an earlier one at the same time) use `{{D0}}`..`{{D7}}` (Athens dates from today), `{{D4_EL}}`/`{{D4_EN}}`
+(today+4 in words), `{{LATER}}`/`{{LATER_END}}` (a whole hour 2 h ahead, at most 22:00, and one hour after it) and
+`{{UTC:<date var>T<HH:MM or time var>}}` (that Athens time in UTC with the day's EET/EEST offset), see
+`helpers.relativeVars`. They are rendered again when each attempt starts (`bind(now)`), so a run that crosses
+midnight still asks about the right days; the transcript records `today` and the notes say which date was used. Their
+items are removed by the case's keyword cleanup and by id, not by the run-level test-date cleanup. A run after 22:00
+Athens asks the easy case for 22:00, which has already passed.
 
 Every assistant case also runs the `spoken_style` check (rules): no Markdown, URLs, emoji, ISO dates, UTC times or
 ids (the reply language is not checked). There is no sentence limit (the owner removed it). The assistant has no `kanban` toolset: it queues cards with the `agents` plugin's `delegate(assignee, title, details)` and

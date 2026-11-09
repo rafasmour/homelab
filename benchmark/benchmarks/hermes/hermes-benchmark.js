@@ -681,6 +681,8 @@ function infraSignals({ logs, stderr, messages, exit, timedOut, sid, modelAfter,
 /** One attempt. The row carries `infra` (array of reasons) when the environment, not the model, may be to blame. */
 async function runCaseOnce(ctx, c, repeat, attempt) {
   const { model, runDir, log } = ctx;
+  // Relative-date cases (today, tomorrow, a later weekday): prompt and expectations from the Athens date right now.
+  if (c.kind !== 'cron' && c.chat.bind) c = { ...c, chat: c.chat.bind(new Date()) };
   const row = {
     benchmark: 'hermes', model, case_id: c.id, group: c.profile, kind: c.kind, repeat,
     status: 'error', duration_s: null, exit_code: null, tokens_in: 0, tokens_out: 0, api_calls: 0, tool_calls: 0, tool_errors: 0,
@@ -690,6 +692,10 @@ async function runCaseOnce(ctx, c, repeat, attempt) {
   const infra = [];
   const clients = mcpClients();
   const transcript = { case: c.id, model, profile: c.profile, kind: c.kind, attempt };
+  if (c.kind !== 'cron' && c.chat.relative) {
+    transcript.today = c.chat.today;
+    notes.push(`relative dates from ${c.chat.today} (Athens)`);
+  }
   let before = null;
   let setupOk = true;
   let homeBuilt = false;
