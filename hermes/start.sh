@@ -1390,7 +1390,7 @@ Your reply is the answer itself, in the length the user asked for ("two sentence
 
 Dates and times: the user lives in Europe/Athens. You have no clock of your own, so call clock_now before resolving "now", "in an hour", "tonight", "tomorrow" or a weekday, and repeat the full date (YYYY-MM-DD) and Athens time in every confirmation.
 
-Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". local_datetime is the date the user gave (today only when the user means today) and the Athens time exactly as the user said it: "13:00 on 2027-01-15" is local_datetime "2027-01-15T13:00", never "13:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Date-only fields stay calendar days: an all-day date is YYYY-MM-DD, and a Firefly bill date is "<YYYY-MM-DD>T12:00:00Z". Calendar apps show the UTC value in Athens time.
+Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date the user named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what the user said. A named date is local_datetime with the Athens time exactly as the user said it: "13:00 on 2027-01-15" is local_datetime "2027-01-15T13:00", never "13:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Date-only fields stay calendar days: an all-day date is YYYY-MM-DD, and a Firefly bill date is "<YYYY-MM-DD>T12:00:00Z". Calendar apps show the UTC value in Athens time.
 EOF
 )
 export SOUL_CORE
@@ -1422,7 +1422,7 @@ export SOUL_CORE_MIN
 SOUL_DATES_MIN=$(cat <<'EOF'
 ## Dates and times
 
-The owner lives in Europe/Athens. You have no clock of your own: call clock_now before resolving "now", "today", "tomorrow" or a weekday. Every datetime you write to a tool is the "utc" value that clock_to_utc returns for the Athens wall-clock time meant (clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z"); never type an offset or pass a timezone. Tool results are UTC: give times in Athens time.
+The owner lives in Europe/Athens. You have no clock of your own: call clock_now before resolving "now", "today", "tomorrow" or a weekday. Every datetime you write to a tool is the "utc" value that clock_to_utc returns for the Athens wall-clock time meant (clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z"); never type an offset or pass a timezone. For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date the user named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what the user said. Tool results are UTC: give times in Athens time.
 EOF
 )
 export SOUL_DATES_MIN
@@ -1541,7 +1541,7 @@ Requests arrive from chat (Open WebUI or your Talk room), from a Kanban card, or
 - "Remind me", "reminder", "don't forget", "to do", "buy", "call", "pay" is a VTODO, even when it has a time: mcp__nextcloud__nc_calendar_create_todo on the task list that matches its topic (see the calendar map), \`tasks\` only when nothing else fits, with the time as due.
 - An appointment, meeting, visit or anything that happens at a place or with other people at a set time is a VEVENT: mcp__nextcloud__nc_calendar_create_event on \`personal\` unless another VEVENT calendar is named.
 - Weekdays: "Friday" is the next Friday from clock_now (today if it is Friday and the time is still ahead); "Friday next week" is the Friday of the following Monday-to-Sunday week. Check that the weekday returned by clock_to_utc is the one the user said before you write anything.
-- Example: "Remind me tomorrow at 10:00 to update the server" -> clock_now, clock_to_utc(local_datetime "<tomorrow>T10:00"), then mcp__nextcloud__nc_calendar_create_todo on \`homelab\` with summary "Update the server" and due = the returned utc. Not an event.
+- Example: "Remind me tomorrow at 10:00 to update the server" -> clock_to_utc(add_days 1, time "10:00"), then mcp__nextcloud__nc_calendar_create_todo on \`homelab\` with summary "Update the server" and due = the returned utc. Not an event.
 - If a request lacks a date or time the item needs, ask for it in your reply; do not guess.
 
 ${CALENDAR_MAP}
@@ -1596,7 +1596,7 @@ Logging food:
 2. mcp__wger__get_nutrition_plan for the meals; take the meal_id named like the user's meal, or mcp__wger__create_meal when it is missing. Every log_ingredient call needs this meal_id.
 3. mcp__wger__search_ingredients with the whole dish name in English and pick an id from that result. If no result is the dish, split it into its main components with typical weights that add up to the portion and log each one; never log only one component. Never invent an ingredient_id; ingredient_id 1 is not rice.
 4. Convert the portion to grams (mcp__wger__list_ingredient_units lists known portions).
-5. mcp__wger__log_ingredient exactly once per item with all five arguments: plan_id, ingredient_id, amount_g, meal_id, and when = the "utc" value of clock_to_utc(local_datetime "<the date the user gave>T<the Athens time the user gave>") (for "just now", the "utc" value of clock_now). Never leave out meal_id or when, and never log on today's date when the user named another date. Check mcp__wger__list_log_items before any retry; never log an item twice.
+5. mcp__wger__log_ingredient exactly once per item with all five arguments: plan_id, ingredient_id, amount_g, meal_id, and when = the "utc" value of clock_to_utc(add_days 0 for today or -1 for yesterday, time "<the Athens time the user gave>"), or clock_to_utc(local_datetime "<YYYY-MM-DD>T<HH:MM>") for a date the user named (for "just now", the "utc" value of clock_now). Never leave out meal_id or when, and never log on today's date when the user named another date. Check mcp__wger__list_log_items before any retry; never log an item twice.
 6. Re-read with mcp__wger__list_log_items and confirm the new row has the user's date and time, the grams, and a meal (not null); fix a wrong row with mcp__wger__update_log_item. Then confirm the food, grams, meal and time, and give the log item id.
 
 If wger has no matching ingredient, use mcp__web_search__web_search only to identify the food, then search wger again with a better English name. A search snippet is never a diary row. If logging is impossible, say so with the error (on a Kanban card: kanban_block with the error).
@@ -1741,7 +1741,7 @@ Events go on \`personal\` only (\`contact_birthdays\` is read-only). Reminders a
 
 ## Dates and times
 
-He lives in Europe/Athens. You have no clock: call clock_now before resolving "now", "today", "tomorrow" or a weekday. Every datetime you write to a tool is the "utc" value that clock_to_utc returns for the Athens time he means; never type an offset or a timezone yourself, and write it exactly as returned, ending in Z. For example clock_to_utc(local_datetime "2026-10-24T10:00") returns "2026-10-24T07:00:00Z": write exactly that utc value, ending in Z. Tool results are UTC: convert them before you speak them. Calendar results end with an 'Athens times' line: use those times when you speak.
+He lives in Europe/Athens. You have no clock: call clock_now before resolving "now", "today", "tomorrow" or a weekday. Every datetime you write to a tool is the "utc" value that clock_to_utc returns for the Athens time he means; never type an offset or a timezone yourself, and write it exactly as returned, ending in Z. For example clock_to_utc(local_datetime "2026-10-24T10:00") returns "2026-10-24T07:00:00Z": write exactly that utc value, ending in Z. For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date he named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what he said. Tool results are UTC: convert them before you speak them. Calendar results end with an 'Athens times' line: use those times when you speak.
 
 ## Facts from the web
 

@@ -19,6 +19,10 @@ left exactly as it was):
   with a timezone argument are left alone.
 * pre_tool_call also repairs `reminders` of the same to-do/event tools: each item
   keeps exactly one of trigger_at / minutes_before / trigger.
+* clock_to_utc takes add_days plus a "time" (HH:MM), so "tomorrow at 11:00" is
+  add_days 1, time "11:00" and the date is computed here, not by the model
+  (2026-11-08 it filed "tomorrow 11:00" on the day after tomorrow). Every result
+  carries "relative" (today, tomorrow, in 2 days ...) and "in_past".
 * transform_tool_result: calendar and wger-log results are UTC, which the model
   mis-speaks; one "Athens times:" line is appended with the same instants in
   Athens local time.
@@ -66,47 +70,79 @@ CLOCK_NOW_SCHEMA = {
 CLOCK_TO_UTC_SCHEMA = {
     "name": "clock_to_utc",
     "description": (
-        "Convert a local Europe/Athens date and time (e.g. 2026-10-24T10:00) to UTC. "
-        "Use the returned 'utc' value (ending in Z) for Nextcloud to-do due/dtstart and wger 'when'. "
-        "Optionally add minutes/hours/days to the local time first."
+        "Resolve an Europe/Athens date and time to UTC. For today, tomorrow or any day counted "
+        "from today, never write the date: pass add_days (0 today, 1 tomorrow, 2 the day after) "
+        "and time, e.g. add_days 1, time '11:00' is tomorrow at 11:00. Use local_datetime only for "
+        "a date the user named. 'relative' in the result says which day it is (today, tomorrow, "
+        "in 2 days): check it matches what the user said. Use the returned 'utc' value (ending in Z) "
+        "for Nextcloud to-do due/dtstart and wger 'when'."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "local_datetime": {
                 "type": "string",
-                "description": "Local wall-clock time, YYYY-MM-DDTHH:MM (no offset). Omit to use now.",
+                "description": "A date the user named, YYYY-MM-DDTHH:MM or YYYY-MM-DD (no offset). Omit for today/now.",
             },
-            "add_minutes": {"type": "integer", "description": "Minutes to add first (e.g. 60 for 'in an hour')."},
-            "add_days": {"type": "integer", "description": "Days to add first (e.g. 1 for 'tomorrow')."},
+            "time": {
+                "type": "string",
+                "description": "Athens time of day HH:MM; sets the time on the resolved day (e.g. '11:00').",
+            },
+            "add_days": {"type": "integer", "description": "Days from today (or from local_datetime): 0 today, 1 tomorrow."},
+            "add_minutes": {"type": "integer", "description": "Minutes to add last (e.g. 60 for 'in an hour', with no time)."},
         },
     },
 }
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _handle_now(args: dict, **kw) -> str:
-    return json.dumps(_describe(datetime.now(timezone.utc)))
+    return json.dumps(_describe(_now()))
+
+
+_TIME = re.compile(r"^(\d{1,2})[:.](\d{2})(?::\d{2})?$")
+
+
+def _relative(days: int) -> str:
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    if days == -1:
+        return "yesterday"
+    return f"in {days} days" if days > 0 else f"{-days} days ago"
 
 
 def _handle_to_utc(args: dict, **kw) -> str:
     args = args or {}
     raw = str(args.get("local_datetime") or "").strip()
+    time_raw = str(args.get("time") or "").strip()
+    now_local = _now().astimezone(_zone())
     try:
         if raw:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             local = parsed.astimezone(_zone()) if parsed.tzinfo else parsed.replace(tzinfo=_zone())
         else:
-            local = datetime.now(_zone())
-        local = local + timedelta(
-            minutes=int(args.get("add_minutes") or 0), days=int(args.get("add_days") or 0)
-        )
-        # Re-attach the zone so a DST change between now and the target uses the right offset.
-        local = local.replace(tzinfo=None).replace(tzinfo=_zone())
+            local = now_local
+        local = local.replace(tzinfo=None) + timedelta(days=int(args.get("add_days") or 0))
+        if time_raw:
+            m = _TIME.match(time_raw)
+            if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+                raise ValueError(f"time {time_raw!r} is not HH:MM")
+            local = local.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)
+        local = local + timedelta(minutes=int(args.get("add_minutes") or 0))
+        # Attach the zone last so a DST change between now and the target uses the right offset.
+        local = local.replace(tzinfo=_zone())
     except (TypeError, ValueError) as exc:
-        return json.dumps({"ok": False, "error": f"cannot parse {raw!r}: {exc}; use YYYY-MM-DDTHH:MM"})
+        return json.dumps({"ok": False, "error": f"cannot resolve {args!r}: {exc}; "
+                           "use add_days and time HH:MM, or local_datetime YYYY-MM-DDTHH:MM"})
     described = _describe(local)
     _remember(kw.get("session_id"), local.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S"), described["utc"])
-    return json.dumps({"ok": True, **described})
+    days = (local.date() - now_local.date()).days
+    return json.dumps({"ok": True, **described, "relative": _relative(days), "in_past": local < now_local})
 
 
 log = logging.getLogger(__name__)

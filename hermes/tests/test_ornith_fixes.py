@@ -64,6 +64,62 @@ class ClockReminders(unittest.TestCase):
         self.assertEqual(r["args"]["reminders"], [{"minutes_before": 15}])
 
 
+class ClockToUtc(unittest.TestCase):
+    def resolve(self, now_utc, **args):
+        import json
+        from datetime import datetime, timezone
+        real = clock._now
+        clock._now = lambda: datetime.fromisoformat(now_utc).replace(tzinfo=timezone.utc)
+        try:
+            return json.loads(clock._handle_to_utc(args, session_id="t"))
+        finally:
+            clock._now = real
+
+    def test_tomorrow_late_sunday_is_monday(self):
+        # 2026-11-08 22:26 Athens: "tomorrow at 11:00" was filed on Tuesday.
+        r = self.resolve("2026-11-08T20:26:30", add_days=1, time="11:00")
+        self.assertEqual(r["utc"], "2026-11-09T09:00:00Z")
+        self.assertEqual((r["weekday"], r["relative"], r["in_past"]), ("Monday", "tomorrow", False))
+
+    def test_athens_date_not_utc_date(self):
+        # 23:30 UTC on the 8th is already the 9th in Athens: tomorrow is the 10th.
+        r = self.resolve("2026-11-08T23:30:00", add_days=1, time="09:00")
+        self.assertEqual((r["local"], r["relative"]), ("2026-11-10T09:00:00+02:00", "tomorrow"))
+
+    def test_today_past_time(self):
+        r = self.resolve("2026-11-09T09:30:00", add_days=0, time="11:00")
+        self.assertEqual((r["utc"], r["relative"], r["in_past"]), ("2026-11-09T09:00:00Z", "today", True))
+
+    def test_dst_offset_of_target_day(self):
+        # Created in summer time (+03:00), due after the switch to winter time (+02:00).
+        r = self.resolve("2026-10-24T09:00:00", add_days=2, time="10:00")
+        self.assertEqual((r["utc"], r["utc_offset"], r["relative"]), ("2026-10-26T08:00:00Z", "+02:00", "in 2 days"))
+
+    def test_named_date_and_time_override(self):
+        r = self.resolve("2026-11-08T20:00:00", local_datetime="2027-01-15", time="13:00")
+        self.assertEqual((r["utc"], r["relative"]), ("2027-01-15T11:00:00Z", "in 68 days"))
+        r = self.resolve("2026-11-08T20:00:00", local_datetime="2026-11-10T11:00")
+        self.assertEqual((r["utc"], r["relative"]), ("2026-11-10T09:00:00Z", "in 2 days"))
+
+    def test_in_an_hour_and_yesterday(self):
+        r = self.resolve("2026-11-08T20:26:00", add_minutes=60)
+        self.assertEqual((r["local"], r["relative"]), ("2026-11-08T23:26:00+02:00", "today"))
+        r = self.resolve("2026-11-08T20:26:00", add_days=-1, time="13:00")
+        self.assertEqual((r["utc"], r["relative"], r["in_past"]), ("2026-11-07T11:00:00Z", "yesterday", True))
+
+    def test_resolved_value_passes_hook_unchanged(self):
+        r = self.resolve("2026-11-08T20:26:30", add_days=1, time="11:00")
+        os.environ["HERMES_PROFILE"] = "ai-assistant"
+        hook = clock._pre_tool_call(tool_name=TOOL, args={"due": r["utc"]}, session_id="t")
+        self.assertIsNone(hook)
+        hook = clock._pre_tool_call(tool_name=TOOL, args={"due": r["utc"][:-1]}, session_id="t")
+        self.assertEqual(hook["args"]["due"], r["utc"])
+
+    def test_bad_time(self):
+        for bad in ("25:00", "noon", "11:7"):
+            self.assertFalse(self.resolve("2026-11-08T20:00:00", add_days=1, time=bad)["ok"])
+
+
 class SpokenReply(unittest.TestCase):
     def test_markdown(self):
         t = "## Σήμερα\n- **Γιατρός** στις 10\n- Ψώνια\n1. Πρώτο\nΔες https://example.com/x και [σύνδεσμο](http://a.b)."
