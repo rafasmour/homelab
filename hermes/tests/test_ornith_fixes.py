@@ -59,6 +59,7 @@ class ClockReminders(unittest.TestCase):
         self.assertIsNone(self.run_hook({"reminders": [5, None]}))
 
     def test_combines_with_datetime_fix(self):
+        clock._handle_to_utc({"local_datetime": "2026-11-08T10:00"}, session_id="s")
         r = self.run_hook({"due": "2026-11-08T10:00", "reminders": [{"minutes_before": 15, "trigger": "-PT15M"}]})
         self.assertEqual(r["args"]["due"], "2026-11-08T08:00:00Z")
         self.assertEqual(r["args"]["reminders"], [{"minutes_before": 15}])
@@ -118,6 +119,76 @@ class ClockToUtc(unittest.TestCase):
     def test_bad_time(self):
         for bad in ("25:00", "noon", "11:7"):
             self.assertFalse(self.resolve("2026-11-08T20:00:00", add_days=1, time=bad)["ok"])
+
+
+class ClockGuard(unittest.TestCase):
+    """pre_tool_call blocks datetimes no clock tool or earlier result gave the session."""
+
+    NOW = "2026-11-09T12:45:16"
+
+    def setUp(self):
+        import json
+        from datetime import datetime, timezone
+        os.environ["HERMES_PROFILE"] = "ai-assistant"
+        self.json = json
+        self.sid = f"guard-{self._testMethodName}"
+        self.real = clock._now
+        clock._now = lambda: datetime.fromisoformat(self.NOW).replace(tzinfo=timezone.utc)
+
+    def tearDown(self):
+        clock._now = self.real
+
+    def hook(self, args, tool=TOOL):
+        return clock._pre_tool_call(tool_name=tool, args=args, session_id=self.sid)
+
+    def to_utc(self, **args):
+        return self.json.loads(clock._handle_to_utc(args, session_id=self.sid))
+
+    def test_self_computed_utc_is_blocked(self):
+        # 2026-11-09: clock_now, then a UTC value the model worked out itself.
+        clock._handle_now({}, session_id=self.sid)
+        r = self.hook({"todo_uid": "x", "due": "2026-11-09T09:00:00Z"})
+        self.assertEqual(r["action"], "block")
+        self.assertIn("clock_to_utc", r["message"])
+        self.assertIn("due 2026-11-09T09:00:00Z", r["message"])
+
+    def test_self_typed_local_is_blocked(self):
+        self.assertEqual(self.hook({"due": "2026-11-10T11:00:00"})["action"], "block")
+
+    def test_clock_to_utc_value_passes(self):
+        utc = self.to_utc(add_days=0, time="11:00")["utc"]
+        self.assertIsNone(self.hook({"due": utc}))
+        # Its local form is converted, not blocked.
+        r = self.hook({"due": "2026-11-09T11:00"})
+        self.assertEqual(r, {"action": "modify", "args": {"due": "2026-11-09T09:00:00Z"}})
+
+    def test_existing_value_from_search_passes(self):
+        result = '{"todos":[{"uid":"x","due":"2026-11-10T09:00:00+00:00"}]}'
+        clock._transform_tool_result(tool_name="mcp__nextcloud_assistant__nc_calendar_search_todos",
+                                     result=result, session_id=self.sid)
+        self.assertIsNone(self.hook({"todo_uid": "x", "due": "2026-11-10T09:00:00Z"}))
+
+    def test_clock_now_for_wger_just_now(self):
+        now = self.json.loads(clock._handle_now({}, session_id=self.sid))["utc"]
+        self.assertIsNone(self.hook({"when": now}, tool="mcp__wger__log_ingredient"))
+        self.assertIsNone(self.hook({"when": "2026-11-09T12:45Z"}, tool="mcp__wger__log_ingredient"))
+
+    def test_other_sessions_values_do_not_count(self):
+        clock._handle_to_utc({"add_days": 0, "time": "11:00"}, session_id="someone-else")
+        self.assertEqual(self.hook({"due": "2026-11-09T09:00:00Z"})["action"], "block")
+
+    def test_not_guarded(self):
+        self.assertIsNone(self.hook({"due": "2026-11-10"}))
+        self.assertIsNone(self.hook({"start_datetime": "2026-11-10T00:00:00Z", "all_day": True},
+                                    tool="mcp__nextcloud__nc_calendar_create_event"))
+        self.assertIsNone(self.hook({"summary": "no dates"}))
+        self.assertIsNone(self.hook({"due": "2026-11-09T09:00:00Z"}, tool="mcp__x__nc_notes_create_note"))
+        os.environ["HERMES_PROFILE"] = "default"
+        self.assertIsNone(self.hook({"due": "2026-11-09T09:00:00Z"}))
+
+    def test_block_wins_over_reminder_repair(self):
+        r = self.hook({"due": "2026-11-09T09:00:00Z", "reminders": [{"minutes_before": 5, "trigger": "-PT5M"}]})
+        self.assertEqual(r["action"], "block")
 
 
 class SpokenReply(unittest.TestCase):

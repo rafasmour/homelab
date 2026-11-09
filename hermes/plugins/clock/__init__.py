@@ -17,6 +17,12 @@ left exactly as it was):
   value is taken as Athens wall-clock time; an explicit non-UTC offset is
   converted. Date-only values, values already in UTC, all-day events and calls
   with a timezone argument are left alone.
+* pre_tool_call blocks a to-do/event/wger write whose datetime is not an instant
+  this session already saw: a clock_to_utc or clock_now result, or a timestamp
+  in an earlier calendar/wger result (an existing due date passed back
+  unchanged). On 2026-11-09 the model called clock_now and then wrote a UTC
+  value it computed itself, which skips both the date and the offset checks;
+  the block message tells it to call clock_to_utc and retry.
 * pre_tool_call also repairs `reminders` of the same to-do/event tools: each item
   keeps exactly one of trigger_at / minutes_before / trigger.
 * clock_to_utc takes add_days plus a "time" (HH:MM), so "tomorrow at 11:00" is
@@ -100,7 +106,9 @@ def _now() -> datetime:
 
 
 def _handle_now(args: dict, **kw) -> str:
-    return json.dumps(_describe(_now()))
+    now = _now().replace(microsecond=0)
+    _know(kw.get("session_id"), [now])
+    return json.dumps(_describe(now))
 
 
 _TIME = re.compile(r"^(\d{1,2})[:.](\d{2})(?::\d{2})?$")
@@ -141,6 +149,7 @@ def _handle_to_utc(args: dict, **kw) -> str:
                            "use add_days and time HH:MM, or local_datetime YYYY-MM-DDTHH:MM"})
     described = _describe(local)
     _remember(kw.get("session_id"), local.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S"), described["utc"])
+    _know(kw.get("session_id"), [local])
     days = (local.date() - now_local.date()).days
     return json.dumps({"ok": True, **described, "relative": _relative(days), "in_past": local < now_local})
 
@@ -164,6 +173,32 @@ def _remember(session_id, local_naive: str, utc: str) -> None:
                 _seen.popitem(last=False)
     except Exception:  # never let bookkeeping break the tool
         pass
+
+
+_MAX_KNOWN = 300
+_known: "OrderedDict[str, set]" = OrderedDict()
+
+
+def _know(session_id, moments) -> None:
+    """Record UTC instants (to the minute) this session has seen from a tool."""
+    try:
+        key = str(session_id or "")
+        with _lock:
+            seen = _known.pop(key, set())
+            for m in moments:
+                seen.add(m.astimezone(timezone.utc).replace(second=0, microsecond=0))
+            if len(seen) > _MAX_KNOWN:
+                seen = set(sorted(seen)[-_MAX_KNOWN:])
+            _known[key] = seen
+            while len(_known) > _MAX_SESSIONS:
+                _known.popitem(last=False)
+    except Exception:
+        pass
+
+
+def _is_known(session_id, moment: datetime) -> bool:
+    with _lock:
+        return moment.astimezone(timezone.utc).replace(second=0, microsecond=0) in _known.get(str(session_id or ""), set())
 
 
 def _recorded_utc(session_id) -> set:
@@ -225,6 +260,43 @@ def _fix_value(value: str, recorded: set):
 def _iso_offset(off: str) -> str:
     digits = off[1:].replace(":", "")
     return f"{off[0]}{digits[:2]}:{digits[2:4] or '00'}"
+
+
+def _instant(value: str):
+    """The UTC instant a datetime string names after _fix_value, or None for dates and other text."""
+    v = value.strip()
+    m = _OFFSET.match(v)
+    if not m:
+        return None
+    off = m.group(5).upper()
+    iso = f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4) or '00'}"
+    iso += "+00:00" if off == "Z" else _iso_offset(off)
+    return datetime.fromisoformat(iso).astimezone(timezone.utc)
+
+
+def _unresolved(tool_name: str, args: dict, changed: dict, session_id) -> list:
+    """Datetime fields of a write whose instant no clock tool or earlier result gave this session."""
+    fields = None
+    for suffix, names in _WRITE_FIELDS.items():
+        if tool_name.endswith(suffix):
+            fields = names
+            break
+    if not fields or not isinstance(args, dict):
+        return []
+    if str(args.get("timezone") or "").strip() or args.get("all_day") in (True, "true", "True", 1):
+        return []
+    bad = []
+    for field in fields:
+        value = changed.get(field, args.get(field))
+        if not isinstance(value, str) or not value.strip():
+            continue
+        try:
+            moment = _instant(value)
+        except (ValueError, OverflowError):
+            continue
+        if moment is not None and not _is_known(session_id, moment):
+            bad.append(f"{field} {args.get(field)}")
+    return bad
 
 
 def _fix_args(tool_name: str, args: dict, session_id) -> dict:
@@ -296,6 +368,18 @@ def _pre_tool_call(tool_name="", args=None, session_id="", **kw):
         if not tool_name or tool_name.rsplit("__", 1)[-1].startswith("clock_") or not _is_profile():
             return None
         changed = _fix_args(str(tool_name), args or {}, session_id)
+        bad = _unresolved(str(tool_name), args or {}, changed, session_id)
+        if bad:
+            log.info("clock: blocked %s, not from clock_to_utc: %s", tool_name, ", ".join(bad))
+            return {
+                "action": "block",
+                "message": (
+                    f"BLOCKED: {', '.join(bad)} did not come from clock_to_utc. Never compute a date or "
+                    "UTC time yourself: call clock_to_utc (add_days 0 today, 1 tomorrow, with time HH:MM; "
+                    "local_datetime only for a date the user named), check its 'relative' day, then retry "
+                    "this call with its exact 'utc' value."
+                ),
+            }
         try:
             reminders = _fix_reminders(str(tool_name), args or {})
         except Exception as exc:
@@ -359,6 +443,13 @@ def _transform_tool_result(tool_name="", result=None, status=None, **kw):
                 return None
         except ValueError:
             pass
+        moments = []
+        for ts in _TS.findall(result)[:200]:
+            try:
+                moments.append(_parse_ts(ts))
+            except ValueError:
+                pass
+        _know(kw.get("session_id"), moments)
         line = _athens_line(result)
         return result + line if line else None
     except Exception as exc:
