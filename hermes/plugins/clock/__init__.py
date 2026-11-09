@@ -17,12 +17,14 @@ left exactly as it was):
   value is taken as Athens wall-clock time; an explicit non-UTC offset is
   converted. Date-only values, values already in UTC, all-day events and calls
   with a timezone argument are left alone.
-* pre_tool_call blocks a to-do/event/wger write whose datetime is not an instant
-  this session already saw: a clock_to_utc or clock_now result, or a timestamp
-  in an earlier calendar/wger result (an existing due date passed back
-  unchanged). On 2026-11-09 the model called clock_now and then wrote a UTC
-  value it computed itself, which skips both the date and the offset checks;
-  the block message tells it to call clock_to_utc and retry.
+* pre_tool_call blocks a new to-do, event or wger log whose datetime is not an
+  instant this session already saw: a clock_to_utc or clock_now result, or a
+  timestamp in an earlier calendar/wger result. On 2026-11-09 the model called
+  clock_now and then wrote a UTC value it computed itself, which skips both the
+  date and the offset checks; the block message tells it to call clock_to_utc
+  and retry. An end_datetime up to 24 hours after a checked start_datetime of
+  the same call passes (the model adds the duration itself). Updates of existing
+  items are never blocked, whatever their date (past dates included).
 * pre_tool_call also repairs `reminders` of the same to-do/event tools: each item
   keeps exactly one of trigger_at / minutes_before / trigger.
 * clock_to_utc takes add_days plus a "time" (HH:MM), so "tomorrow at 11:00" is
@@ -274,8 +276,13 @@ def _instant(value: str):
     return datetime.fromisoformat(iso).astimezone(timezone.utc)
 
 
+_GUARDED = ("nc_calendar_create_todo", "nc_calendar_create_event", "log_ingredient")
+
+
 def _unresolved(tool_name: str, args: dict, changed: dict, session_id) -> list:
-    """Datetime fields of a write whose instant no clock tool or earlier result gave this session."""
+    """Datetime fields of a new item whose instant no clock tool or earlier result gave this session."""
+    if not tool_name.endswith(_GUARDED):
+        return []
     fields = None
     for suffix, names in _WRITE_FIELDS.items():
         if tool_name.endswith(suffix):
@@ -286,6 +293,7 @@ def _unresolved(tool_name: str, args: dict, changed: dict, session_id) -> list:
     if str(args.get("timezone") or "").strip() or args.get("all_day") in (True, "true", "True", 1):
         return []
     bad = []
+    moments = {}
     for field in fields:
         value = changed.get(field, args.get(field))
         if not isinstance(value, str) or not value.strip():
@@ -294,8 +302,16 @@ def _unresolved(tool_name: str, args: dict, changed: dict, session_id) -> list:
             moment = _instant(value)
         except (ValueError, OverflowError):
             continue
-        if moment is not None and not _is_known(session_id, moment):
-            bad.append(f"{field} {args.get(field)}")
+        if moment is None:
+            continue
+        moments[field] = moment
+        if _is_known(session_id, moment):
+            continue
+        start = moments.get("start_datetime")
+        if (field == "end_datetime" and start is not None and "start_datetime" not in " ".join(bad)
+                and timedelta(0) <= moment - start <= timedelta(hours=24)):
+            continue
+        bad.append(f"{field} {args.get(field)}")
     return bad
 
 

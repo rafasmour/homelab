@@ -1,4 +1,4 @@
-"""Unit tests for the clock reminder repair and the spoken_reply cleaner.
+"""Unit tests for the clock plugin: clock_to_utc, the datetime guard and the reminder repair.
 
 Run: python3 -m unittest discover -s hermes/tests
 """
@@ -18,7 +18,6 @@ def load(name):
 
 
 clock = load("clock")
-spoken = load("spoken_reply")
 TOOL = "mcp__nextcloud_assistant__nc_calendar_create_todo"
 
 
@@ -186,38 +185,29 @@ class ClockGuard(unittest.TestCase):
         os.environ["HERMES_PROFILE"] = "default"
         self.assertIsNone(self.hook({"due": "2026-11-09T09:00:00Z"}))
 
+    def test_end_derived_from_checked_start_passes(self):
+        # 2026-11-09: start from clock_to_utc, end = start + 1 h computed by the model.
+        ev = "mcp__nextcloud_assistant__nc_calendar_create_event"
+        start = self.to_utc(add_days=0, time="16:45")["utc"]
+        self.assertIsNone(self.hook({"start_datetime": start, "end_datetime": "2026-11-09T15:45:00Z"}, tool=ev))
+        self.assertEqual(self.hook({"start_datetime": start, "end_datetime": "2026-11-11T15:45:00Z"},
+                                   tool=ev)["action"], "block")
+        self.assertEqual(self.hook({"start_datetime": "2026-11-12T10:00:00Z",
+                                    "end_datetime": "2026-11-12T11:00:00Z"}, tool=ev)["action"], "block")
+
+    def test_updates_are_never_blocked(self):
+        for tool in ("mcp__nextcloud_assistant__nc_calendar_update_todo",
+                     "mcp__nextcloud_assistant__nc_calendar_update_event", "mcp__wger__update_log_item"):
+            for field in ("due", "start_datetime", "when"):
+                r = self.hook({"uid": "x", field: "2026-10-01T08:00:00Z"}, tool=tool)
+                self.assertTrue(r is None or r["action"] == "modify", (tool, field, r))
+        # Naive values on updates are still converted from Athens time.
+        r = self.hook({"due": "2026-10-01T10:00"}, tool="mcp__nextcloud_assistant__nc_calendar_update_todo")
+        self.assertEqual(r["args"]["due"], "2026-10-01T07:00:00Z")
+
     def test_block_wins_over_reminder_repair(self):
         r = self.hook({"due": "2026-11-09T09:00:00Z", "reminders": [{"minutes_before": 5, "trigger": "-PT5M"}]})
         self.assertEqual(r["action"], "block")
-
-
-class SpokenReply(unittest.TestCase):
-    def test_markdown(self):
-        t = "## Σήμερα\n- **Γιατρός** στις 10\n- Ψώνια\n1. Πρώτο\nΔες https://example.com/x και [σύνδεσμο](http://a.b)."
-        self.assertEqual(spoken.speakable(t),
-                         "Σήμερα. Γιατρός στις 10. Ψώνια. Πρώτο. Δες και σύνδεσμο.")
-
-    def test_table(self):
-        t = "| A | B |\n|---|---|\n| 1 | 2 |"
-        self.assertEqual(spoken.speakable(t), "A B. 1 2.")
-
-    def test_stray_scripts_and_emoji(self):
-        self.assertEqual(spoken.speakable("Η προγραμματισμός یادирования είναι έτοιμη 😀"),
-                         "Η προγραμματισμός είναι έτοιμη")
-        self.assertEqual(spoken.speakable("hello мир 你好 world"), "hello world")
-
-    def test_never_empty(self):
-        self.assertEqual(spoken.speakable("мир"), "мир")
-        self.assertEqual(spoken.speakable(""), "")
-
-    def test_plain_text_unchanged_and_hook(self):
-        os.environ["HERMES_PROFILE"] = "ai-assistant"
-        plain = "Έχεις συνάντηση αύριο στις δέκα."
-        self.assertEqual(spoken.speakable(plain), plain)
-        self.assertIsNone(spoken._transform_llm_output(response_text=plain))
-        self.assertEqual(spoken._transform_llm_output(response_text="- ένα\n- δύο"), "ένα. δύο.")
-        os.environ["HERMES_PROFILE"] = "default"
-        self.assertIsNone(spoken._transform_llm_output(response_text="- ένα"))
 
 
 if __name__ == "__main__":

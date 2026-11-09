@@ -277,14 +277,18 @@ sources = {
     "local_only": share / "local_only",
     "prompt_prime": share / "prompt_prime",
     "agents": share / "agents",
-    "spoken_reply": share / "spoken_reply",
     "kanban_notify": share / "kanban_notify",
 }
 if cache_ok():
     sources["nextcloud_talk"] = cache
 
+# Retired plugins: remove their copies (spoken_reply: removed 2026-11-09, its
+# reply cleaning broke sentences).
+retired = ("spoken_reply",)
 for profile in profiles:
     phome = home if profile == "default" else home / "profiles" / profile
+    for name in retired:
+        shutil.rmtree(phome / "plugins" / name, ignore_errors=True)
     for name, src in sources.items():
         if not src.is_dir():
             print(f"WARNING: plugin source {src} is missing", file=sys.stderr)
@@ -1107,9 +1111,9 @@ if not relay_plugin and "hermes-relay" in enabled:
     enabled.remove("hermes-relay")
 # agents (ask_agent): ai-assistant and the specialists in AGENT_PROFILES.
 # kanban_notify (Talk message per finished card): the specialists only.
-# spoken_reply (transform_llm_output: plain spoken text): ai-assistant only.
+# spoken_reply is retired: listed with no profiles so it is disabled everywhere.
 for plugin_name, plugin_profiles in (("agents", ("ai-assistant",) + AGENT_PROFILES),
-                                     ("spoken_reply", ("ai-assistant",)),
+                                     ("spoken_reply", ()),
                                      ("kanban_notify", AGENT_PROFILES)):
     if profile in plugin_profiles and plugin_name not in enabled:
         enabled.append(plugin_name)

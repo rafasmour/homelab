@@ -195,9 +195,6 @@ wger/static/
 !hermes/plugins/clock/
 !hermes/plugins/clock/plugin.yaml
 !hermes/plugins/clock/__init__.py
-!hermes/plugins/spoken_reply/
-!hermes/plugins/spoken_reply/plugin.yaml
-!hermes/plugins/spoken_reply/__init__.py
 !hermes/tests/
 !hermes/tests/test_ornith_fixes.py
 !hermes/plugins/sandbox_terminal/
