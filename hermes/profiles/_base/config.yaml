@@ -1,0 +1,174 @@
+# Shared settings of every Hermes profile (default included).
+#
+# The image installs this file as /etc/hermes/config.yaml, Hermes' "managed scope": an administrator layer
+# that is deep-merged ON TOP of each profile's own config.yaml (profiles/<name>/config.yaml). Two consequences:
+#   - A key set here is pinned for every profile and cannot be overridden or changed by a profile, by
+#     `hermes config set` or by an agent. Keep per-profile values (MCP servers, toolsets, llama.cpp slot,
+#     approvals, ...) in the profile files and never repeat a key from this file there.
+#   - ${VAR} placeholders are expanded by Hermes from the environment, and for gateway-served profiles from the
+#     profile's .env, which compose mounts as hermes/.env. Set the variable there (see .env.example).
+
+timezone: Europe/Athens
+
+# One model for chat, Kanban workers, cron and every auxiliary task (llama.cpp router, --models-max 1).
+# context_length must fit one llama.cpp slot (ctx-size / parallel, or kv-unified-per-slot).
+model:
+  provider: custom
+  base_url: ${HERMES_INFERENCE_BASE_URL}
+  api_mode: chat_completions
+  default: ${HERMES_MODEL}
+  api_key: ${LLAMA_API_KEY}
+  context_length: 65536
+
+# Compact near the end of the 64k slot. The threshold is a fraction of the context window and counts the whole
+# request (system prompt, tool schemas, messages): 0.8 is ~52k of 65536 and leaves ~13k for the reply and the
+# next tool output. Hermes' default 0.5 is below the default profile's first call (~35-38k tokens).
+compression:
+  enabled: true
+  threshold: 0.8
+
+# Nous free tier off: with no provider configured Hermes would create a Nous identity on first use and could
+# route inference there. Nothing is set up and nothing is used.
+nous:
+  guest: false
+
+# One hour is the homelab tool deadline (specialist MCP writes can exceed Hermes' defaults).
+timeouts:
+  tools:
+    concurrent_batch: 3600
+    sequential_call: 3600
+  mcp:
+    tool_call: 3600
+
+# Hermes' own local backend; the terminal and file toolsets are disabled in every profile.
+terminal:
+  timeout: 3600
+  backend: local
+
+providers:
+  custom:
+    request_timeout_seconds: 3600
+
+# The main model never falls back to another (cloud) provider.
+fallback_providers: []
+
+# Built-in memory (MEMORY.md/USER.md per profile) plus self-hosted Hindsight (hindsight stack, one shared bank
+# "hermes", every memory tagged profile:<name>). Hindsight reads profiles/<name>/hindsight.json, mounted
+# read-only as <profile home>/hindsight/config.json. The plugin is baked into the image.
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  provider: hindsight
+
+# Speech through the homelab speech stack (speech-gateway, OpenAI-compatible, no authentication, so the key is
+# a placeholder the OpenAI client requires). STT model "auto" is Parakeet, Greek Parakeet when the transcript
+# is Greek; TTS engines and voices are discovered from audio.cpp by the gateway.
+stt:
+  enabled: true
+  provider: openai
+  openai:
+    base_url: http://speech-gateway:8000/v1
+    api_key: speech-gateway
+    model: auto
+    language: ''
+  language: ''
+tts:
+  provider: openai
+  openai:
+    base_url: http://speech-gateway:8000/v1
+    api_key: speech-gateway
+    model: assistant
+    voice: assistant
+
+# Post a cron job's answer as-is, without the "Cronjob Response: <name> (job_id)" header.
+cron:
+  wrap_response: false
+
+# MCP tools must sit in the model schema. tool_search would defer them behind tool_describe, and a small local
+# model describes forever instead of calling.
+tools:
+  tool_search:
+    enabled: 'off'
+
+# delegate_task subagents run on the parent's local model (no provider, model or base_url override). Two
+# children at most (parent + 2 = 3 llama.cpp slots).
+delegation:
+  model: ''
+  provider: ''
+  base_url: ''
+  api_key: ''
+  api_mode: ''
+  max_concurrent_children: 2
+  max_iterations: 40
+  max_spawn_depth: 1
+
+# Hermes abandons a plugin that takes longer than this to import/register (default 10 s).
+# web/forage is disabled: Hermes would route web search through it instead of the web-search MCP.
+plugins:
+  load_timeout_seconds: 60
+  disabled:
+    - web/forage
+
+# No auxiliary session titles, and never a paid OpenRouter lane for auxiliary traffic. Every auxiliary task is
+# pinned to the profile's own local model with an empty fallback_chain, so a failure can only retry the same
+# local endpoint (an explicit non-auto provider skips Hermes' "auto" chain main -> OpenRouter -> Nous -> ...).
+# vision uses the profile model too (a vision preset would evict the served model); the vision toolset is
+# disabled anyway. The task list is auxiliary.* of Hermes' defaults plus tasks that only exist in code.
+auxiliary:
+  free_only: true
+  vision: &local_model
+    provider: custom
+    base_url: ${HERMES_INFERENCE_BASE_URL}
+    api_key: ${LLAMA_API_KEY}
+    model: ${HERMES_MODEL}
+    api_mode: chat_completions
+    fallback_chain: []
+  title_generation:
+    <<: *local_model
+    enabled: false
+  compression:
+    <<: *local_model
+  skills_hub:
+    <<: *local_model
+  approval:
+    <<: *local_model
+  review:
+    <<: *local_model
+  mcp:
+    <<: *local_model
+  memory_query_rewrite:
+    <<: *local_model
+  tts_audio_tags:
+    <<: *local_model
+  triage_specifier:
+    <<: *local_model
+  kanban_decomposer:
+    <<: *local_model
+  kanban_estimator:
+    <<: *local_model
+  profile_describer:
+    <<: *local_model
+  goal_judge:
+    <<: *local_model
+  curator:
+    <<: *local_model
+  monitor:
+    <<: *local_model
+  background_review:
+    <<: *local_model
+  moa_reference:
+    <<: *local_model
+  moa_aggregator:
+    <<: *local_model
+  session_search:
+    <<: *local_model
+  web_extract:
+    <<: *local_model
+  video:
+    <<: *local_model
+  flush_memories:
+    <<: *local_model
+  group_router:
+    <<: *local_model
+  voice_chat:
+    <<: *local_model

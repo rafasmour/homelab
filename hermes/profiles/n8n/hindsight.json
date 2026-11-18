@@ -1,0 +1,20 @@
+{
+  "mode": "local_external",
+  "api_url": "http://hindsight:8888",
+  "bank_id": "hermes",
+  "retain_tags": "profile:n8n",
+  "auto_retain": false,
+  "retain_async": true,
+  "retain_every_n_turns": 1,
+  "auto_recall": false,
+  "recall_sync": false,
+  "recall_prefetch_method": "recall",
+  "recall_budget": "mid",
+  "recall_max_tokens": 800,
+  "recall_types": "observation,world,experience",
+  "memory_mode": "tools",
+  "bank_mission": "Long-term memory of Rafael, the owner of this home lab: who he is, the people in his life, his preferences, habits, plans and decisions.",
+  "bank_retain_mission": "Extract only lasting facts that the user (Rafael) states or confirms about himself, the people in his life, his preferences, habits and decisions: facts that help the assistant do his tasks better. Do NOT extract: tasks, to-dos, events, reminders, appointments or deadlines (they live in Nextcloud and the other self-hosted apps); anything the assistant said or claimed; the current state of tasks, to-dos, calendars, money, servers or anything else that changes (open, overdue, done, scheduled, up or down); one-off requests and commands; text that does not concern the user (stories, articles, quotes, read-aloud passages, other people's conversations); and garbled, nonsensical or mixed-language speech-recognition text. When in doubt, extract nothing.",
+  "recall_indicator": true,
+  "retain_indicator": true
+}
