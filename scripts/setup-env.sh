@@ -130,7 +130,6 @@ C SELF_HEAL_GRAFANA_TOKEN token "" "Grafana: Administration > Users and access >
 C WGER_API_KEY          token "" "wger: Settings > API key of the owner account"
 C ADMIN_TOKEN           token "" "Vaultwarden Argon2 hash: docker run --rm -it vaultwarden/server:latest /vaultwarden hash"
 C HF_TOKEN              tokenopt "" "Hugging Face: Settings > Access Tokens (read scope), only for gated repositories"
-C chartdb/OPENAI_API_KEY tokenopt "" "OpenAI API key, only for ChartDB's AI features"
 C TALK_ALERTS_ROOM      value "" "Nextcloud Talk: token of the 'Grafana alerts' room (last part of the room URL)"
 C TRUSTED_PROXIES       value "" "webgateway subnet: docker network inspect webgateway --format '{{(index .IPAM.Config 0).Subnet}}'"
 C JWT_PUBLIC_KEY        manual "" "wger: docker compose exec web ./manage.py generate-jwt-keys (paste both lines)"

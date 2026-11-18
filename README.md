@@ -9,7 +9,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | Service | Description | Public route | Homepage group |
 | --- | --- | --- | --- |
 | [Benchmark](benchmark/README.md) | Compares llama.cpp models as the brain of the Hermes profiles (runner with Docker socket and job API; MCP server for the Hermes `models` profile; SQLite results browser behind a login page) | `benchmark.${DOMAIN}` | AI |
-| [ChartDB](chartdb/README.md) | Browser-based database diagramming | `chartdb.${DOMAIN}` | Development |
 | [Databases](databases/README.md) | Shared Postgres 17 (immich, wger, n8n, hindsight) and MariaDB (Nextcloud); start before the apps | Private only | Not listed |
 | [Docker state exporter](docker-state-exporter/README.md) | Prometheus metrics for container state, health and restarts | Private only | Not listed |
 | [draw.io](drawio/README.md) | Browser-based diagram and flowchart editor with Hermes MCP tools | `drawio.${DOMAIN}` | Knowledge |

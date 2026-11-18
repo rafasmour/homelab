@@ -32,7 +32,6 @@
 # Supported service folders. Add a matching `!service-name/` entry when a new
 # stack is created. Files inside remain ignored unless allowlisted separately.
 !benchmark/
-!chartdb/
 !docker-state-exporter/
 !databases/
 !drawio/

@@ -34,7 +34,6 @@ Use this checklist for a fresh installation. Complete the shared prerequisites b
 
 ## Development and automation
 
-- [X] [ChartDB](chartdb/README.md): configure the optional AI key, deploy it, and protect the accountless interface.
 - [ ] [GitLab CE](gitlab/README.md): set the root password and SSH port, allow time for startup, and test Git and web access.
 - [X] [n8n](n8n/README.md): set a permanent encryption key, create the owner account, and test database backups.
 
