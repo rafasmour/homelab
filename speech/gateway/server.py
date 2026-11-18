@@ -117,9 +117,17 @@ WARM_TTS = os.environ.get("WARM_TTS", "")
 WARM_STT = os.environ.get("WARM_STT", "")
 WARM_TTS_IDLE = float(os.environ.get("WARM_TTS_IDLE", "600"))
 WARM_INTERVAL = float(os.environ.get("WARM_INTERVAL", "15"))
-# While this file exists the warmer does nothing (benchmark runs need the
-# router and audio.cpp to themselves): docker exec speech-gateway touch it.
+# Switches. WARM_ENABLED=false turns the warmer off for good (survives
+# restarts). While WARM_PAUSE_FILE exists it pauses (benchmark runs need the
+# router and audio.cpp to themselves): the benchmark runner creates it for
+# every run, however started, and removes it at the end; by hand:
+# docker exec speech-gateway touch /tmp/warmer.pause (rm to resume). A pause
+# file the runner wrote ("benchmark pid ...") counts as stale after
+# WARM_PAUSE_MAX_AGE seconds (default 24 h) in case a run died without cleanup;
+# a hand-made (empty) one never expires.
+WARM_ENABLED = os.environ.get("WARM_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
 WARM_PAUSE_FILE = os.environ.get("WARM_PAUSE_FILE", "/tmp/warmer.pause")
+WARM_PAUSE_MAX_AGE = float(os.environ.get("WARM_PAUSE_MAX_AGE", "86400"))
 # audio.cpp models parked (replaced by PARK_TTS, the smallest) while another
 # llama.cpp model than WARM_LLM needs the card.
 HEAVY_TTS = set((os.environ.get("HEAVY_TTS") or "jarvis,voxcpm2,omnivoice").split(","))
@@ -306,6 +314,13 @@ async def _transcribe_http(cfg: dict, pcm: bytes, language: str | None,
 
 async def _engine(name: str, pcm: bytes, language: str | None) -> str:
     """One engine, whatever its kind. Greek Wyoming engines get chunked audio."""
+    if name not in STT_BACKENDS:
+        # audio.cpp STT engines (e.g. STT_AUTO's parakeet-ultra) are added by
+        # discovery, which "auto" requests never triggered: after a gateway
+        # restart the first transcription failed with KeyError (2026-11-10).
+        _discovered["at"] = 0.0
+        async with aiohttp.ClientSession() as session:
+            await _tts_backends(session)
     backend = STT_BACKENDS[name]
     if isinstance(backend, dict):
         return await _transcribe_http(backend, pcm, language)
@@ -582,7 +597,10 @@ def _wyoming_info() -> Info:
 
 
 async def transcriptions(request: web.Request) -> web.Response:
+    loop = asyncio.get_running_loop()
+    t_start = loop.time()
     form = await request.post()
+    t_upload = loop.time()
     upload = form.get("file")
     if upload is None or not hasattr(upload, "file"):
         return _error(400, "missing 'file'")
@@ -598,6 +616,7 @@ async def transcriptions(request: web.Request) -> web.Response:
     try:
         raw = upload.file.read()
         pcm = await _to_pcm(raw)
+        t_decode = loop.time()
         meta: dict = {}
         _stt_meta.set(meta)
         text = await asyncio.wait_for(_stt(model, pcm, language), TIMEOUT)
@@ -617,8 +636,11 @@ async def transcriptions(request: web.Request) -> web.Response:
             pass
     _LOGGER.info("STT input: %s, %d bytes, peak %.1f dBFS, rms %.1f dBFS",
                  getattr(upload, "content_type", "?"), len(raw), level[0], level[1])
-    _LOGGER.info("STT %s: %.1f s audio -> %d chars", model,
-                 len(pcm) / (RATE * WIDTH), len(text))
+    # Timings (2026-11-10, to find slow transcriptions): upload = reading the
+    # request body, decode = ffmpeg to 16 kHz PCM, engine = the STT engine(s).
+    _LOGGER.info("STT %s: %.1f s audio -> %d chars (upload %.2f s, decode %.2f s, engine %.2f s)",
+                 model, len(pcm) / (RATE * WIDTH), len(text), t_upload - t_start,
+                 t_decode - t_upload, loop.time() - t_decode)
     if form.get("response_format") == "text":
         return web.Response(text=text)
     return web.json_response({"text": text})
@@ -797,6 +819,19 @@ async def _build_request(request: web.Request, body: dict, language: str = ""):
     if backend.get("auto_language") and not body.get("language"):
         body["language"] = language or (
             "el" if _mostly_greek(str(body.get("input") or "")) else "en")
+    # chars_per_second {"en": 16, "el": 14}: a fixed target length per piece
+    # (audio.cpp options.duration_sec), so every sentence keeps the same pace
+    # instead of the model's estimate from a fast reference clip (OmniVoice
+    # jarvis, 2026-11-10). Long whole-text requests keep the model's estimate
+    # and its own long-form splitting.
+    cps = body.pop("chars_per_second", None)
+    text = str(body.get("input") or "")
+    if isinstance(cps, dict) and 0 < len(text) <= _SENT_MAX:
+        lang = body.get("language") or language or ("el" if _mostly_greek(text) else "en")
+        rate = cps.get(lang) or cps.get("en")
+        if rate:
+            body["options"] = {**(body.get("options") or {}),
+                               "duration_sec": round(len(text) / float(rate) + 0.3, 2)}
     return model, backend, body, post_filter
 
 
@@ -1171,8 +1206,33 @@ async def models(request: web.Request) -> web.Response:
     return web.json_response({"object": "list", "data": data})
 
 
+_warm_state = {"paused": None}
+
+
+def _warm_paused() -> str:
+    """Why the warmer is off right now ('' = running)."""
+    if not WARM_ENABLED:
+        return "WARM_ENABLED=false"
+    try:
+        st = os.stat(WARM_PAUSE_FILE)
+    except OSError:
+        return ""
+    try:
+        with open(WARM_PAUSE_FILE, encoding="utf-8", errors="replace") as handle:
+            owner = handle.read(200).strip()
+    except OSError:
+        owner = ""
+    if owner.startswith("benchmark") and time.time() - st.st_mtime > WARM_PAUSE_MAX_AGE:
+        return ""  # left behind by a runner that died; ignore it
+    return f"{WARM_PAUSE_FILE} ({owner or 'set by hand'})"
+
+
 async def _warm_once(session: aiohttp.ClientSession) -> None:
-    if os.path.exists(WARM_PAUSE_FILE):
+    reason = _warm_paused()
+    if reason != _warm_state["paused"]:
+        _LOGGER.info("warmer: %s", f"paused: {reason}" if reason else "running")
+        _warm_state["paused"] = reason
+    if reason:
         return
     loop = asyncio.get_running_loop()
     headers = {"Authorization": f"Bearer {LLAMA_API_KEY}"} if LLAMA_API_KEY else {}
@@ -1272,7 +1332,11 @@ async def _session(app: web.Application):
     app["session"] = aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=TIMEOUT, sock_connect=10)
     )
+    # Discover audio.cpp engines now (~2 s: GGUF voice headers), so the first
+    # transcription after a restart does not pay for it (2026-11-10).
+    discovery = asyncio.create_task(_tts_backends(app["session"]))
     yield
+    discovery.cancel()
     await app["session"].close()
 
 

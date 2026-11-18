@@ -1,37 +1,4 @@
 services:
-  # --- Speech-to-text (CPU, Wyoming servers on the internal speech network) ---
-
-  # NVIDIA Parakeet TDT 0.6B v3 int8 via sherpa-onnx: 25 European languages
-  # (Greek included, but weak), no prompt biasing.
-  wyoming-parakeet:
-    image: rhasspy/wyoming-whisper:${WHISPER_VERSION:-3.8.1}
-    container_name: wyoming-parakeet
-    restart: unless-stopped
-    entrypoint: ["bash", "/usr/src/docker_run.sh", "--local-files-only"]
-    command:
-      - --stt-library
-      - sherpa
-      - --model
-      - ${PARAKEET_MODEL:-sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8}
-      - --cpu-threads
-      - ${PARAKEET_CPU_THREADS:-8}
-      - --download-dir
-      - /data
-    environment:
-      HF_HUB_OFFLINE: "1"
-    volumes:
-      - ./parakeet:/data
-    networks:
-      - speech
-    mem_limit: 2g
-    healthcheck:
-      test: ["CMD", "/usr/src/.venv/bin/python3", "-m", "wyoming_faster_whisper.health_check"]
-      interval: 30s
-      timeout: 20s
-      retries: 5
-      start_period: 180s
-
-
   # --- Text-to-speech on the GPU ---
 
   # audio.cpp server (OpenAI-shaped POST /v1/audio/speech on 8080), Vulkan on
@@ -52,11 +19,12 @@ services:
     restart: unless-stopped
     # Two models in VRAM at a time (server.json: Jarvis + Cohere Transcribe).
     # Requests run one at a time per model (--busy-timeout-ms, default 300 s).
-    # --min-free-memory-mb: refuse a model load that would leave less than 512 MiB (1 GiB until 2026-11-05)
+    # --min-free-memory-mb: refuse a model load that would leave less than 256 MiB (512 MiB 11-05 to 11-10, 1 GiB before;
+    # 256 lets OmniVoice, estimated 2.01 GiB, load beside Ornith and Parakeet Ultra: ~2.35 GiB available)
     # of VRAM (or host RAM) free, instead of pushing llama.cpp out of memory;
-    # the gateway then answers with TTS_FALLBACK. No idle unload: the
+    # the request then fails (no TTS fallback since 2026-11-10). No idle unload: the
     # gateway's warmer decides what stays loaded.
-    command: ["--config", "/config/server.json", "--min-free-memory-mb", "512"]
+    command: ["--config", "/config/server.json", "--min-free-memory-mb", "256"]
     devices:
       - /dev/dri:/dev/dri
     # video and render groups of the host (owners of /dev/dri/*).
@@ -69,6 +37,10 @@ services:
       # Voice library: <name>.wav reference clips plus `prompt_text`
       # (<name>|<transcript> per line); a request "voice": "<name>" clones it.
       - ./audiocpp/voices:/voices:ro
+      # Supertonic with the custom JARVIS voice (jarvis-st-4, a blend of the
+      # stock presets): server.json points the `supertonic` entry at this spec.
+      - ./audiocpp/supertonic-spec.json:/config/supertonic-spec.json:ro
+      - ./audiocpp/voices-supertonic:/supertonic-voices:ro
     networks:
       - speech
     mem_limit: 3g
@@ -114,8 +86,7 @@ services:
       STT_SAVE_DIR: /recordings
       STT_SAVE_MAX: "10"
       STT_BACKENDS: >-
-        {"parakeet": "wyoming-parakeet:10300",
-         "cohere": {"url": "http://audiocpp-tts:8080/v1", "model": "cohere", "language": "el"}}
+        {"cohere": {"url": "http://audiocpp-tts:8080/v1", "model": "cohere", "language": "el"}}
       # Text-to-speech engines are discovered from audiocpp-tts: every tts
       # model in audiocpp/server.json becomes an engine of the same name, its
       # voices are read from the GGUF in ./audiocpp/models, and multilingual
@@ -132,25 +103,26 @@ services:
       # loaded at a time, alternating languages reloads models.
       TTS_DEFAULT: assistant
       TTS_ROUTES: >-
-        {"assistant": {"en": {"model": "audio8-air", "voice": "jarvis"},
-                       "el": {"model": "audio8-air", "voice": "jarvis"}}}
+        {"assistant": {"en": {"model": "omnivoice", "voice": "jarvis"},
+                       "el": {"model": "omnivoice", "voice": "jarvis"}}}
       # Families that clone a voice-library clip (audio8_tts added 2026-11-07
       # so audio8-air offers the library voice `jarvis`).
       CLONE_FAMILIES: "voxcpm2,voxcpm1,omnivoice,chatterbox,chatterbox_multilingual,pocket_tts,audio8_tts"
-      # Safety net: a failed request (GPU full, model error) is answered by
-      # this small engine instead.
-      TTS_FALLBACK: '{"model": "supertonic", "voice": "M1"}'
       # Warmer: keeps WARM_LLM loaded in the llama.cpp router while nothing
       # else runs there (Hermes' first token without a load) and WARM_TTS in
       # audio.cpp after WARM_TTS_IDLE seconds without speech requests. While
       # another llama.cpp model is loaded it parks audio.cpp on PARK_TTS
       # (~0.2 GB) so that model has the card.
+      # On/off switch: WARM_ENABLED=false in .env turns the warmer off; it
+      # also pauses by itself during benchmark runs (README "Warmer").
+      WARM_ENABLED: "${WARM_ENABLED:-true}"
       LLAMA_URL: http://llama-server:8080
       LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
       WARM_LLM: "${WARM_LLM:-nemotron-3.5-bolt-e4b-dflash}"
-      # Audio8-TTS-Realistic-Air (Q8_0, the assistant voice since 2026-11-07)
-      # stays warm; Jarvis/VoxCPM2 remain configured engines, not warmed.
-      WARM_TTS: audio8-air
+      # OmniVoice cloning the library voice `jarvis` (the assistant voice
+      # since 2026-11-10; before: Supertonic jarvis, Audio8 Air from 11-07).
+      # In HEAVY_TTS, so it is parked while another LLM needs the card.
+      WARM_TTS: omnivoice
       HEAVY_TTS: "audio8-air,jarvis,voxcpm2,omnivoice"
       WARM_TTS_IDLE: "600"
       # Parakeet Ultra (Q6_K, 0.6 GiB; since 2026-11-07 the "auto" engine)
@@ -160,7 +132,11 @@ services:
       # model per slot: this pushes both Jarvis and Cohere out of VRAM.
       PARK_TTS: phonon,kokoro
       TTS_BACKENDS: >-
-        {"omnivoice": {"voice_options": {
+        {"supertonic": {"voice_options": {
+           "jarvis": {"voice": "JARVIS", "speed": 0.94}}},
+         "omnivoice": {"voice_options": {
+           "jarvis": {"voice": "jarvis", "num_inference_steps": 32, "guidance_scale": 2.0, "seed": 42,
+                      "chars_per_second": {"en": 16, "el": 14}},
            "british-male": {"instruct": "male, middle-aged, low pitch, british accent", "seed": 42},
            "british-male-young": {"instruct": "male, young adult, moderate pitch, british accent", "seed": 7},
            "british-female": {"instruct": "female, middle-aged, moderate pitch, british accent", "seed": 42},

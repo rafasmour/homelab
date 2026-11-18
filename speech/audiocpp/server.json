@@ -14,6 +14,7 @@
       "family": "supertonic",
       "path": "/models/Supertonic-3-GGUF/supertonic-3-q8_0.gguf",
       "task": "tts",
+      "model_spec_override": "/config/supertonic-spec.json",
       "mode": "offline",
       "default_voice_preset": {
         "voice_id": "M1"
