@@ -53,7 +53,11 @@ def _task(task_id, board):
 
         from hermes_cli import kanban_db
 
-        with closing(kanban_db.connect(board=board) if board else kanban_db.connect()) as conn:
+        try:  # Hermes >= 0.23 moved connect() out of kanban_db
+            from hermes_cli.kanban_db_connect import connect
+        except ImportError:
+            connect = kanban_db.connect
+        with closing(connect(board=board) if board else connect()) as conn:
             task = kanban_db.get_task(conn, task_id)
             summary = None
             try:

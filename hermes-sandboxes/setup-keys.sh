@@ -6,7 +6,7 @@
 #   mounted read-only into that sandbox, with its authorized_keys.
 # - One client key per profile is generated in the Hermes data folder
 #   (hermes/data/sandbox-keys/<profile>/ = /home/hermes/.hermes/sandbox-keys/
-#   in hermes-api; override with HERMES_DATA_DIR) by a one-off container and
+#   in hermes; override with HERMES_DATA_DIR) by a one-off container and
 #   owned by HERMES_UID; the folder is ignored by Git. Each sandbox authorizes
 #   exactly one profile key, and each profile gets a known_hosts file holding
 #   only its sandbox's host key.

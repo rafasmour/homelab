@@ -26,7 +26,7 @@ Every container runs with a read-only root filesystem, no capabilities, `no-new-
                                      └──┬──────┬──┘
      network self-heal-agent (internal) │      │ network self-heal-exec (internal)
                                         ▼      ▼
-   hermes-api (/p/devops-diagnose, own key)   self-heal-restart-proxy ──► docker.sock
+   hermes (/p/devops-diagnose, own key)   self-heal-restart-proxy ──► docker.sock
         │ MCP, DIAGNOSE_MCP_TOKEN              (POST restart of SELF_HEAL_RESTART_ALLOWLIST only)
         ▼
    self-heal-diagnose-mcp ── parses model-controlled arguments; no socket, no host mounts
@@ -45,14 +45,14 @@ Every container runs with a read-only root filesystem, no capabilities, `no-new-
 
 ## Threat model
 
-The model is treated as fully prompt-injected: logs, alert annotations and metric labels can be written by an attacker. n8n, Nextcloud, the bridge and `hermes-api` may be compromised. Safety comes from what each component can reach, not from the model behaving.
+The model is treated as fully prompt-injected: logs, alert annotations and metric labels can be written by an attacker. n8n, Nextcloud, the bridge and `hermes` may be compromised. Safety comes from what each component can reach, not from the model behaving.
 
 | Compromised component | What the attacker gets |
 | --- | --- |
 | n8n | Nothing: n8n shares no network with the controller and holds none of its secrets. |
 | Grafana, or the webhook secret | Diagnoses of alerts that really are active and labelled `self_heal` (the controller re-fetches them), within the rate limits; approval requests in the Talk room. With auto mode on, whoever controls Grafana's alert rules or the series behind them (a `name` label) can pick which auto-eligible container gets auto-restarted, within the same limits. With TOTP on, no action without the owner's code; with TOTP off, no action without a message from the owner's Talk actor in the room. |
 | Prompt-injected model (`devops-diagnose`) | Reads what the read-only tools allow (container list, logs of `DIAG_LOG_CONTAINERS`, Prometheus/Loki queries, committed compose files, fixed host statistics); proposes a catalog action. It cannot run anything, and its proposal needs the owner's approval. **With `SELF_HEAL_AUTO_APPROVE=1` that last part no longer holds for a narrow case:** a diagnosis of an active alert about container X can restart X without approval when X passes the confidence, allowlist, deny list and daily-cap checks. That is downtime of one non-data-store container, at most `SELF_HEAL_AUTO_MAX_PER_DAY` times a day; never another target, data access or another action. It cannot approve: its Talk posts carry a bot actor (rejected by the bridge and the controller), and it does not hold the bot secret that signs `/hook` webhooks. |
-| Nextcloud, the bridge, or `hermes-api` | Spam in the Talk room; with `SELF_HEAL_REQUIRE_TOTP=1` forged `/approve` calls fail without a valid, unused TOTP code (three wrong codes lock the run). **With `SELF_HEAL_REQUIRE_TOTP=0` (chat-only approval), anyone who controls the owner's Nextcloud account, the bridge, or the Talk bot secret can approve a proposed restart of an allowlisted container.** They still cannot choose the action or target: the controller only acts on runs it created itself from an alert it re-fetched from Grafana, and the restart proxy enforces the allowlist. `hermes-api` can query the diagnose tools like the model can. |
+| Nextcloud, the bridge, or `hermes` | Spam in the Talk room; with `SELF_HEAL_REQUIRE_TOTP=1` forged `/approve` calls fail without a valid, unused TOTP code (three wrong codes lock the run). **With `SELF_HEAL_REQUIRE_TOTP=0` (chat-only approval), anyone who controls the owner's Nextcloud account, the bridge, or the Talk bot secret can approve a proposed restart of an allowlisted container.** They still cannot choose the action or target: the controller only acts on runs it created itself from an alert it re-fetched from Grafana, and the restart proxy enforces the allowlist. `hermes` can query the diagnose tools like the model can. |
 | `self-heal-host-probe` | Fixed host statistics (memory, swap, PSI, per-container memory, GPU). As uid 65534 without capabilities it cannot read other users' process environments; the Docker socket and network egress are absent. |
 | `self-heal-diagnose-mcp` | The GET-only proxies and host-probe: container list and allowed logs, metrics and log queries, host statistics. No inspect (container environments), no exec, no writes. |
 | `self-heal` (controller) | Restarts of containers in `SELF_HEAL_RESTART_ALLOWLIST` (enforced again by `self-heal-restart-proxy`), Talk messages in the self-heal room, read access to active alerts in Grafana. |
@@ -97,7 +97,7 @@ The host mounts live only in host-probe, never in the MCP server: the MCP server
 
 4. **Grafana service account.** In Grafana, Administration → Users and access → Service accounts, create `self-heal` with the **Viewer** role, add a token and put it in `SELF_HEAL_GRAFANA_TOKEN`. The controller only reads alerts with it.
 
-5. **Start self-heal first.** The stack creates the `self-heal-ingress` and `self-heal-agent` networks, which `grafana`, `hermes-api` and `hermes-nextcloud-bridge` join only through their opt-in `docker-compose.self-heal.yml` overrides (without the override those stacks run fine, just without self-heal):
+5. **Start self-heal first.** The stack creates the `self-heal-ingress` and `self-heal-agent` networks, which `grafana`, `hermes` and `hermes-nextcloud-bridge` join only through their opt-in `docker-compose.self-heal.yml` overrides (without the override those stacks run fine, just without self-heal):
 
    ```sh
    docker compose --env-file self-heal/.env -f self-heal/docker-compose.yml build

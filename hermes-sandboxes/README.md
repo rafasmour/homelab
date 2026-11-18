@@ -17,7 +17,7 @@ Every sandbox is Debian 13 slim with OpenSSH, git, ripgrep, jq, curl and Python 
 ## Security model
 
 ```text
- Open WebUI ──/p/<profile>/v1──► hermes-api ──┐      (no Docker socket, no repo mounts;
+ Open WebUI ──/p/<profile>/v1──► hermes ──┐      (no Docker socket, no repo mounts;
  Talk ──► hermes-nextcloud-bridge (chat -q) ──┤       holds the per-profile client keys)
                                               │ ssh, pinned host key, one key per profile
               network hermes-sandbox (internal, no internet)
@@ -32,7 +32,7 @@ Every sandbox is Debian 13 slim with OpenSSH, git, ripgrep, jq, curl and Python 
  hermes-sandbox devops (testbed module) ──network hermes-testbed (internal)──► agent-testbed (DinD)
 ```
 
-- `hermes-api` never gets the Docker socket or the repository. Its Hermes plugin `sandbox_terminal` (`hermes/plugins/sandbox_terminal`) is the terminal backend of every profile: it opens the sandbox configured for the profile that serves the turn and refuses to run for a profile without one, so no command runs inside `hermes-api`.
+- `hermes` never gets the Docker socket or the repository. Its Hermes plugin `sandbox_terminal` (`hermes/plugins/sandbox_terminal`) is the terminal backend of every profile: it opens the sandbox configured for the profile that serves the turn and refuses to run for a profile without one, so no command runs inside `hermes`.
 - A profile can log into its own sandbox only: each sandbox authorizes exactly one public key, and each profile's `known_hosts` pins only its own sandbox's host key (`StrictHostKeyChecking=yes`).
 - Each sandbox sees only its own mounts. The sandboxes reach the internet through the stack's `egress` network (package installs, git, Hugging Face).
 - No sandbox here has the host Docker socket. Hermes' dangerous-command patterns plus extra homelab rules (for example deleting `.gguf`/`.safetensors` files) need the owner's approval: in Open WebUI through Hermes' own approval flow, in Talk as an approval message in the room (see [Hermes](../hermes/README.md#sandboxes-and-approvals)).
@@ -49,7 +49,7 @@ Every sandbox is Debian 13 slim with OpenSSH, git, ripgrep, jq, curl and Python 
    cp hermes-sandboxes/.env.example hermes-sandboxes/.env
    ```
 
-2. Build the images, then create the keys (idempotent). `setup-keys.sh` generates the sandbox host keys in `keys/sandbox/<sandbox>/` (ignored by Git), generates one client key per profile in the Hermes data folder (`hermes/data/sandbox-keys/<profile>/id_ed25519` and `known_hosts`, which is `/home/hermes/.hermes/sandbox-keys/` in `hermes-api`; uid 1000, mode 600; override the folder with `HERMES_DATA_DIR`) with a one-off container based on `hermes-sandbox-models:local`, and writes each sandbox's `authorized_keys`. Private client keys stay in `hermes/data`, which Git ignores.
+2. Build the images, then create the keys (idempotent). `setup-keys.sh` generates the sandbox host keys in `keys/sandbox/<sandbox>/` (ignored by Git), generates one client key per profile in the Hermes data folder (`hermes/data/sandbox-keys/<profile>/id_ed25519` and `known_hosts`, which is `/home/hermes/.hermes/sandbox-keys/` in `hermes`; uid 1000, mode 600; override the folder with `HERMES_DATA_DIR`) with a one-off container based on `hermes-sandbox-models:local`, and writes each sandbox's `authorized_keys`. Private client keys stay in `hermes/data`, which Git ignores.
 
    ```sh
    docker compose --env-file hermes-sandboxes/.env -f hermes-sandboxes/docker-compose.yml build
@@ -57,7 +57,7 @@ Every sandbox is Debian 13 slim with OpenSSH, git, ripgrep, jq, curl and Python 
    docker compose --env-file hermes-sandboxes/.env -f hermes-sandboxes/docker-compose.yml up -d --remove-orphans
    ```
 
-   `--remove-orphans` also removes the old `sbx-coding` and `sbx-devops` containers after an upgrade. The stack creates the `hermes-sandbox` network, so start it before `hermes-api` and `hermes-nextcloud-bridge`, which join it as an external network. After changing keys, recreate the sandboxes (`up -d --force-recreate`).
+   `--remove-orphans` also removes the old `sbx-coding` and `sbx-devops` containers after an upgrade. The stack creates the `hermes-sandbox` network, so start it before `hermes` and `hermes-nextcloud-bridge`, which join it as an external network. After changing keys, recreate the sandboxes (`up -d --force-recreate`).
 
 3. Recreate Hermes and the bridge so they join `hermes-sandbox` and configure the sandbox profiles (see [Hermes](../hermes/README.md)).
 
@@ -106,11 +106,11 @@ The images it uses are pinned (`nginx:1.30.6-alpine`, `busybox:1.37.0`) and cach
 ```sh
 docker compose --env-file hermes-sandboxes/.env -f hermes-sandboxes/docker-compose.yml config --quiet
 docker compose --env-file hermes-sandboxes/.env -f hermes-sandboxes/docker-compose.yml ps
-# Own sandbox works, another sandbox is refused (run as the hermes user in hermes-api):
-docker exec -u hermes hermes-api ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes \
+# Own sandbox works, another sandbox is refused (run as the hermes user in hermes):
+docker exec -u hermes hermes ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/hermes/.hermes/sandbox-keys/hf-models/known_hosts -o IdentitiesOnly=yes \
   -i /home/hermes/.hermes/sandbox-keys/hf-models/id_ed25519 hermes@sbx-hf-models hostname
-docker exec -u hermes hermes-api ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes \
+docker exec -u hermes hermes ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=yes \
   -o UserKnownHostsFile=/home/hermes/.hermes/sandbox-keys/models/known_hosts -o IdentitiesOnly=yes \
   -i /home/hermes/.hermes/sandbox-keys/hf-models/id_ed25519 hermes@sbx-models hostname   # Permission denied
 docker exec agent-testbed docker ps --format '{{.Names}} {{.Status}}'

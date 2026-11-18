@@ -4,7 +4,7 @@ set -eu
 # Specialist profiles served by the default gateway (gateway.multiplex_profiles).
 # The legacy router and digest profiles may still exist on the volume; they
 # are no longer configured, served, or ticked.
-SPECIALISTS="nextcloud finance ai-news hf-models llamacpp-vulkan llamacpp-rocm selfhosted calories models planner n8n web-search ai-assistant"
+SPECIALISTS="nextcloud ai-news hf-models llamacpp-vulkan llamacpp-rocm selfhosted calories models planner n8n web-search ai-assistant"
 # CLI-only profiles: created, configured and given SOULs and plugins here, but
 # never served by the gateway (no /p/<profile>/v1, no API_SERVER_KEY, no Talk
 # room). They run only inside a throwaway hermes-sandbox container
@@ -87,10 +87,14 @@ PY
 stop_s6_profile_gateways() {
   s6_svc=$(find /package/admin -path '*/command/s6-svc' -type f 2>/dev/null | head -n 1)
   if [ -n "${s6_svc}" ]; then
-    for profile in default ${SPECIALISTS} ${CLI_PROFILES} ${SELF_HEAL_PROFILE} router digest; do
-      # -D records want-down. -d does not, so a gateway that has already
-      # exited stays "normally up" and s6 starts it again.
-      "${s6_svc}" -D "/run/service/gateway-${profile}" 2>/dev/null || true
+    # Hermes >= 0.23 supervises profile gateways in /run/hermes-service (owned
+    # by the hermes user); older images used the root scandir /run/service.
+    for scandir in /run/hermes-service /run/service; do
+      for profile in default ${SPECIALISTS} ${CLI_PROFILES} ${SELF_HEAL_PROFILE} router digest; do
+        # -D records want-down. -d does not, so a gateway that has already
+        # exited stays "normally up" and s6 starts it again.
+        "${s6_svc}" -D "${scandir}/gateway-${profile}" 2>/dev/null || true
+      done
     done
   fi
 }
@@ -183,8 +187,6 @@ ensure_profile() {
 
 ensure_profile nextcloud \
   "Manages calendars, tasks, notes, files, contacts, and Talk on the private Nextcloud through its MCP server."
-ensure_profile finance \
-  "Manages subscriptions (bills), transactions and accounts in Firefly III through the Firefly MCP."
 ensure_profile ai-news \
   "Reads hot r/LocalLLaMA posts through the web-search MCP."
 ensure_profile hf-models \
@@ -204,7 +206,7 @@ ensure_profile devops \
 ensure_profile models \
   "Downloads llama.cpp models, writes measured router presets and restarts llama-server from its SSH sandbox."
 ensure_profile planner \
-  "Weekly review, wedding countdown, meal and week planning across Nextcloud, Firefly III and wger."
+  "Weekly review, wedding countdown, meal and week planning across Nextcloud and wger."
 ensure_profile n8n \
   "Builds and edits n8n workflows through the n8n MCP."
 ensure_profile web-search \
@@ -223,9 +225,9 @@ ensure_profile ai-assistant \
 # - prompt_prime: keeps the default profile's prompt in a llama.cpp slot cache
 #   (captures every profile, primes HERMES_PRIME_PROFILE).
 # - agents: ask_agent, a consult of another profile (plugins/agents); enabled
-#   on ai-assistant and the 12 specialists below (AGENT_PROFILES).
+#   on ai-assistant and the 11 specialists below (AGENT_PROFILES).
 # - kanban_notify: posts "Done"/"Blocked" for finished Kanban cards to Talk;
-#   enabled on the 12 specialists only.
+#   enabled on the 11 specialists only.
 # - nextcloud_talk (bridge repository, pinned commit, sha256-verified): the
 #   platform used by `hermes cron ... --deliver nextcloud_talk`.
 # /opt/hermes is read-only for the hermes user, so both are user plugins and
@@ -305,6 +307,26 @@ for profile in profiles:
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
 PY
 
+# Hindsight memory provider: bundled up to Hermes 0.22, a catalog plugin since
+# 0.23 (github.com/vectorize-io/hindsight at a pinned commit, plus its Python
+# dependencies in Hermes' package manager). Hermes would fetch it lazily inside
+# the first agent turn of every profile, which stalls that turn for minutes, so
+# install it here once per profile home. Needs network on the first start only;
+# a failure only logs a warning (memory then stays off until the next start).
+if [ "${HERMES_MEMORY_PROVIDER:-}" = hindsight ]; then
+  for profile in default ${SPECIALISTS}; do
+    case " ${HERMES_MEMORY_EXCLUDE-} " in *" ${profile} "*) continue ;; esac
+    [ -f "$(profile_home "${profile}")/plugins/hindsight/plugin.yaml" ] && continue
+    if [ "${profile}" = default ]; then
+      timeout 900 hermes plugins install hindsight --yes-deps --enable </dev/null \
+        || echo "WARNING: hindsight plugin install failed for ${profile}; memory stays off" >&2
+    else
+      timeout 900 hermes -p "${profile}" plugins install hindsight --yes-deps --enable </dev/null \
+        || echo "WARNING: hindsight plugin install failed for ${profile}; memory stays off" >&2
+    fi
+  done
+fi
+
 # Hermes-Relay plugin, its extra Python packages and the launcher. Optional:
 # any failure only logs a warning and leaves the relay and dashboard plugin off.
 # - plugin: ${HERMES_HOME}/plugins/hermes-relay (default profile only)
@@ -329,6 +351,7 @@ if flag_on "${HERMES_DASHBOARD_ENABLED:-}"; then
     echo "NOTICE: HERMES_DASHBOARD_PASSWORD is unset or CHANGE_ME: the web dashboard is not started." >&2
   fi
 fi
+export DASHBOARD_PASSWORD_OK
 RELAY_PLUGIN=0
 if flag_on "${HERMES_RELAY_ENABLED:-}" || [ "${DASHBOARD_PASSWORD_OK}" = 1 ]; then
   mkdir -p "${HERMES_HOME}/relay"
@@ -357,6 +380,30 @@ from plugin.relay.server import main
 
 main()
 PY
+  # `hermes` (Hermes >= 0.23) unsets PYTHONPATH, so the relay packages in
+  # relay/deps are invisible to it. The dashboard runs through this twin of
+  # the launcher, which appends them to sys.path after Hermes' own packages.
+  cat > "${HERMES_HOME}/relay/hermes_deps.py" <<'PY'
+import glob
+import os
+import site
+import sys
+
+root = "/opt/hermes"
+sites = sorted(glob.glob(os.path.join(root, ".venv", "lib", "python3*", "site-packages")))
+if sites:
+    os.environ["HERMES_SITE"] = sites[0]
+    site.addsitedir(sites[0])
+if root not in sys.path:
+    sys.path.insert(0, root)
+deps = os.path.join(os.environ.get("HERMES_HOME", ""), "relay", "deps")
+if os.path.isdir(deps) and deps not in sys.path:
+    sys.path.append(deps)
+sys.argv[0] = "hermes"
+from hermes_cli.main import main
+
+sys.exit(main())
+PY
   if python - "${RELAY_REPO}" "${RELAY_REF}" <<'PY'
 import os
 import shutil
@@ -372,7 +419,20 @@ home = Path(os.environ["HERMES_HOME"])
 plugin = home / "plugins" / "hermes-relay"
 relay = home / "relay"
 deps = relay / "deps"
-requirements = ["segno>=1.6.0,<2", "websocket-client>=1.8.0,<2"]
+# pyyaml: the relay server imports it, and Hermes >= 0.23 no longer ships PyYAML.
+requirements = ["segno>=1.6.0,<2", "websocket-client>=1.8.0,<2", "pyyaml>=6.0,<7"]
+YAML_SHIM = (
+    '"""PyYAML stand-in written by hermes/start.sh when PyYAML could not be installed (Hermes >= 0.23).\n'
+    'Uses Hermes\' own ruamel-based hermes_yaml; covers what Hermes-Relay calls."""\n'
+    "from hermes_yaml import YAMLError, safe_dump, safe_load  # noqa: F401\n"
+    "\n"
+    "def dump(data, stream=None, **kwargs):\n"
+    '    keep = ("default_flow_style", "sort_keys", "allow_unicode", "width")\n'
+    "    return safe_dump(data, stream, **{k: v for k, v in kwargs.items() if k in keep})\n"
+    "\n"
+    "def load(stream, Loader=None):\n"
+    "    return safe_load(stream)\n"
+)
 try:
     marker = plugin / ".relay-ref"
     if not (marker.is_file() and marker.read_text().strip() == ref):
@@ -455,13 +515,28 @@ try:
         print(f"WARNING: Hermes-Relay openai_tts patch not applied, relay voice output stays on the legacy path: {exc}", file=sys.stderr)
     spec = deps / ".requirements"
     if not (spec.is_file() and spec.read_text().split() == requirements):
-        subprocess.run(
-            ["uv", "pip", "install", "--quiet", "--python", sys.executable,
-             "--target", str(deps), "--upgrade", *requirements],
-            check=True,
-            timeout=300,
-        )
-        spec.write_text("\n".join(requirements) + "\n")
+        # Hermes >= 0.23 keeps uv under /opt/hermes/tools instead of on PATH.
+        uv = shutil.which("uv") or next(iter(sorted(Path("/opt/hermes/tools").glob("uv-*/uv"))), None)
+        try:
+            if not uv:
+                raise RuntimeError("uv not found")
+            subprocess.run(
+                [str(uv), "pip", "install", "--quiet", "--python", sys.executable,
+                 "--target", str(deps), "--upgrade", *requirements],
+                check=True,
+                timeout=300,
+            )
+            spec.write_text("\n".join(requirements) + "\n")
+        except Exception as exc:
+            # Offline restart: keep what is installed (segno, websocket-client) and
+            # fall back to the yaml shim below; the next start retries.
+            if not ((deps / "segno").is_dir() and (deps / "websocket").is_dir()):
+                raise
+            print(f"WARNING: Hermes-Relay dependency refresh failed, keeping the installed packages: {exc}", file=sys.stderr)
+    if not (deps / "yaml").is_dir():
+        shim = deps / "yaml.py"
+        if not (shim.is_file() and shim.read_text() == YAML_SHIM):
+            shim.write_text(YAML_SHIM)
     pkg = relay / "pkg"
     pkg.mkdir(exist_ok=True)
     link = pkg / "plugin"
@@ -492,7 +567,10 @@ import os
 import sys
 from pathlib import Path
 
-import yaml
+try:  # Hermes >= 0.23 ships ruamel (hermes_yaml, YAML 1.1 like PyYAML) and no PyYAML
+    import hermes_yaml as yaml
+except ImportError:  # Hermes <= 0.22
+    import yaml
 
 profile, mcp_csv, chat_csv, cron_csv = sys.argv[1:5]
 sandbox_host = sys.argv[5] if len(sys.argv) > 5 else ""
@@ -527,7 +605,7 @@ def add(items, extra):
 # cannot reach hermes-mcp). Cron runs get kanban and web search, but no
 # cronjob or delegation.
 AGENT_PROFILES = (
-    "calories", "finance", "nextcloud", "planner", "web-search", "n8n", "models",
+    "calories", "nextcloud", "planner", "web-search", "n8n", "models",
     "hf-models", "ai-news", "selfhosted", "llamacpp-vulkan", "llamacpp-rocm",
 )
 mcp_list, chat_list, cron_list = split(mcp_csv), split(chat_csv), split(cron_csv)
@@ -561,8 +639,6 @@ servers = {
     },
     # Official Hugging Face MCP; read-only Hub search works without a token.
     "huggingface": {"url": "https://huggingface.co/mcp"},
-    # firefly-iii/docker-compose.yml service "mcp"; private network, no auth.
-    "firefly": {"url": "http://firefly-mcp:3000/mcp"},
     # self-heal stack, network self-heal-agent: read-only diagnosis tools.
     "diagnose": {
         "url": "http://self-heal-diagnose-mcp:8791/mcp",
@@ -587,17 +663,8 @@ tool_filters = {
         "nc_calendar_complete_todo", "nc_calendar_delete_todo", "nc_calendar_search_todos",
         "nc_notes_create_note", "nc_notes_search_notes", "nc_notes_append_content",
     ]},
-    # finance: bills, transactions and accounts it needs; no deletes or account edits.
-    ("finance", "firefly"): {"include": [
-        "list_bill", "get_bill", "store_bill", "update_bill", "list_transaction",
-        "list_transaction_by_bill", "store_transaction", "list_account", "get_basic_summary",
-    ]},
-    # default keeps firefly to the finance profile's tool list, hub search only,
-    # and n8n read/build without update/autofix (same as the n8n profile).
-    ("default", "firefly"): {"include": [
-        "list_bill", "get_bill", "store_bill", "update_bill", "list_transaction",
-        "list_transaction_by_bill", "store_transaction", "list_account", "get_basic_summary",
-    ]},
+    # default keeps hub search only, and n8n read/build without
+    # update/autofix (same as the n8n profile).
     ("default", "huggingface"): {"include": ["hub_repo_search", "hub_repo_details"]},
     ("default", "n8n"): {"include": [
         "search_nodes", "get_node", "validate_node", "validate_workflow",
@@ -623,7 +690,6 @@ tool_filters = {
         "nc_calendar_list_todos", "nc_calendar_create_todo", "nc_calendar_update_todo",
         "nc_calendar_complete_todo", "nc_calendar_search_todos",
     ]},
-    ("planner", "firefly"): {"include": ["list_bill", "list_transaction", "get_basic_summary"]},
     ("planner", "wger"): {"include": ["nutrition_summary", "list_log_items", "list_nutrition_plans"]},
     # n8n: build new workflows, validate, run and debug (11 of 28 tools).
     # It cannot change an existing workflow: no n8n_update_partial_workflow,
@@ -651,7 +717,7 @@ tool_filters = {
     ("default", "benchmark"): {"include": [
         "list_models", "start_benchmark", "benchmark_status", "get_results", "cancel_benchmark",
     ]},
-    # ai-assistant: 14 tools (calendar events and to-dos with edits and deletes, three
+    # ai-assistant: 17 tools (calendar events and to-dos with edits and deletes, six
     # notes tools), no files, contacts or Talk. Registered under default too (the
     # gateway connects only default's servers); both lists must stay identical.
     ("default", "nextcloud_assistant"): {"include": [
@@ -659,14 +725,16 @@ tool_filters = {
         "nc_calendar_create_event", "nc_calendar_update_event", "nc_calendar_delete_event",
         "nc_calendar_search_todos", "nc_calendar_create_todo", "nc_calendar_update_todo",
         "nc_calendar_complete_todo", "nc_calendar_delete_todo",
-        "nc_notes_create_note", "nc_notes_search_notes", "nc_notes_append_content",
+        "nc_notes_create_note", "nc_notes_search_notes", "nc_notes_get_note",
+        "nc_notes_append_content", "nc_notes_update_note", "nc_notes_delete_note",
     ]},
     ("ai-assistant", "nextcloud_assistant"): {"include": [
         "nc_calendar_list_calendars", "nc_calendar_get_upcoming_events", "nc_calendar_list_events",
         "nc_calendar_create_event", "nc_calendar_update_event", "nc_calendar_delete_event",
         "nc_calendar_search_todos", "nc_calendar_create_todo", "nc_calendar_update_todo",
         "nc_calendar_complete_todo", "nc_calendar_delete_todo",
-        "nc_notes_create_note", "nc_notes_search_notes", "nc_notes_append_content",
+        "nc_notes_create_note", "nc_notes_search_notes", "nc_notes_get_note",
+        "nc_notes_append_content", "nc_notes_update_note", "nc_notes_delete_note",
     ]},
     ("web-search", "web_search"): {"include": ["web_search", "fetch_url"]},
     ("ai-assistant", "web_search"): {"include": ["web_search", "fetch_url"]},
@@ -719,9 +787,13 @@ compression = section("compression")
 compression["enabled"] = True
 compression["threshold"] = float(env.get("HERMES_COMPRESSION_THRESHOLD") or 0.8)
 data["timezone"] = env["HERMES_TIMEZONE"]
-# tirith (not installed in the image) would only print a warning into every
-# CLI run; terminal commands go through Hermes' dangerous-command approval.
-section("security")["tirith_enabled"] = False
+# (security.tirith_enabled is gone: Hermes >= 0.23 no longer bundles tirith and
+# its config migration deletes the key.) Terminal commands go through Hermes'
+# dangerous-command approval.
+# Nous free tier: with no provider configured Hermes would create a Nous
+# identity on first use and could route inference there. Off: nothing is set up
+# and nothing is used (Hermes >= 0.23; a no-op key for older versions).
+section("nous")["guest"] = False
 
 timeouts = section("timeouts")
 tools_t = timeouts.get("tools") if isinstance(timeouts.get("tools"), dict) else {}
@@ -735,7 +807,7 @@ terminal["timeout"] = 3600
 # Every profile, including default (whose terminal settings the multiplexed
 # gateway uses process-wide), uses the sandbox backend. It resolves the
 # sandbox of the profile serving the turn and refuses to run without one, so
-# no command ever runs inside hermes-api.
+# no command ever runs inside hermes.
 terminal["backend"] = "sandbox_ssh"
 for stale in ("ssh_host", "ssh_user", "ssh_port", "ssh_key"):
     terminal.pop(stale, None)
@@ -1048,6 +1120,7 @@ AUX_TASKS = (
     "profile_describer", "goal_judge", "curator", "monitor",
     "background_review", "moa_reference", "moa_aggregator",
     "session_search", "web_extract", "video", "flush_memories",
+    "group_router", "voice_chat",
 )
 for task_name in AUX_TASKS:
     task_cfg = auxiliary.get(task_name) if isinstance(auxiliary.get(task_name), dict) else {}
@@ -1100,7 +1173,7 @@ for name in wanted_plugins:
     if name not in enabled:
         enabled.append(name)
 # prompt_prime: every profile captures its first call; HERMES_PRIME_PROFILE
-# (hermes-api environment) selects the one that is replayed.
+# (hermes environment) selects the one that is replayed.
 if "prompt_prime" not in enabled:
     enabled.append("prompt_prime")
 # Hermes-Relay: default profile only (the dashboard and relay read that home).
@@ -1120,6 +1193,15 @@ for plugin_name, plugin_profiles in (("agents", ("ai-assistant",) + AGENT_PROFIL
     if profile not in plugin_profiles and plugin_name in enabled:
         enabled.remove(plugin_name)
 plugins["enabled"] = enabled
+# Hermes >= 0.23 abandons a plugin that takes longer than these to import/register
+# (default 10 s) or to answer pre_tool_call (default 30 s, fail closed). The Talk
+# approval gate of sandbox_terminal waits for the owner's answer inside
+# pre_tool_call, so profiles with talk_approvals get the maximum (600 s).
+plugins["load_timeout_seconds"] = 60
+if (data.get("homelab_sandbox") or {}).get("talk_approvals"):
+    plugins["hook_callback_timeout"] = 600
+else:
+    plugins.pop("hook_callback_timeout", None)
 disabled = [n for n in (plugins.get("disabled") or []) if n not in wanted_plugins and n != "hermes-relay"]
 if "web/forage" not in disabled:
     disabled.append("web/forage")
@@ -1181,6 +1263,71 @@ if profile == "default":
         os.environ["SPECIALISTS"].split()
         + os.environ.get("SELF_HEAL_SERVED", "").split()
     )
+    # Hermes >= 0.23 retired the allowlist (kept above for rollback): the
+    # multiplexer serves every profile directory that is not parked. start.sh
+    # parks the CLI-only, unserved and legacy profiles below (gateway.parked).
+
+    # Browser Desktop (Webapp) on the gateway's own listener (Hermes >= 0.23),
+    # only while the dashboard login is usable: it signs in through the same
+    # dashboard auth providers. The gateway is started by s6 with the container
+    # environment, not with what this script exports, so the login lives in
+    # config.yaml (dashboard.basic_auth): username, an scrypt hash with a salt
+    # derived from the password (stable, so logins survive restarts) and a
+    # stable signing secret. The dashboard process (9119) keeps its env login.
+    dash = section("dashboard")
+    basic = dash.get("basic_auth") if isinstance(dash.get("basic_auth"), dict) else {}
+    webapp = section("webapp")
+    if os.environ.get("DASHBOARD_PASSWORD_OK") == "1":
+        import base64
+        import hashlib
+        import ipaddress
+
+        user = os.environ["HERMES_DASHBOARD_USERNAME"]
+        password = os.environ["HERMES_DASHBOARD_PASSWORD"]
+        salt = hashlib.sha256(f"hermes-webapp-salt:{user}:{password}".encode()).digest()[:16]
+        digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=32, maxmem=0)
+        basic.update({
+            "username": user,
+            "password": "",
+            "password_hash": "scrypt$16384$8$1$%s$%s" % (
+                base64.b64encode(salt).decode(), base64.b64encode(digest).decode()),
+            "secret": hashlib.sha256(f"hermes-webapp-session:{user}:{password}".encode()).hexdigest(),
+        })
+        dash["basic_auth"] = basic
+        webapp.update({
+            "enabled": True,
+            "host": "0.0.0.0",
+            "port": 9120,
+            "public_url": (os.environ.get("HERMES_WEBAPP_PUBLIC_URL") or "").strip().rstrip("/"),
+        })
+        # Reverse proxies (Traefik) in another container are trusted only by exact
+        # IP or a bounded CIDR: no wildcard and no /0 (Hermes rejects both).
+        proxies = []
+        for item in (os.environ.get("HERMES_TRUSTED_PROXIES") or "").replace(",", " ").split():
+            try:
+                bounded = ipaddress.ip_network(item, strict=False).prefixlen > 0
+            except ValueError:
+                bounded = False
+            if bounded:
+                proxies.append(item)
+            else:
+                print(f"WARNING: HERMES_TRUSTED_PROXIES entry {item!r} is not an IP or a bounded CIDR; ignored", file=sys.stderr)
+        if proxies:
+            dash["trusted_proxies"] = proxies
+    else:
+        # No usable dashboard password: no Webapp, and no login stored by this script.
+        if webapp.get("enabled"):
+            webapp["enabled"] = False
+        for key in ("username", "password", "password_hash", "secret"):
+            basic.pop(key, None)
+        if basic:
+            dash["basic_auth"] = basic
+        else:
+            dash.pop("basic_auth", None)
+        if not dash:
+            data.pop("dashboard", None)
+        if not webapp:
+            data.pop("webapp", None)
 else:
     # The multiplexer owns the single HTTP listener; a specialist that enables
     # api_server aborts gateway startup. Its API is /p/<profile>/v1 instead.
@@ -1217,7 +1364,7 @@ export SELF_HEAL_SERVED
 # Each profile gets only the tools its job needs. No clarify (follow-up
 # questions go in the reply). Every profile except devops-diagnose also gets
 # kanban (added inside configure_profile, not listed below) except ai-assistant,
-# which gets agents only (ask_agent, delegate, task_status); the 12 specialists
+# which gets agents only (ask_agent, delegate, task_status); the 11 specialists
 # also get agents, default also cronjob,
 # delegation and web_search. A profile that needs web_search lists it. default is the main orchestrator: every MCP toolset
 # except diagnose and benchmark (the self-heal security boundary), and talk
@@ -1230,17 +1377,14 @@ export SELF_HEAL_SERVED
 # default also registers diagnose (devops-diagnose) and benchmark (models).
 # Access stays per profile: each turn builds its tool list from that profile's
 # own platform_toolsets, and the agent loop rejects any tool call outside it.
-default_mcp="nextcloud,wger,web_search,firefly,huggingface,n8n"
+default_mcp="nextcloud,wger,web_search,huggingface,n8n"
 [ -n "${DIAGNOSE_MCP_TOKEN:-}" ] && default_mcp="${default_mcp},diagnose"
 [ -n "${BENCHMARK_MCP_TOKEN:-}" ] && default_mcp="${default_mcp},benchmark"
 default_mcp="${default_mcp},nextcloud_assistant"
 configure_profile default "${default_mcp}" \
-  nextcloud,wger,web_search,firefly,huggingface,n8n,kanban,delegation,talk,clock clock
+  nextcloud,wger,web_search,huggingface,n8n,kanban,delegation,talk,clock clock
 configure_profile nextcloud nextcloud \
   nextcloud,clock nextcloud,clock
-# finance works only in Firefly III.
-configure_profile finance firefly \
-  firefly,clock firefly,clock
 for profile in ai-news llamacpp-vulkan selfhosted; do
   configure_profile "${profile}" web_search \
     web_search,clock web_search,clock
@@ -1267,9 +1411,9 @@ if [ -n "${BENCHMARK_MCP_TOKEN:-}" ]; then
 fi
 configure_profile models "${models_mcp}" \
   "${models_toolsets}" clock sbx-models /llama-cpp
-# planner reads Firefly bills and wger totals and plans in Nextcloud.
-configure_profile planner nextcloud,firefly,wger \
-  nextcloud,firefly,wger,clock clock
+# planner reads wger totals and plans in Nextcloud.
+configure_profile planner nextcloud,wger \
+  nextcloud,wger,clock clock
 configure_profile n8n n8n \
   n8n,clock clock
 # hf-models searches the Hub and compares sizes with the llama-cpp folders in
@@ -1283,7 +1427,7 @@ configure_profile calories wger,web_search \
 configure_profile devops-diagnose diagnose \
   diagnose,clock clock
 # ai-assistant (Hermes-Relay chat and voice): a small toolset. Nextcloud
-# calendar, to-dos and notes (nextcloud_assistant, 14 tools), web_search and
+# calendar, to-dos and notes (nextcloud_assistant, 17 tools), web_search and
 # fetch_url (owner's request 2026-11-04), ask_agent, delegate and task_status
 # (toolset agents, added by configure_profile; no kanban toolset), memory
 # (added below), clock. No delegate_task, Talk,
@@ -1321,6 +1465,31 @@ for profile in served + cli_only + [os.environ["SELF_HEAL_PROFILE"]]:
         path.write_text("\n".join(wanted) + ("\n" if wanted else ""))
     if path.is_file():
         os.chmod(path, 0o600)
+PY
+
+# Which profiles the multiplexed gateway serves. Hermes >= 0.23 serves every
+# profile directory except the "parked" ones (marker file gateway.parked; the
+# gateway.multiplex_profile_allowlist of 0.20 is retired). Park what must stay
+# out of /p/<profile>/v1, cron ticks and the Kanban dispatcher: the CLI-only
+# profiles, devops-diagnose without its own key, and leftover profiles such as
+# router, digest and finance. Served profiles are unparked.
+python - <<'PY'
+import os
+from pathlib import Path
+
+home = Path(os.environ["HERMES_HOME"])
+served = set(os.environ["SPECIALISTS"].split()) | set(os.environ.get("SELF_HEAL_SERVED", "").split())
+profiles = home / "profiles"
+if profiles.is_dir():
+    for entry in sorted(profiles.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        marker = entry / "gateway.parked"
+        if entry.name in served:
+            marker.unlink(missing_ok=True)
+        elif not marker.exists():
+            marker.write_text("parked by hermes/start.sh: not served by the multiplexed gateway\n")
+            os.chmod(marker, 0o600)
 PY
 
 # ---------------------------------------------------------------------------
@@ -1394,7 +1563,7 @@ Your reply is the answer itself, in the length the user asked for ("two sentence
 
 Dates and times: the user lives in Europe/Athens. You have no clock of your own, so call clock_now before resolving "now", "in an hour", "tonight", "tomorrow" or a weekday, and repeat the full date (YYYY-MM-DD) and Athens time in every confirmation.
 
-Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date the user named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what the user said. A named date is local_datetime with the Athens time exactly as the user said it: "13:00 on 2027-01-15" is local_datetime "2027-01-15T13:00", never "13:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Date-only fields stay calendar days: an all-day date is YYYY-MM-DD, and a Firefly bill date is "<YYYY-MM-DD>T12:00:00Z". Calendar apps show the UTC value in Athens time.
+Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date the user named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what the user said. A named date is local_datetime with the Athens time exactly as the user said it: "13:00 on 2027-01-15" is local_datetime "2027-01-15T13:00", never "13:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Date-only fields stay calendar days: an all-day date is YYYY-MM-DD. Calendar apps show the UTC value in Athens time.
 EOF
 )
 export SOUL_CORE
@@ -1446,7 +1615,7 @@ EOF
 )
 export SOUL_TASKS_ASK
 # Profiles that have the agents plugin (keep in sync with AGENT_PROFILES in configure_profile).
-export SOUL_AGENT_PROFILES="ai-assistant calories finance nextcloud planner web-search n8n models hf-models ai-news selfhosted llamacpp-vulkan llamacpp-rocm"
+export SOUL_AGENT_PROFILES="ai-assistant calories nextcloud planner web-search n8n models hf-models ai-news selfhosted llamacpp-vulkan llamacpp-rocm"
 
 CALENDAR_MAP=$(cat <<'EOF'
 Nextcloud calendars. Tools take the CalDAV URI (`calendar_name`), never the display name. No URI contains a space.
@@ -1478,7 +1647,7 @@ Treat every message as something to act on, not as small talk. "I ate a sandwich
 3. To-do, errand, or reminder for the user: a Nextcloud to-do on the list that matches its topic (see "To-do lists"), never in Kanban.
 4. Workout done: wger has no workout log. Look the exercises up with mcp__wger__search_exercises, then create a completed VTODO on \`tasks\` (status COMPLETED) titled "Workout: <summary>" with the exercises, sets, and duration in the description.
 5. Question that needs current facts: mcp__web_search__web_search, then mcp__web_search__fetch_url on the best results.
-6. Long specialist work (news digests, Hugging Face models, llama.cpp Vulkan changes, GPU prices, Payments versus Firefly) or a multi-step job of your own: plan it on the Kanban (see "Kanban and subagents").
+6. Long specialist work (news digests, Hugging Face models, llama.cpp Vulkan changes, GPU prices) or a multi-step job of your own: plan it on the Kanban (see "Kanban and subagents").
 
 ## Ask until the details are complete
 
@@ -1518,7 +1687,6 @@ You plan and track the Kanban (kanban_create with an assignee profile, kanban_li
 ## Other profiles
 
 Do calendar, to-do, note and food requests yourself. For the rest, assign a Kanban card to the profile that handles it (its name below), or tell the user where to talk to it directly: each has its own Nextcloud Talk room ("Hermes · <name>") and its own model in Open WebUI (hermes.<name>):
-- finance: Firefly III subscriptions, transactions and accounts
 - nextcloud: files, contacts and larger calendar or notes work
 - calories: the day's nutrition totals
 - ai-news (r/LocalLLaMA), hf-models (new Hugging Face models), llamacpp-vulkan (llama.cpp Vulkan changes), llamacpp-rocm (llama.cpp ROCm/HIP changes and questions about the llama.cpp code), selfhosted (r/selfhosted and r/homelab)
@@ -1551,29 +1719,6 @@ Requests arrive from chat (Open WebUI or your Talk room), from a Kanban card, or
 ${CALENDAR_MAP}
 
 After every write, re-read with mcp__nextcloud__nc_calendar_list_events or mcp__nextcloud__nc_calendar_list_todos and confirm the item exists with the expected title and date. Then reply with the title, the list or calendar, and the Athens date and time (the UID only when asked). Look up paths and identifiers before changing them. Do not delete, send, or reshare content unless the user explicitly asks.
-EOF
-
-write_soul finance min <<'EOF'
-You are the finance profile of Hermes. You work only in Firefly III, through the firefly MCP tools (mcp__firefly__*). You have no Nextcloud, n8n or calendar tools, and you never delete anything.
-
-Vocabulary: what Firefly's web UI calls a subscription is a "bill" in its API. Subscriptions, recurring payments and bills all mean mcp__firefly__store_bill / list_bill / update_bill.
-
-Creating subscriptions (one store_bill call per item, never repeat a call that returned an id):
-- requestBody.name: only the item's name as the user wrote it (Greek is fine), without the amount or currency ("ψαλτική", not "ψαλτική 35€").
-- requestBody.amount_min and requestBody.amount_max: the amount as a string with a dot, both the same for a fixed price ("35.00").
-- requestBody.currency_code: "EUR" unless the user names another currency.
-- requestBody.repeat_freq: weekly, monthly, quarterly, half-year or yearly.
-- requestBody.date: the first expected payment day written as "<YYYY-MM-DD>T12:00:00Z" (noon UTC), for example "2026-10-31T12:00:00Z". The tool rejects a bare date, Firefly runs on UTC, and noon keeps the same calendar day everywhere; do not use clock_to_utc for it. "Last day of the month" is the last calendar day of the current month from clock_now. Firefly keeps monthly bills on that day.
-- requestBody.active: true.
-- update_bill: always send name and date again (same noon-UTC form) with the changed fields; Firefly moves a bill one day earlier when it is saved without a date.
-- Before creating, mcp__firefly__list_bill to skip names that already exist; say which ones you skipped.
-- Reply with one line per subscription: name, amount, frequency, first date, Firefly id.
-
-Transactions: mcp__firefly__store_transaction with requestBody.transactions[] (type withdrawal for spending, deposit for income; date from clock_to_utc or the user's date; amount as a string; description; source_name for the paying account, destination_name for the payee). For "what did I spend" questions use mcp__firefly__list_transaction with start and end (YYYY-MM-DD) and add up the amounts yourself, or mcp__firefly__get_basic_summary for totals.
-
-Listing subscriptions: mcp__firefly__list_bill once, then one line per bill with its name copied exactly as Firefly returned it (same Greek letters and accents), amount, and next date. List every bill the tool returned.
-
-Never invent ids, accounts or amounts.
 EOF
 
 # research_soul <profile> <title> <job> [<tools sentence>]
@@ -1641,16 +1786,15 @@ Say clearly when sources disagree (and which you trust more and why), when a sou
 EOF
 
 write_soul planner dates <<EOF
-You are the planner profile of Hermes. You help the owner plan: a weekly review, the wedding, meals and the week ahead, and which open to-dos matter most. You read Nextcloud calendars and task lists, Firefly III bills, and the wger nutrition diary; you never delete anything.
+You are the planner profile of Hermes. You help the owner plan: a weekly review, the wedding, meals and the week ahead, and which open to-dos matter most. You read Nextcloud calendars and task lists and the wger nutrition diary; you never delete anything.
 
 Always ask before creating or changing anything: propose the exact events or to-dos (title, list, Athens date and time) and create them only after the owner says yes. Then use mcp__nextcloud__nc_calendar_create_event / nc_calendar_create_todo / nc_calendar_update_todo / nc_calendar_complete_todo and report each UID. When the request says "The owner confirmed: ...", create exactly those items without asking again.
 
 Weekly review (when asked, or "τι έχω αυτή την εβδομάδα"):
 1. clock_now; mcp__nextcloud__nc_calendar_list_events on \`personal\` for the next 7 days.
 2. mcp__nextcloud__nc_calendar_search_todos with status "NEEDS-ACTION" (all lists at once).
-3. mcp__firefly__list_bill for this month: bills due in the next 7 days and unpaid ones (a pay date without a matching paid date).
-4. mcp__wger__nutrition_summary for the last days when the owner asks about food.
-5. Answer with: this week's events by day; overdue and due-this-week to-dos per list; bills due; the top 3-5 priorities and why (due date, blocking others, wedding deadlines first).
+3. mcp__wger__nutrition_summary for the last days when the owner asks about food.
+4. Answer with: this week's events by day; overdue and due-this-week to-dos per list; the top 3-5 priorities and why (due date, blocking others, wedding deadlines first).
 
 Wedding (Γάμος list, URI \`b6a389ce-2287-4789-b2c9-133f95ed7b4f\`): list its open to-dos with mcp__nextcloud__nc_calendar_list_todos, sorted by due date. Give the countdown in days to the wedding date when an event or to-do names it (ask once if you cannot find the date), and chase: what is overdue, what is due in the next 14 days, what has no due date yet (suggest one). Propose concrete next steps; create nothing without a yes.
 
@@ -1874,7 +2018,7 @@ EOF
 
 # ---------------------------------------------------------------------------
 # Cron jobs are not managed here. The nightly digests (ai-news, hf-models,
-# llamacpp-vulkan, llamacpp-rocm, selfhosted, payments-unpaid,
+# llamacpp-vulkan, llamacpp-rocm, selfhosted,
 # morning-digest, calories-report) run as deterministic n8n workflows
 # ("Hermes digest – *", n8n/workflows/hermes-digest-*.json). Jobs that the
 # profiles schedule with the cronjob tool survive restarts.
@@ -1900,15 +2044,25 @@ supervise() {
   ) &
 }
 
+if flag_on "${HERMES_DASHBOARD:-}"; then
+  # The image's own s6 dashboard service would bind 9119 as well, without the
+  # relay packages or the login below.
+  echo "WARNING: HERMES_DASHBOARD is set: the image starts a second dashboard on 9119. Unset it; start.sh runs the dashboard itself." >&2
+fi
 if [ "${DASHBOARD_PASSWORD_OK}" = 1 ] && [ "${RELAY_PLUGIN}" = 1 ]; then
   (
-    # Credentials only for the dashboard process, never for the gateway.
+    # Credentials only for the dashboard process. The gateway (s6, container
+    # environment) reads the Webapp login from config.yaml, see configure_profile.
     HERMES_DASHBOARD_BASIC_AUTH_USERNAME="${HERMES_DASHBOARD_USERNAME}"
     HERMES_DASHBOARD_BASIC_AUTH_PASSWORD="${HERMES_DASHBOARD_PASSWORD}"
     # Stable token-signing key so logins survive restarts.
     HERMES_DASHBOARD_BASIC_AUTH_SECRET="$(printf 'hermes-dashboard-session:%s' "${HERMES_DASHBOARD_PASSWORD}" | sha256sum | cut -d' ' -f1)"
     export HERMES_DASHBOARD_BASIC_AUTH_USERNAME HERMES_DASHBOARD_BASIC_AUTH_PASSWORD HERMES_DASHBOARD_BASIC_AUTH_SECRET
-    supervise dashboard hermes dashboard --host 0.0.0.0 --port 9119 --no-open --skip-build
+    # --isolated: with the gateway running, a plain `hermes dashboard --port 9119`
+    # refuses to start ("already served by the host backend", exit 78) instead of
+    # binding. hermes_deps.py is the `hermes` launcher plus the relay packages.
+    supervise dashboard python -P "${HERMES_HOME}/relay/hermes_deps.py" dashboard \
+      --host 0.0.0.0 --port 9119 --no-open --skip-build --isolated
     wait
   ) &
 fi

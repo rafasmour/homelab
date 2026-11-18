@@ -1,7 +1,11 @@
 services:
-  api:
-    image: nousresearch/hermes-agent:${HERMES_AGENT_VERSION:-latest}
-    container_name: hermes-api
+  # One container for everything Hermes serves: the OpenAI-compatible API
+  # (8642), the Desktop Webapp (9120), the web dashboard (9119) and the
+  # Hermes-Relay server (8767). start.sh configures the profiles and runs the
+  # gateway.
+  hermes:
+    image: nousresearch/hermes-agent:${HERMES_AGENT_VERSION:-v0.23.2}
+    container_name: hermes
     restart: unless-stopped
     command: ["sh", "/usr/local/bin/start.sh"]
     volumes:
@@ -9,7 +13,6 @@ services:
       # hermes-nextcloud-bridge and the hermes-sandbox CLI). Runtime data,
       # never commit.
       - ./data:/home/hermes/.hermes
-      - hermes-agent-src:/opt/hermes
       - ./start.sh:/usr/local/bin/start.sh:ro
       - ./plugins:/usr/local/share/hermes/plugins:ro
     environment:
@@ -110,11 +113,19 @@ services:
       HERMES_DASHBOARD_PUBLIC_URL: "https://hermes-dash.${DOMAIN}"
       HERMES_RELAY_ENABLED: "${HERMES_RELAY_ENABLED:-true}"
       HERMES_RELAY_TERMINAL_ENABLED: "${HERMES_RELAY_TERMINAL_ENABLED:-false}"
-      # Phone-reachable Hermes API base URL the relay hands to the app.
-      RELAY_WEBAPI_URL: "https://hermes.${DOMAIN}"
+      # Desktop Webapp on 9120: start.sh writes webapp.* and
+      # dashboard.trusted_proxies into the default profile's config.yaml (no
+      # environment override). Same login as the dashboard.
+      HERMES_WEBAPP_PUBLIC_URL: "https://hermes.${DOMAIN}"
+      # Traefik's webgateway subnet (bounded CIDR; unbounded fails closed).
+      HERMES_TRUSTED_PROXIES: "${HERMES_TRUSTED_PROXIES:-172.20.1.0/24}"
+      # Phone-reachable Hermes API base URL the relay hands to the app. It
+      # needs the full API surface (/api/sessions, /api/jobs), which on
+      # hermes.DOMAIN belongs to the Desktop, so it uses hermes-api.DOMAIN.
+      RELAY_WEBAPI_URL: "https://hermes-api.${DOMAIN}"
       # API address in dashboard and `hermes pair` QR codes (start.sh patches
       # the plugin to use it instead of the container IP).
-      HERMES_RELAY_PAIR_API_URL: "https://hermes.${DOMAIN}"
+      HERMES_RELAY_PAIR_API_URL: "https://hermes-api.${DOMAIN}"
       # Traefik terminates TLS and sets X-Forwarded-Proto: https.
       RELAY_TRUST_PROXY_HEADERS: "1"
       # start.sh installs the relay's extra Python packages here (the image
@@ -123,12 +134,28 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: webgateway
-      traefik.http.routers.hermes-api.rule: "Host(`hermes.${DOMAIN:?Set DOMAIN in .env}`)"
+      # OpenAI-compatible API on hermes.DOMAIN: /v1 and the per-profile
+      # /p/<profile>/v1. Every other path there is the Desktop (router
+      # below); the explicit priority beats its host-only rule.
+      traefik.http.routers.hermes-openai.rule: "Host(`hermes.${DOMAIN:?Set DOMAIN in .env}`) && (PathPrefix(`/v1`) || PathPrefix(`/p/`))"
+      traefik.http.routers.hermes-openai.priority: "100"
+      traefik.http.routers.hermes-openai.entrypoints: websecure
+      traefik.http.routers.hermes-openai.tls.certresolver: myresolver
+      traefik.http.routers.hermes-openai.service: hermes-api
+      # Full API surface (/v1, /health, /api/sessions, /api/jobs, ...) for the
+      # Hermes-Relay app, whose /api/* paths collide with the Desktop's.
+      traefik.http.routers.hermes-api.rule: "Host(`hermes-api.${DOMAIN}`)"
       traefik.http.routers.hermes-api.entrypoints: websecure
       traefik.http.routers.hermes-api.tls.certresolver: myresolver
       traefik.http.routers.hermes-api.service: hermes-api
       traefik.http.services.hermes-api.loadbalancer.server.port: "8642"
-      # Hermes-Relay web dashboard (password login, see README).
+      # Hermes Desktop Webapp: every other path on hermes.DOMAIN.
+      traefik.http.routers.hermes-desktop.rule: "Host(`hermes.${DOMAIN}`)"
+      traefik.http.routers.hermes-desktop.entrypoints: websecure
+      traefik.http.routers.hermes-desktop.tls.certresolver: myresolver
+      traefik.http.routers.hermes-desktop.service: hermes-desktop
+      traefik.http.services.hermes-desktop.loadbalancer.server.port: "9120"
+      # Web dashboard (password login, see README).
       traefik.http.routers.hermes-dash.rule: "Host(`hermes-dash.${DOMAIN}`)"
       traefik.http.routers.hermes-dash.entrypoints: websecure
       traefik.http.routers.hermes-dash.tls.certresolver: myresolver
@@ -144,18 +171,22 @@ services:
       homepage.name: Hermes
       homepage.icon: mdi-robot
       homepage.href: "https://hermes.${DOMAIN}"
-      homepage.description: OpenAI-compatible API for the Hermes agent.
+      homepage.description: "Hermes Desktop (root) and OpenAI-compatible API (/v1)."
+    # `hermes-api` is the container's former name, kept as an alias for URLs
+    # stored outside this repo (Open WebUI connections, n8n credentials).
     networks:
-      - backend
-      - hermes-mcp
+      backend:
+        aliases: [hermes-api]
+      hermes-mcp:
+        aliases: [hermes-api]
       # SSH to the per-profile sandboxes (hermes-sandboxes stack, start it first).
-      - hermes-sandbox
+      hermes-sandbox:
+        aliases: [hermes-api]
       # Hindsight memory API (internal network, no internet).
-      - hindsight
-      - webgateway
-
-volumes:
-  hermes-agent-src:
+      hindsight:
+        aliases: [hermes-api]
+      webgateway:
+        aliases: [hermes-api]
 
 networks:
   backend:

@@ -30,8 +30,8 @@ docker compose --env-file drawio/.env -f drawio/docker-compose.yml up -d --build
 Recreate the Hermes API so it registers and discovers the draw.io tools:
 
 ```bash
-docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d api
-docker compose --env-file hermes/.env -f hermes/docker-compose.yml exec api hermes mcp test drawio
+docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d hermes
+docker compose --env-file hermes/.env -f hermes/docker-compose.yml exec hermes hermes mcp test drawio
 ```
 
 Hermes exposes the discovered tools with the `mcp_drawio_*` prefix. Generated links open `https://drawio.<DOMAIN>` with the diagram encoded in the URL fragment; the fragment is not sent to the web server.

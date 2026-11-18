@@ -17,21 +17,21 @@ services:
       OPENAI_API_BASE_URLS: >-
         http://llama-server:8080/v1;
         http://llama-classifier:8080/v1;
-        http://hermes-api:8642/v1;
-        http://hermes-api:8642/p/nextcloud/v1;
-        http://hermes-api:8642/p/finance/v1;
-        http://hermes-api:8642/p/calories/v1;
-        http://hermes-api:8642/p/ai-news/v1;
-        http://hermes-api:8642/p/hf-models/v1;
-        http://hermes-api:8642/p/llamacpp-vulkan/v1;
-        http://hermes-api:8642/p/selfhosted/v1;
-        http://hermes-api:8642/p/llamacpp-rocm/v1;
-        http://hermes-api:8642/p/coding/v1;
-        http://hermes-api:8642/p/devops/v1;
-        http://hermes-api:8642/p/models/v1;
-        http://hermes-api:8642/p/planner/v1;
-        http://hermes-api:8642/p/n8n/v1;
-        http://hermes-api:8642/p/web-search/v1
+        http://hermes:8642/v1;
+        http://hermes:8642/p/nextcloud/v1;
+        http://hermes:8642/p/finance/v1;
+        http://hermes:8642/p/calories/v1;
+        http://hermes:8642/p/ai-news/v1;
+        http://hermes:8642/p/hf-models/v1;
+        http://hermes:8642/p/llamacpp-vulkan/v1;
+        http://hermes:8642/p/selfhosted/v1;
+        http://hermes:8642/p/llamacpp-rocm/v1;
+        http://hermes:8642/p/coding/v1;
+        http://hermes:8642/p/devops/v1;
+        http://hermes:8642/p/models/v1;
+        http://hermes:8642/p/planner/v1;
+        http://hermes:8642/p/n8n/v1;
+        http://hermes:8642/p/web-search/v1
       OPENAI_API_KEYS: >-
         ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};
         ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};

@@ -12,7 +12,7 @@ web search. Traefik publishes it at `https://webui.<DOMAIN>`.
 - Docker Engine with Docker Compose
 - The external Docker networks `webgateway` and `hermes-mcp`
 - `llama-server:8080` and `llama-classifier:8080` on `webgateway`
-- The Hermes API at `hermes-api:8642` on `webgateway`
+- The Hermes API at `hermes:8642` on `webgateway`
 - The MCP servers on `hermes-mcp`: `web-search-mcp`, `nextcloud-mcp`,
   `wger-mcp`, `n8n-mcp`, and `drawio-mcp`
 - Traefik configured to route `webui.<DOMAIN>`
@@ -69,8 +69,8 @@ Open WebUI registers these OpenAI-compatible connections:
 | --- | --- | --- |
 | 0 | `http://llama-server:8080/v1` | the router's model ids (no prefix) |
 | 1 | `http://llama-classifier:8080/v1` | the classifier's model ids (no prefix) |
-| 2 | `http://hermes-api:8642/v1` | `hermes.hermes-agent` |
-| 3-10 | `http://hermes-api:8642/p/<profile>/v1` | `hermes.<profile>` |
+| 2 | `http://hermes:8642/v1` | `hermes.hermes-agent` |
+| 3-10 | `http://hermes:8642/p/<profile>/v1` | `hermes.<profile>` |
 
 The Hermes specialist models are `hermes.nextcloud`, `hermes.finance`,
 `hermes.calories`, `hermes.ai-news`, `hermes.hf-models`,

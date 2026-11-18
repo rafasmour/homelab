@@ -189,7 +189,7 @@ volumes:
   testbed-docker:
 
 networks:
-  # hermes-api, hermes-nextcloud-bridge (which runs Talk turns) and the
+  # hermes, hermes-nextcloud-bridge (which runs Talk turns) and the
   # sandboxes. No internet: egress goes through the per-stack network below.
   hermes-sandbox:
     name: hermes-sandbox

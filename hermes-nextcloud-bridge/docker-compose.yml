@@ -2,8 +2,8 @@ services:
   bridge:
     # Upstream: https://github.com/robertlmann02/nextcloud-talk-hermes-bridge
     # The upstream Dockerfile pip-installs an unpinned hermes-agent from PyPI,
-    # which lags the hermes-api image. This build reuses the exact Hermes Agent
-    # image that hermes-api runs and adds the bridge package (stdlib only) from
+    # which lags the hermes image. This build reuses the exact Hermes Agent
+    # image that hermes runs and adds the bridge package (stdlib only) from
     # the pinned commit.
     build:
       context: "https://github.com/robertlmann02/nextcloud-talk-hermes-bridge.git#${TALK_BRIDGE_REF:-b26267ff8ffb02b4e282b032815584163cff5021}"
@@ -49,7 +49,7 @@ services:
     user: "${HERMES_UID:-1000}:${HERMES_GID:-1000}"
     environment:
       HOME: /home/hermes
-      # Shared Hermes state: same profiles, SOULs, MCP servers, and model as hermes-api.
+      # Shared Hermes state: same profiles, SOULs, MCP servers, and model as hermes.
       HERMES_HOME: /home/hermes/.hermes
       HERMES_HOME_DIR: /home/hermes
       HERMES_BIN: /opt/hermes/bin/hermes
@@ -63,7 +63,7 @@ services:
       HERMES_ACCEPT_HOOKS: "0"
       HERMES_MAX_TURNS: "${HERMES_MAX_TURNS:-40}"
       HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
-      # Same as hermes-api: sandbox profiles write these paths over SSH.
+      # Same as hermes: sandbox profiles write these paths over SSH.
       HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier
       HERMES_SOURCE: nextcloud-talk
       NEXTCLOUD_URL: "${NEXTCLOUD_URL:-http://nextcloud}"
@@ -118,7 +118,7 @@ services:
     labels:
       traefik.enable: "false"
     networks:
-      # Nextcloud (webhooks in, bot replies out), hermes-api (/deliver), and
+      # Nextcloud (webhooks in, bot replies out), hermes (/deliver), and
       # the MCP servers.
       - hermes-mcp
       # Talk turns of the sandbox profiles SSH into hermes-sandboxes.

@@ -1,6 +1,6 @@
 """Build-time patch: route each Talk room to its own Hermes profile.
 
-NEXTCLOUD_TALK_PROFILE_ROOMS="<profile>=<room-token>|..." (the same map hermes-api
+NEXTCLOUD_TALK_PROFILE_ROOMS="<profile>=<room-token>|..." (the same map hermes
 uses for cron delivery and talk_send) routes each room to its profile; unmapped
 rooms use HERMES_PROFILE. The toolsets for a mapped profile come from that
 profile's config.yaml (platform_toolsets.cli without clarify, which a one-shot
@@ -42,7 +42,10 @@ def _profile() -> str:
 def _toolsets() -> str:
     profile = _profile()
     try:
-        import yaml
+        try:  # Hermes >= 0.23 ships ruamel (hermes_yaml), no PyYAML
+            import hermes_yaml as yaml
+        except ImportError:
+            import yaml
 
         home = Path(os.environ.get("HERMES_HOME") or Path(HERMES_HOME_DIR) / ".hermes")
         path = home / "config.yaml" if profile == "default" else home / "profiles" / profile / "config.yaml"

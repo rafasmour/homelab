@@ -69,12 +69,18 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
+try:  # Hermes >= 0.23 ships ruamel (hermes_yaml) instead of PyYAML
+    import hermes_yaml as yaml
+except ImportError:  # Hermes <= 0.22
+    import yaml
 
 logger = logging.getLogger(__name__)
 
 BACKEND = "sandbox_ssh"
-_APPROVAL_TIMEOUT = int(os.environ.get("SANDBOX_APPROVAL_TIMEOUT", "900"))
+# Hermes >= 0.23 abandons a pre_tool_call callback (and blocks the tool) after
+# plugins.hook_callback_timeout, which start.sh sets to its maximum of 600 s for
+# profiles with Talk approvals; the wait for the owner must end before that.
+_APPROVAL_TIMEOUT = min(int(os.environ.get("SANDBOX_APPROVAL_TIMEOUT", "570")), 590)
 _approved_patterns: set[str] = set()
 _prompt_lock = threading.Lock()
 
@@ -115,10 +121,15 @@ def _make_environment_class():
             self._known_hosts = known_hosts
             super().__init__(**kwargs)
 
-        def _build_ssh_command(self, extra_args: list | None = None) -> list:
+        def _build_ssh_command(self, extra_args: list | None = None, send_env=()) -> list:
+            # send_env (Hermes >= 0.23): env var names forwarded with SendEnv; each
+            # name set rides its own ControlMaster socket.
+            send_env = tuple(sorted(send_env))
+            socket_for = getattr(self, "_control_socket_for", None)
+            control_socket = socket_for(send_env) if socket_for else self.control_socket
             cmd = ["ssh"]
             if _SSH_MULTIPLEX:
-                cmd += ["-o", f"ControlPath={self.control_socket}",
+                cmd += ["-o", f"ControlPath={control_socket}",
                         "-o", "ControlMaster=auto", "-o", "ControlPersist=300"]
             cmd += [
                 "-F", "/dev/null",
@@ -130,6 +141,8 @@ def _make_environment_class():
                 "-o", "ConnectTimeout=10",
                 "-o", "ServerAliveInterval=30",
             ]
+            for name in send_env:
+                cmd += ["-o", f"SendEnv={name}"]
             if self.port != 22:
                 cmd += ["-p", str(self.port)]
             if self.key_path:

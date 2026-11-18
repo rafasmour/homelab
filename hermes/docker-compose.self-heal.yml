@@ -3,9 +3,10 @@
 #   docker compose --env-file hermes/.env -f hermes/docker-compose.yml -f hermes/docker-compose.self-heal.yml up -d
 # Self-heal controller -> devops-diagnose, and devops-diagnose -> the diagnose MCP.
 services:
-  api:
+  hermes:
     networks:
-      - self-heal-agent
+      self-heal-agent:
+        aliases: [hermes-api]
 
 networks:
   self-heal-agent:

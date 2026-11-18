@@ -123,21 +123,19 @@ cp .env.example .env
 ```
 
 Generate `WEB_SEARCH_MCP_TOKEN` and put the same value in `web-search/.env`,
-`hermes/.env`, and `openwebui/.env`:
+and `hermes/.env`:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Start Hermes so it creates `hermes-mcp`, then this stack, then recreate Hermes
-and Open WebUI:
+Start Hermes so it creates `hermes-mcp`, then this stack, then recreate Hermes:
 
 ```bash
 docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d
 docker compose --env-file web-search/.env -f web-search/docker-compose.yml up -d --build
 docker compose --env-file searxng/.env -f searxng/docker-compose.yml restart searxng
 docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d
-docker compose --env-file openwebui/.env -f openwebui/docker-compose.yml up -d
 ```
 
 Hermes discovers the tools as `mcp__web_search__web_search` and
@@ -190,6 +188,6 @@ Leave a local ignored `forage/.env` on disk unless you choose to delete it.
 ```bash
 docker compose --env-file web-search/.env -f web-search/docker-compose.yml config --quiet
 docker compose --env-file web-search/.env -f web-search/docker-compose.yml ps
-docker compose --env-file hermes/.env -f hermes/docker-compose.yml exec api \
+docker compose --env-file hermes/.env -f hermes/docker-compose.yml exec hermes \
   hermes mcp test web_search
 ```

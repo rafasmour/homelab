@@ -8,7 +8,7 @@ Connects a Nextcloud Talk bot named **Hermes** to the Hermes agent, using [nextc
 
 ## How it is built
 
-The upstream Dockerfile installs an unpinned `hermes-agent` from PyPI, which lags the release that `hermes-api` runs. Compose therefore builds from the upstream Git repository at the pinned commit with an inline Dockerfile: it starts from `nousresearch/hermes-agent:${HERMES_AGENT_VERSION}` (the exact image `hermes-api` runs) and adds the bridge package, which uses only the Python standard library. Keep `HERMES_AGENT_VERSION` equal to the value in `hermes/.env`, and rebuild the bridge whenever `hermes-api` is upgraded:
+The upstream Dockerfile installs an unpinned `hermes-agent` from PyPI, which lags the release that `hermes` runs. Compose therefore builds from the upstream Git repository at the pinned commit with an inline Dockerfile: it starts from `nousresearch/hermes-agent:${HERMES_AGENT_VERSION}` (the exact image `hermes` runs) and adds the bridge package, which uses only the Python standard library. Keep `HERMES_AGENT_VERSION` equal to the value in `hermes/.env`, and rebuild the bridge whenever `hermes` is upgraded:
 
 ```sh
 docker compose --env-file hermes-nextcloud-bridge/.env \
@@ -28,7 +28,7 @@ Bridge settings:
 | `HERMES_SKILLS`, `TALK_BRIDGE_SKILL_STATUS` | empty, `0` | The `skills` toolset is disabled on every profile. |
 | `TALK_LOCAL_MEMORY_CONTEXT`, `NEXTCLOUD_AI_CONTEXT` | `0` | Hermes must act through its MCP tools, not a memory store. |
 
-The bridge reaches Nextcloud at `http://nextcloud`, `hermes-api` and the MCP servers on `hermes-mcp`, the SSH sandboxes of the terminal profiles on `hermes-sandbox` (created by [hermes-sandboxes](../hermes-sandboxes/README.md); Talk turns run here, not in `hermes-api`), and the llama.cpp router (`llama-cpp:8080`) on `webgateway`. It has no Traefik labels; `webgateway` is used only to reach llama.cpp, which is not attached to `hermes-mcp`. On the internal `self-heal-ingress` network (created by the self-heal stack) it reaches only the self-heal controller, for `/heal` commands.
+The bridge reaches Nextcloud at `http://nextcloud`, `hermes` and the MCP servers on `hermes-mcp`, the SSH sandboxes of the terminal profiles on `hermes-sandbox` (created by [hermes-sandboxes](../hermes-sandboxes/README.md); Talk turns run here, not in `hermes`), and the llama.cpp router (`llama-cpp:8080`) on `webgateway`. It has no Traefik labels; `webgateway` is used only to reach llama.cpp, which is not attached to `hermes-mcp`. On the internal `self-heal-ingress` network (created by the self-heal stack) it reaches only the self-heal controller, for `/heal` commands.
 
 ## Setup
 
@@ -64,7 +64,7 @@ The bridge reaches Nextcloud at `http://nextcloud`, `hermes-api` and the MCP ser
 
    The room token is the last path segment of the room URL (`https://nextcloud.<DOMAIN>/call/<room-token>`). Put it in `NEXTCLOUD_TALK_HOME_ROOM` in both `hermes-nextcloud-bridge/.env` and `hermes/.env`. Moderators can also enable the bot in other conversations from the conversation settings (**Bots**).
 
-5. Start the bridge, then recreate `hermes-api` so it picks up the `NEXTCLOUD_TALK_*` values:
+5. Start the bridge, then recreate `hermes` so it picks up the `NEXTCLOUD_TALK_*` values:
 
    ```sh
    docker compose --env-file hermes-nextcloud-bridge/.env \
@@ -80,7 +80,6 @@ Each Hermes profile has its own Talk conversation, owned by `pi.hole`, with the 
 |---|---|---|
 | Hermes | `default` | 🤖 blue |
 | Hermes · Nextcloud | `nextcloud` | 📅 Nextcloud blue |
-| Hermes · Finance | `finance` | 💶 green |
 | Hermes · Calories | `calories` | 🥗 orange |
 | Hermes · AI news | `ai-news` | 🧠 purple |
 | Hermes · HF models | `hf-models` | 🤗 yellow |
@@ -104,7 +103,7 @@ Failed runs: `patches/error_reason.py` (applied after `room_profiles.py`) append
 
 `Warning: Unknown toolsets: clock` in `data/bridge.log` is harmless: `clock` is a plugin toolset, and `hermes chat` checks toolset names before it loads plugins. The clock tools are registered when the agent starts, and the bridge strips the warning from replies.
 
-To add a room: create the conversation as `pi.hole` (Talk API `POST /ocs/v2.php/apps/spreed/api/v4/room` with `roomType=2`), set the avatar with `POST /ocs/v2.php/apps/spreed/api/v1/room/<token>/avatar/emoji` (`emoji`, `color`), add the bot with `occ talk:bot:setup 1 <token>`, add `profile=<token>` to both `.env` files, then recreate `hermes-api` and this bridge (and rerun the n8n setup script if a digest posts to that room).
+To add a room: create the conversation as `pi.hole` (Talk API `POST /ocs/v2.php/apps/spreed/api/v4/room` with `roomType=2`), set the avatar with `POST /ocs/v2.php/apps/spreed/api/v1/room/<token>/avatar/emoji` (`emoji`, `color`), add the bot with `occ talk:bot:setup 1 <token>`, add `profile=<token>` to both `.env` files, then recreate `hermes` and this bridge (and rerun the n8n setup script if a digest posts to that room).
 
 ## Self-heal room
 
@@ -128,7 +127,7 @@ docker compose --env-file hermes-nextcloud-bridge/.env \
   -f hermes-nextcloud-bridge/docker-compose.yml config --quiet
 docker exec nextcloud curl -fsS http://hermes-nextcloud-bridge:8788/heartbeat
 # Test delivery without a model request (prints only the bridge's JSON status):
-docker exec hermes-api sh -c 'curl -fsS -X POST "$NEXTCLOUD_TALK_DELIVER_URL" \
+docker exec hermes sh -c 'curl -fsS -X POST "$NEXTCLOUD_TALK_DELIVER_URL" \
   -H "Authorization: Bearer $NEXTCLOUD_TALK_DELIVER_SECRET" -H "Content-Type: application/json" \
   -d "{\"room_token\":\"$NEXTCLOUD_TALK_HOME_ROOM\",\"message\":\"Bridge test\"}"' >/dev/null && echo delivered
 ```

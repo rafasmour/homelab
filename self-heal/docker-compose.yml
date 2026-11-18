@@ -16,7 +16,7 @@ x-hardening: &hardening
 
 services:
   # Controller: the only container that can execute an action. Reachable by
-  # Grafana and the Talk bridge (self-heal-ingress), calls hermes-api
+  # Grafana and the Talk bridge (self-heal-ingress), calls hermes
   # (self-heal-agent) and the restart proxy (self-heal-exec).
   self-heal:
     <<: *hardening
@@ -217,7 +217,7 @@ networks:
   self-heal-ingress:
     name: self-heal-ingress
     internal: true
-  # self-heal -> hermes-api -> self-heal-diagnose-mcp. hermes joins as external.
+  # self-heal -> hermes -> self-heal-diagnose-mcp. hermes joins as external.
   self-heal-agent:
     name: self-heal-agent
     internal: true

@@ -28,10 +28,25 @@ prompt + ~28k of tool schemas) and takes ~30 s to evaluate after the model was
 
 Settings (environment): HERMES_PRIME_PROFILE (profile to prime), HERMES_PRIME_INTERVAL seconds between checks (default
 120, 0 disables the replay), HERMES_PRIME_STALE seconds after which a priming
-is repeated (default 600), HERMES_SLOT_PRIMED slot that holds the primed prompt (default 1; the ai-assistant
+is repeated (default 600), HERMES_PRIME_PLATFORMS platforms whose first calls are
+captured (default "api_server,webui": the dashboard/app chat runs as webui),
+HERMES_PRIME_IDLE seconds a real conversation must leave the primed slot
+untouched before it is re-primed (default 600, so follow-ups keep their cache), HERMES_SLOT_PRIMED slot that holds the primed prompt (default 1; the ai-assistant
 profile's requests are pinned to it by start.sh, all other profiles to HERMES_SLOT_OTHERS).
 The slot and prompt length of the last priming are kept in
 cache/prime/state.json, so a restart of the container re-primes the same slot.
+
+2026-11-10 fixes (the primed prefix had stopped matching, every ai-assistant
+conversation re-evaluated ~14k tokens, ~6.4 s): Ornith is a hybrid (recurrent)
+model, so llama.cpp reuses a slot only from a checkpoint near the end of the
+primed prompt and the primed prompt must match the real one up to the user
+message. Real conversations run as platform "webui" (dashboard chat), which
+changes the platform hint and the "Platform:" line, and the template kept the
+date of the day it was built. Now webui first calls are captured, the template
+is built for the platform of the last capture (webui by default), memory files
+trigger a rebuild like config.yaml/SOUL.md, the "Conversation started:" date is
+moved to today at midnight, and a slot a real conversation used is re-primed
+only after HERMES_PRIME_IDLE seconds without change.
 """
 
 from __future__ import annotations
@@ -40,10 +55,12 @@ import fcntl
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -79,14 +96,15 @@ def _dir() -> Path:
 def _capture(request=None, platform="", api_call_count=0, base_url="", **_ctx):
     """LLM request middleware: remember the default profile's first call."""
     try:
-        if platform != "api_server" or api_call_count != 1 or not isinstance(request, dict):
+        platforms = os.environ.get("HERMES_PRIME_PLATFORMS", "api_server,webui").split(",")
+        if platform not in [x.strip() for x in platforms] or api_call_count != 1 or not isinstance(request, dict):
             return None
         profile = _profile()
         msgs = request.get("messages")
         if not (isinstance(msgs, list) and len(msgs) == 2 and msgs[0].get("role") == "system"
                 and msgs[1].get("role") == "user"):
             return None
-        _store(profile, request, str(base_url or ""))
+        _store(profile, request, str(base_url or ""), platform)
     except Exception as err:  # never disturb a request
         logger.debug("prompt_prime capture failed: %s", err)
     return None
@@ -110,6 +128,12 @@ def _build_template(profile: str) -> bool:
         def __init__(self):  # no network listener, no stores
             self._last_resolved_model = {}
             self._model_name = "hermes-agent"
+            try:  # Hermes >= 0.23: _create_agent checks a per-session memory provider out of this
+                from gateway.platforms.api_server_memory_sessions import ApiServerMemorySessions
+
+                self._memory_sessions = ApiServerMemorySessions()
+            except ImportError:
+                pass
 
         def _session_model_override_for(self, session_key):
             return None
@@ -118,25 +142,39 @@ def _build_template(profile: str) -> bool:
             return None
 
     home = _base_home() if profile == "default" else Path(get_profile_dir(profile))
+    platform = _template_platform(profile)
     with _profile_runtime_scope(home):
         agent = _Builder()._create_agent(session_id="prompt-prime-build")
         try:
+            # The platform hint and the "Platform:" line follow agent.platform.
+            agent.platform = platform
             system = agent._build_system_prompt(None)
             kwargs = agent._build_api_kwargs(
                 [{"role": "system", "content": system}, {"role": "user", "content": "ping"}])
             base_url = str(getattr(agent, "base_url", "") or "")
         finally:
             agent._memory_manager = None  # never run shutdown/retain hooks
-    return _store(profile, kwargs, base_url)
+    return _store(profile, kwargs, base_url, platform)
 
 
-def _store(profile: str, request: dict, base_url: str) -> bool:
+def _template_platform(profile: str) -> str:
+    """Platform of the stored template (its last capture), else HERMES_PRIME_PLATFORM."""
+    try:
+        doc = json.loads((_dir() / f"{profile}.json").read_text())
+        if doc.get("platform"):
+            return str(doc["platform"])
+    except Exception:
+        pass
+    return os.environ.get("HERMES_PRIME_PLATFORM", "webui")
+
+
+def _store(profile: str, request: dict, base_url: str, platform: str = "") -> bool:
     """Save a template like ``_capture`` does; True when the file changed."""
     body = {k: v for k, v in request.items() if k not in _DROP}
     body.update(request.get("extra_body") or {})
     msgs = request["messages"]
     body["messages"] = [msgs[0], {"role": "user", "content": "ping"}]
-    raw = json.dumps({"base_url": base_url, "body": body}, ensure_ascii=False)
+    raw = json.dumps({"base_url": base_url, "platform": platform, "body": body}, ensure_ascii=False)
     target = _dir() / f"{profile}.json"
     if target.exists() and target.read_text() == raw:
         return False
@@ -152,12 +190,69 @@ def _store(profile: str, request: dict, base_url: str) -> bool:
 def _profile_stamp(profile: str) -> tuple:
     home = _base_home() if profile == "default" else _base_home() / "profiles" / profile
     out = []
-    for name in ("config.yaml", "SOUL.md"):
+    # Memory notes (memories/*.md) are part of the system prompt too.
+    names = ["config.yaml", "SOUL.md"] + sorted(
+        str(p.relative_to(home)) for p in (home / "memories").glob("*.md"))
+    for name in names:
         try:
-            out.append(os.stat(home / name).st_mtime)
+            out.append((name, os.stat(home / name).st_mtime))
         except OSError:
-            out.append(0)
+            out.append((name, 0))
     return tuple(out)
+
+
+_STARTED = re.compile(r"Conversation started: [^\n(]*?(?: \((?P<zone>[^)]*)\))?(?=\n|$)")
+
+
+def _started_line(zone: str) -> str | None:
+    """Today's "Conversation started:" line, formatted as Hermes formats it."""
+    from zoneinfo import ZoneInfo
+
+    iana = zone.split(",")[0].strip() if zone else ""
+    try:
+        now = datetime.now(ZoneInfo(iana)) if iana else datetime.now().astimezone()
+    except Exception:
+        return None
+    bits = [iana] if iana else []
+    abbrev = now.strftime("%Z")
+    if abbrev and abbrev != iana:
+        bits.append(abbrev)
+    offset = now.strftime("%z")
+    if offset:
+        bits.append(f"UTC{offset[:3]}:{offset[3:]}")
+    suffix = f" ({', '.join(bits)})" if bits else ""
+    return f"Conversation started: {now.strftime('%A, %B %d, %Y')}{suffix}"
+
+
+def _refresh_date(profile: str) -> bool:
+    """Move the template's "Conversation started:" date to today (True when rewritten).
+
+    The line carries the date only, so it is stable all day, but a template from
+    yesterday no longer matches any real first call after midnight.
+    """
+    target = _dir() / f"{profile}.json"
+    try:
+        doc = json.loads(target.read_text())
+        system = doc["body"]["messages"][0]
+        content = system.get("content")
+        if not isinstance(content, str):
+            return False
+        match = _STARTED.search(content)
+        if not match:
+            return False
+        line = _started_line(match.group("zone") or "")
+        if not line or line == match.group(0):
+            return False
+        system["content"] = content[:match.start()] + line + content[match.end():]
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(json.dumps(doc, ensure_ascii=False))
+        os.chmod(tmp, 0o600)
+        tmp.replace(target)
+        logger.info("prompt_prime: %s template date moved to %s", profile, line)
+        return True
+    except Exception as err:
+        logger.debug("prompt_prime: date refresh failed: %s", err)
+        return False
 
 
 def _call(url: str, key: str, body=None, timeout=20):
@@ -215,19 +310,33 @@ def _prime_once(state: dict) -> None:
     mine = {s["id"]: s for s in slots}.get(slot)
     if mine is None:
         return
-    still_mine = bool(mine.get("n_prompt_tokens") == state.get("n_prompt_tokens") and state.get("slot") == slot)
+    n_now = mine.get("n_prompt_tokens")
+    still_mine = bool(n_now == state.get("n_prompt_tokens") and state.get("slot") == slot)
     # A different profile, or a template rewritten since the last priming (new
     # system prompt or tools), makes the primed prefix obsolete.
     current = state.get("profile") == profile and state.get("mtime") == template.stat().st_mtime
     if still_mine and current and time.time() - state.get("at", 0) < stale:
         return
+    if not still_mine and n_now and state.get("slot") == slot:
+        # A real conversation used the slot. Its cache still starts with the
+        # primed prefix, so a new conversation reuses it, and a follow-up keeps
+        # its own context: re-prime only once the slot has been left alone for
+        # HERMES_PRIME_IDLE seconds (it used to be replaced within ~2 minutes).
+        idle = float(os.environ.get("HERMES_PRIME_IDLE", "600"))
+        seen = state.get("seen") or [None, 0]
+        if seen[0] != n_now:
+            state["seen"] = [n_now, time.time()]
+            _save_state(state)
+            return
+        if time.time() - seen[1] < idle:
+            return
     t0 = time.time()
     _call(f"{root}/v1/chat/completions", key,
           {**body, "stream": False, "max_tokens": 1, "id_slot": slot, "cache_prompt": True},
           timeout=300)
     after = {s["id"]: s for s in _call(f"{root}/slots?model={model}", key)}.get(slot, {})
     state.update(slot=slot, n_prompt_tokens=after.get("n_prompt_tokens"), at=time.time(),
-                 profile=profile, mtime=template.stat().st_mtime)
+                 profile=profile, mtime=template.stat().st_mtime, seen=None)
     _save_state(state)
     logger.info("prompt_prime: primed %s in slot %s (%s tokens) in %.1fs", profile, slot, state["n_prompt_tokens"], time.time() - t0)
 
@@ -257,6 +366,7 @@ def _loop() -> None:
                     _build_template(profile)
                 except Exception as err:
                     logger.warning("prompt_prime: template build failed (keeping the old one): %s", err)
+            _refresh_date(profile)
             _prime_once(state)
         except Exception as err:
             logger.warning("prompt_prime: %s", err)

@@ -6,7 +6,7 @@ registry's dispatch:
 
 * Tools that would act outside the throw-away home (Talk/messaging, cron jobs,
   delegation, shell and file writes, and every MCP write: notes, WebDAV,
-  contacts, Firefly, n8n, benchmark runs, updates/deletes of items the case did
+  contacts, n8n, benchmark runs, updates/deletes of items the case did
   not create) are NOT executed. They answer with a realistic fake success.
 * Calendar events/to-dos and wger log items the case creates itself stay real,
   because the benchmark verifies them on the real system and deletes them by

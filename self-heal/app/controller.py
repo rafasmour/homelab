@@ -161,7 +161,7 @@ def load_config(env):
         "port": integer("SELF_HEAL_PORT", 8790, 1),
         "hermes_model": env.get("SELF_HEAL_HERMES_MODEL", "").strip() or "hermes-agent",
         "hermes_url": env.get("SELF_HEAL_HERMES_URL", "").strip()
-        or "http://hermes-api:8642/p/devops-diagnose/v1/chat/completions",
+        or "http://hermes:8642/p/devops-diagnose/v1/chat/completions",
         "grafana_url": (env.get("SELF_HEAL_GRAFANA_URL", "").strip() or "http://grafana:3000").rstrip("/"),
         "talk_url": env.get("TALK_DELIVER_URL", "").strip() or "http://hermes-nextcloud-bridge:8788/deliver",
         "restart_url": (env.get("SELF_HEAL_RESTART_PROXY_URL", "").strip()

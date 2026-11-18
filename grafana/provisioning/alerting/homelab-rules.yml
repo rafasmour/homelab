@@ -1190,7 +1190,7 @@ groups:
       datasourceUid: loki
       model:
         refId: A
-        expr: 'sum by (container_name) (count_over_time({container_name="hermes-api"} |~ `ERROR cron\.scheduler: Job .* failed` [1h]))'
+        expr: 'sum by (container_name) (count_over_time({container_name="hermes"} |~ `ERROR cron\.scheduler: Job .* failed` [1h]))'
         queryType: instant
         datasource:
           type: loki
@@ -1218,4 +1218,4 @@ groups:
     labels:
       severity: warning
     annotations:
-      summary: 'Hermes cron jobs failed repeatedly in the last hour ({{ humanize $values.A.Value }} log lines). See `docker logs hermes-api | grep cron.scheduler` and data/profiles/<profile>/cron/output/.'
+      summary: 'Hermes cron jobs failed repeatedly in the last hour ({{ humanize $values.A.Value }} log lines). See `docker logs hermes | grep cron.scheduler` and data/profiles/<profile>/cron/output/.'

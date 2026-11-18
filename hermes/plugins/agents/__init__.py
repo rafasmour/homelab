@@ -30,12 +30,11 @@ import uuid
 from pathlib import Path
 
 PROFILES = (
-    "calories", "finance", "nextcloud", "planner", "web-search", "n8n", "models",
+    "calories", "nextcloud", "planner", "web-search", "n8n", "models",
     "hf-models", "ai-news", "selfhosted", "llamacpp-vulkan", "llamacpp-rocm",
 )
 JOBS = (
     ("calories", "food log and nutrition totals"),
-    ("finance", "Firefly III spending, bills, subscriptions, transactions"),
     ("nextcloud", "files, contacts, notes, larger calendar work"),
     ("planner", "weekly review, wedding, meal and week plans, priorities"),
     ("web-search", "researched answers with sources"),
@@ -154,7 +153,28 @@ def _available_slim_kanban() -> bool:
 
 
 def _chain() -> list[str]:
-    return [p.strip() for p in _env("HERMES_ASK_AGENT_CHAIN").split(",") if p.strip()]
+    chain = [p.strip() for p in _env("HERMES_ASK_AGENT_CHAIN").split(",") if p.strip()]
+    if chain:
+        return chain
+    # Hermes >= 0.23 runs `hermes chat` turns inside the gateway, which never sees the
+    # runner's HERMES_ASK_AGENT_CHAIN. Rebuild the chain from the consults still running
+    # for this profile (plugins/agents/runner.py writes job.json with caller and chain).
+    try:
+        caller, root = _caller_and_root()
+        for job in (root / "cache" / "ask_agent").glob("*/"):
+            if (job / "result.json").exists():
+                continue
+            try:
+                cfg = json.loads((job / "job.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if cfg.get("profile") == caller:
+                for name in list(cfg.get("chain") or []) + [cfg.get("caller")]:
+                    if name and name not in chain:
+                        chain.append(str(name))
+    except Exception:
+        pass
+    return chain
 
 
 def _log(root: Path, **fields) -> None:
@@ -326,6 +346,15 @@ def _ask(args: dict) -> str:
     }, ensure_ascii=False)
 
 
+def _kanban_connect(kb):
+    """Open the Kanban DB (Hermes >= 0.23 moved connect() to kanban_db_connect)."""
+    try:
+        from hermes_cli.kanban_db_connect import connect
+    except ImportError:
+        connect = kb.connect
+    return connect()
+
+
 def _handle_delegate(args: dict, **kw) -> str:
     try:
         return _delegate(args or {})
@@ -349,7 +378,7 @@ def _delegate(args: dict) -> str:
     title = title[:200]
     from hermes_cli import kanban_db as kb
 
-    conn = kb.connect()
+    conn = _kanban_connect(kb)
     try:
         # Same defaults as a top-level kanban_create from a chat: scratch workspace, priority 0, no parents, so
         # the card starts as "ready" and the gateway dispatcher spawns the assignee within one tick.
@@ -376,7 +405,7 @@ def _task_status(args: dict) -> str:
     caller, _ = _caller_and_root()
     from hermes_cli import kanban_db as kb
 
-    conn = kb.connect()
+    conn = _kanban_connect(kb)
     try:
         if card_id:
             task = kb.get_task(conn, card_id)
