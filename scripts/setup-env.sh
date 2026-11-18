@@ -109,8 +109,6 @@ C PAPERLESS_ADMIN_USER  user "" ""
 C PAPERLESS_ADMIN_PASSWORD pass b64:24 ""
 C PAPERLESS_ADMIN_MAIL  user "" ""
 C ADMIN_EMAIL           user "" ""        # mealie
-C JUPYTER_PASSWORD      pass b64:24 ""
-C UNSLOTH_STUDIO_PASSWORD pass b64:24 "" # unsloth-studio: Studio admin (user "unsloth"), first boot only
 C HERMES_DASHBOARD_USERNAME user "" ""    # hermes: Hermes web dashboard login (Hermes-Relay app)
 C HERMES_DASHBOARD_PASSWORD pass b64:24 "" # hermes: dashboard password
 C NEXTCLOUD_USER        user "" ""        # paperless: Nextcloud user that owns the consume folder

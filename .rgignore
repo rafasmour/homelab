@@ -15,7 +15,6 @@ immich/model-cache/
 llama-cpp/models/*/
 llama-cpp-classifier/models/*/
 llama.cpp/
-unsloth-studio/work/
 nextcloud/html/
 nextcloud/mcp-data/
 benchmark/reports/

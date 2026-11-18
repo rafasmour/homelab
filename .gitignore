@@ -68,7 +68,6 @@
 !n8n-drift-runner/.dockerignore
 !n8n-drift-runner/server.py
 !n8n-drift-runner/README.md
-!unsloth-studio/
 !uptime-kuma/
 !vaultwarden/
 !web-search/
@@ -131,9 +130,6 @@ searxng/config/
 searxng/data/
 searxng/valkey/
 silverbullet/space/
-unsloth-studio/huggingface/
-unsloth-studio/studio/
-unsloth-studio/work/
 uptime-kuma/autokuma-data/
 uptime-kuma/data/
 vaultwarden/data/
