@@ -21,6 +21,10 @@ services:
       LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
       # Router downloads (POST /models) persist next to the presets.
       LLAMA_CACHE: /models/cache
+      # RDNA3 fork: while other slots generate, a prompt being read takes at most
+      # this many tokens per step, so generating slots keep their token rate
+      # (prompt reading gets slower). 0 = no limit (upstream behaviour).
+      LLAMA_SERVER_BUSY_PROMPT_TOKENS: "${LLAMA_SERVER_BUSY_PROMPT_TOKENS:-64}"
     volumes:
       - ./models:/models
     command:
@@ -45,6 +49,8 @@ services:
       - hermes-llm
     labels:
       - traefik.enable=true
+      # Two networks: tell Traefik to use webgateway, not the internal hermes-llm.
+      - traefik.docker.network=webgateway
       - traefik.http.routers.llama-server.rule=Host(`ai.${DOMAIN}`)
       - traefik.http.routers.llama-server.entrypoints=websecure
       - traefik.http.routers.llama-server.tls=true

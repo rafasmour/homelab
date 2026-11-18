@@ -253,6 +253,7 @@ top-p = 0.95
 top-k = 20
 min-p = 0
 presence-penalty = 1.5
+cache-ram = 0
 
 [qwen-3.8-27b]
 ; Dense 27B, Q4_0 (14.94 GiB), all 65 layers on the GPU: CPU layers also move

@@ -84,8 +84,12 @@ COPY --from=builder /llama.cpp/build/bin/ /usr/local/bin/
 
 # Kernel arguments in device memory cut per-launch latency, which bounds
 # small-MoE token generation; hipBLASLt speeds up large prompt matmuls.
+# LLAMA_SCHED_PER_SIZE (llama.cpp-RDNA3 fork): batches of up to 8 tokens keep
+# one allocated graph per size, so speculative verify batches of varying
+# length reuse their graphs (needed for spec-draft-p-min to pay off).
 ENV HIP_FORCE_DEV_KERNARG=1 \
-    ROCBLAS_USE_HIPBLASLT=1
+    ROCBLAS_USE_HIPBLASLT=1 \
+    LLAMA_SCHED_PER_SIZE=1
 
 # 2. Set ownership of the directory where models will be mounted (if needed)
 # Ensure the user has permissions to read the /models volume

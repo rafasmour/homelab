@@ -41,7 +41,7 @@ the build and router behavior:
 | `LLAMA_REPO` | Git repository to build llama.cpp from; defaults to upstream `ggml-org/llama.cpp` |
 | `LLAMA_REF` | Branch, tag or commit to build; `main` (or empty) builds the repository's default branch |
 
-Idle sleep is the preset key `sleep-idle-seconds` (300 s in `[*]`; `ornith-1.5-9b-mtp` has `-1` and `load-on-startup = true`, so Hermes' model stays loaded and speech-gateway's warmer reloads it when the router is idle; the `hermes-api` plugin `prompt_prime` then re-evaluates the primed profile's system prompt + tool schemas (~39k tokens, ~29 s cold) into an idle slot, see `hermes/README.md` "Prompt priming"; the preset has 3 slots so Jarvis (Q4_K) fits beside it). It used to be the `SLEEP_IDLE_SECONDS` command-line option, which overrode every preset; the variable in an existing `.env` is now unused.
+Idle sleep is the preset key `sleep-idle-seconds` (300 s in `[*]`; `ornith-1.5-9b-mtp` has `-1` and `load-on-startup = true`, so Hermes' model stays loaded and speech-gateway's warmer reloads it when the router is idle; the `hermes` plugin `prompt_prime` then re-evaluates the primed profile's system prompt + tool schemas (~39k tokens, ~29 s cold) into an idle slot, see `hermes/README.md` "Prompt priming"; the preset has 3 slots so Jarvis (Q4_K) fits beside it). It used to be the `SLEEP_IDLE_SECONDS` command-line option, which overrode every preset; the variable in an existing `.env` is now unused.
 
 Slot reservation for the production preset `ornith-1.5-9b-mtp` (3 slots): a request is placed by longest-common-prefix similarity (`--slot-prompt-similarity` 0.10) unless it carries `id_slot`; the router forwards `id_slot` to the child (log `selected slot by id (N)`) and a busy slot defers the request (queue, no fallback to another slot). Slot 0 is reserved for the primed Hermes ai-assistant prompt, slot 1 for Hindsight, slot 2 for every other Hermes profile (see `hermes/README.md` "llama.cpp slot reservation"). Clients that cannot set it (Open WebUI direct connection, the n8n digest workflows) stay on similarity selection; Open WebUI can pin per model under Admin, Models, Advanced Params, custom parameter `id_slot` if Ornith is used there.
 
@@ -318,3 +318,33 @@ rebuild:
 docker compose build --no-cache llama-cpp
 docker compose up -d
 ```
+
+## ROCm vs Vulkan (2026-11-09)
+
+A one-off comparison of the same llama.cpp build 12105 (commit `4c4ca5b18854c973655a62a6164a3ae930ee76b0`) on the RX 7900 XT (20 GiB) with a Ryzen 7 1800X, to decide whether to switch backends. The Vulkan build (Ubuntu 26.04, Mesa RADV 26.0.8, cooperative matrix, integer dot product and bf16 enabled) was removed afterwards; this stack builds only ROCm.
+
+`llama-bench`: `-ngl 99 -fa 1 -b 1024 -ub 512 -p 512,2048 -n 128 -r 3 -lm dio`, with each preset's KV cache (ornith f16/f16; Qwen 3.8 and Gemma 4 q8_0/q8_0). Values are t/s.
+
+| Model | Backend | pp512 | pp2048 | tg128 |
+| --- | --- | --- | --- | --- |
+| ornith-1.5-9b-q4-dflash (Q4_K_M) | ROCm | 2768 | 2765 | 82.8 |
+| ornith-1.5-9b-q4-dflash (Q4_K_M) | Vulkan | 2346 | 2325 | 93.5 |
+| qwen-3.8-27b (Q4_0) | ROCm | 921 | 866 | 31.3 |
+| qwen-3.8-27b (Q4_0) | Vulkan | 878 | 861 | 19.2 |
+| gemma-4-31b-it (UD-IQ3_XXS) | ROCm | 761 | 707 | 30.6 |
+| gemma-4-31b-it (UD-IQ3_XXS) | Vulkan | 416 | 381 | 29.0 |
+
+`llama-server`, drafter on and off (`-c 8192`, one slot, fixed ~1k-token prompt, greedy, 256 tokens, median of 3 after one warm-up; drafter settings as in the presets: ornith DFlash n-max 4, Qwen 3.8 MTP n-max 3 with K q8_0 / V q4_0). Gemma 4 has no drafter on disk.
+
+| Model | Backend | Drafter | prompt t/s | decode t/s | draft acceptance |
+| --- | --- | --- | --- | --- | --- |
+| ornith | ROCm | off | 2314 | 77.1 | - |
+| ornith | ROCm | on | 1999 | 120.9 | 59% (179/303) |
+| ornith | Vulkan | off | 1912 | 65.7 | - |
+| ornith | Vulkan | on | 406 | 45.4 | 83% (196/236) |
+| qwen-3.8-27b | ROCm | off | 792 | 30.2 | - |
+| qwen-3.8-27b | ROCm | on | 692 | 59.0 | 57% (160/279) |
+| qwen-3.8-27b | Vulkan | off | 160 | 12.0 | - |
+| qwen-3.8-27b | Vulkan | on | 532 | 52.5 | 60% (163/273) |
+
+Findings: ROCm is faster in prompt processing on every model (Gemma 4 about 1.8x), and with the drafter on it decodes faster than Vulkan on both models. Vulkan only wins plain token generation on the small ornith model (93.5 vs 82.8 t/s in `llama-bench`). The Vulkan `llama-server` rows are internally inconsistent with its `llama-bench` rows (for example Qwen 3.8 without a drafter: 12 t/s vs 19 t/s, ornith with a drafter slower than without), so treat them as unreliable; they were single short runs on a host with 2.8 GiB of VRAM already in use by the desktop. Decision: stay on ROCm; Vulkan is not worth switching to.
