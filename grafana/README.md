@@ -24,16 +24,9 @@ Alerts are provisioned from `provisioning/alerting/` and posted by the Hermes bo
 | Memory and CPU | available RAM < 10 % / < 5 %, swap > 80 %, any OOM kill, memory pressure > 10 %, 15-minute load > 1.5× threads |
 | Containers (from `docker-state-exporter`) | a container with restart policy `always`/`unless-stopped` not running for 2 min, a one-shot container exiting non-zero, more than 2 restarts in 15 min, health check failing for 3 min, last stop was an OOM kill |
 | Host and services | host rebooted, clock not NTP-synced, Prometheus target down, Uptime Kuma monitor down |
-| Self-heal (Loki) | an `action_executed` or `action_failed` audit line from the `self-heal` container in the last 5 min (warning, informational) |
-| AI services (Loki) | `llama-server` logs `Could not establish connection` more than twice in 10 min for 5 min: the router is proxying to a dead model instance (critical, `self_heal`, so the controller can propose a `llama-server` restart); Hermes cron jobs failing (`ERROR cron.scheduler: Job … failed`, > 5 lines in 1 h, i.e. at least two failed runs; warning) |
+| AI services (Loki) | `llama-server` logs `Could not establish connection` more than twice in 10 min for 5 min: the router is proxying to a dead model instance (critical); Hermes cron jobs failing (`ERROR cron.scheduler: Job … failed`, > 5 lines in 1 h, i.e. at least two failed runs; warning) |
 
 Not covered: EDAC memory errors and RAID (no such devices), and host network links (node-exporter runs in its own network namespace, so its `eth0` is the container's).
-
-### Self-heal
-
-Rules labelled `self_heal: "true"` (Container stopped, Container restart loop, Container unhealthy, Container killed for memory, Service down, Memory low, Memory critical, Swap almost full, Memory pressure high, Process killed by the OOM killer, llama.cpp model backend unreachable) also go to the **Self-heal** contact point (uid `self-heal`): a webhook with Grafana's default JSON to `http://self-heal:8790/grafana`, Bearer `SELF_HEAL_WEBHOOK_SECRET`, no resolve messages. Its policy route is the first one, groups by every label (one notification per alert) and has `continue: true`, so the same alerts still reach Talk; a last route sends self-heal warnings that no other route matched to Talk, because a matched child route stops the fallback to the default receiver. The controller trusts only the fingerprint and re-reads the alert from Grafana with a Viewer service-account token; see [self-heal](../self-heal/README.md).
-
-Grafana joins the internal `self-heal-ingress` network (created by the self-heal stack, start that first) to reach the controller. Put the same `SELF_HEAL_WEBHOOK_SECRET` (`openssl rand -hex 32`) in `grafana/.env` and `self-heal/.env`.
 
 Rules and the contact point are file-provisioned, so they are read-only in the UI; edit the YAML and restart Grafana. Copy `TALK_DELIVER_SECRET` from `hermes-nextcloud-bridge/.env` and the room token into `.env`. To create the room on a new install, see `hermes-nextcloud-bridge/README.md` (one room per profile).
 

@@ -57,7 +57,6 @@
 !pi-hole/
 !prometheus/
 !searxng/
-!self-heal/
 !speech/
 !n8n-drift-runner/
 !n8n-drift-runner/Dockerfile
@@ -132,7 +131,6 @@ wger/static/
 # Additional tracked configuration and initialization files.
 !prometheus/prometheus.yml
 !loki/loki-config.yml
-!grafana/docker-compose.self-heal.yml
 !grafana/docker-compose.n8n-drift.yml
 !grafana/provisioning/
 !grafana/provisioning/datasources/
@@ -149,7 +147,6 @@ wger/static/
 !homepage/config/docker.yaml
 !hermes/.gitignore
 !hermes/start.sh
-!hermes/docker-compose.self-heal.yml
 !hermes/plugins/
 !hermes/plugins/talk_send/
 !hermes/plugins/talk_send/plugin.yaml
@@ -294,30 +291,6 @@ wger/static/
 
 # Existing tracked `.gitkeep` files remain tracked automatically. Their runtime
 # parent directories are deliberately not unignored so Git never scans data.
-!self-heal/app/
-!self-heal/app/Dockerfile
-!self-heal/app/controller.py
-!self-heal/app/test_controller.py
-!self-heal/docker-compose.test.yml
-!self-heal/restart-proxy/
-!self-heal/restart-proxy/haproxy.cfg
-!self-heal/docker-ro-proxy/
-!self-heal/docker-ro-proxy/haproxy.cfg
-!self-heal/query-proxy/
-!self-heal/query-proxy/haproxy.cfg
-!self-heal/diagnose-mcp/
-!self-heal/diagnose-mcp/Dockerfile
-!self-heal/diagnose-mcp/.dockerignore
-!self-heal/diagnose-mcp/requirements.txt
-!self-heal/diagnose-mcp/server.py
-!self-heal/diagnose-mcp/tests/
-!self-heal/diagnose-mcp/tests/test_server.py
-!self-heal/host-probe/
-!self-heal/host-probe/Dockerfile
-!self-heal/host-probe/.dockerignore
-!self-heal/host-probe/probe.py
-!self-heal/host-probe/tests/
-!self-heal/host-probe/tests/test_probe.py
 
 # maps (Greece Valhalla routing and Pelias search)
 !maps/build/

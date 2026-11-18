@@ -58,7 +58,7 @@ services:
       # the external "hindsight" network). Unset = hindsight; set it empty to use
       # only the built-in MEMORY.md/USER.md. Excluded profiles never use it.
       HERMES_MEMORY_PROVIDER: "${HERMES_MEMORY_PROVIDER-hindsight}"
-      HERMES_MEMORY_EXCLUDE: "${HERMES_MEMORY_EXCLUDE-devops-diagnose coding devops}"
+      HERMES_MEMORY_EXCLUDE: "${HERMES_MEMORY_EXCLUDE-coding devops}"
       HERMES_HINDSIGHT_RETAIN_EVERY: "${HERMES_HINDSIGHT_RETAIN_EVERY:-1}"
       HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
       # Speech-to-text and text-to-speech of every profile (start.sh): the
@@ -87,12 +87,6 @@ services:
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
-      # Self-heal: the devops-diagnose profile's own API key (start.sh writes
-      # it into that profile's .env; the shared API_SERVER_KEY cannot reach
-      # it) and the bearer token of the self-heal diagnose MCP. Optional: without
-      # a usable key start.sh does not serve the profile.
-      SELF_HEAL_HERMES_KEY: "${SELF_HEAL_HERMES_KEY:-}"
-      DIAGNOSE_MCP_TOKEN: "${DIAGNOSE_MCP_TOKEN:-}"
       # Optional: bearer token of benchmark-mcp (models profile). Empty: no benchmark tools.
       BENCHMARK_MCP_TOKEN: "${BENCHMARK_MCP_TOKEN:-}"
       # Cron delivery (--deliver nextcloud_talk) and the talk_send tool post

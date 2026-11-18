@@ -93,7 +93,7 @@ There is no cron. The rule "n8n drift check not running" is the scheduler: when 
 ```bash
 docker compose --env-file n8n-drift-runner/.env -f n8n-drift-runner/docker-compose.yml up -d --build
 docker compose --env-file n8n/.env -f n8n/docker-compose.yml -f n8n/docker-compose.n8n-drift.yml up -d
-docker compose --env-file grafana/.env -f grafana/docker-compose.yml -f grafana/docker-compose.self-heal.yml -f grafana/docker-compose.n8n-drift.yml up -d
+docker compose --env-file grafana/.env -f grafana/docker-compose.yml -f grafana/docker-compose.n8n-drift.yml up -d
 ```
 
 Run it by hand for a summary, and use `--diff <id>` for the normalised diff from git to live (the id or file name, for example `hermes-digest-ai-news`). The runner container has the key and the mounts:

@@ -89,9 +89,7 @@ C WEBUI_SECRET_KEY      gen hex:32 ""
 C AUTH_SECRET           gen hex:32 ""
 C SEARXNG_SECRET        gen hex:32 ""
 C TALK_BOT_SECRET       gen hex:32 ""     # Talk requires 40-128 characters
-C HOST_PROBE_TOKEN      gen hex:32 ""
 C BENCH_API_TOKEN       gen hex:32 ""
-C SELF_HEAL_TOTP_SECRET gen b32:20 ""     # base32, >= 16 characters; only used when SELF_HEAL_REQUIRE_TOTP=1 (add it to an authenticator then)
 C wger/SECRET_KEY       gen urlsafe:64 "" # 50+ URL-safe characters
 
 # Human logins.
@@ -107,7 +105,6 @@ C ADMIN_EMAIL           user "" ""        # mealie
 C HERMES_DASHBOARD_USERNAME user "" ""    # hermes: Hermes web dashboard login (Hermes-Relay app)
 C HERMES_DASHBOARD_PASSWORD pass b64:24 "" # hermes: dashboard password
 C NEXTCLOUD_MCP_USERNAME user "" ""       # dedicated Nextcloud account for the MCP
-C SELF_HEAL_OWNER_ACTOR user "" ""        # users/<Nextcloud user id>
 C WEBPASSWORD           passhash "" ""    # pi-hole stores sha256(sha256(password))
 
 # Values only an application UI or an external party can provide.
@@ -115,7 +112,6 @@ C N8N_API_KEY           token "" "n8n: Settings > n8n API > Create an API key (f
 C N8N_DRIFT_API_KEY     token "" "n8n: Settings > n8n API > new API key with ONLY workflow:list and workflow:read scopes"
 C NEXTCLOUD_MCP_APP_PASSWORD token "" "Nextcloud, signed in as the MCP user: Settings > Security > Devices & sessions > Create new app password"
 C UPTIME_KUMA_API_KEY   token "" "Uptime Kuma: Settings > Security > API Keys"
-C SELF_HEAL_GRAFANA_TOKEN token "" "Grafana: Administration > Users and access > Service accounts (Viewer role) > Add token"
 C WGER_API_KEY          token "" "wger: Settings > API key of the owner account"
 C ADMIN_TOKEN           token "" "Vaultwarden Argon2 hash: docker run --rm -it vaultwarden/server:latest /vaultwarden hash"
 C HF_TOKEN              tokenopt "" "Hugging Face: Settings > Access Tokens (read scope), only for gated repositories"
@@ -144,15 +140,10 @@ G web-search-mcp       hex:32 "web-search:WEB_SEARCH_MCP_TOKEN hermes:WEB_SEARCH
 G wger-mcp             hex:32 "wger:MCP_STATIC_TOKEN hermes:MCP_STATIC_TOKEN benchmark:MCP_STATIC_TOKEN"
 G n8n-mcp              hex:32 "n8n:N8N_MCP_AUTH_TOKEN hermes:N8N_MCP_AUTH_TOKEN8N_MCP_TOKEN"
 G benchmark-mcp        hex:32 "benchmark:BENCHMARK_MCP_TOKEN hermes:BENCHMARK_MCP_TOKEN"
-G self-heal-webhook    hex:32 "self-heal:SELF_HEAL_WEBHOOK_SECRET grafana:SELF_HEAL_WEBHOOK_SECRET"
-G self-heal-approve    hex:32 "self-heal:SELF_HEAL_APPROVE_SECRET hermes-nextcloud-bridge:SELF_HEAL_APPROVE_SECRET"
-G self-heal-hermes-key hex:32 "self-heal:SELF_HEAL_HERMES_KEY hermes:SELF_HEAL_HERMES_KEY"
-G diagnose-mcp         hex:32 "self-heal:DIAGNOSE_MCP_TOKEN hermes:DIAGNOSE_MCP_TOKEN"
-G talk-deliver         hex:32 "hermes-nextcloud-bridge:TALK_DELIVER_SECRET hermes:NEXTCLOUD_TALK_DELIVER_SECRET self-heal:TALK_DELIVER_SECRET grafana:TALK_DELIVER_SECRET"
+G talk-deliver         hex:32 "hermes-nextcloud-bridge:TALK_DELIVER_SECRET hermes:NEXTCLOUD_TALK_DELIVER_SECRET grafana:TALK_DELIVER_SECRET"
 G n8n-drift-webhook    hex:32 "grafana:N8N_DRIFT_WEBHOOK_SECRET n8n-drift-runner:N8N_DRIFT_WEBHOOK_SECRET"
 G talk-home-room       "value:Nextcloud Talk: token of the Hermes home room (last part of the room URL; see hermes-nextcloud-bridge/README.md)" "hermes:NEXTCLOUD_TALK_HOME_ROOM hermes-nextcloud-bridge:NEXTCLOUD_TALK_HOME_ROOM"
 G talk-profile-rooms   "value:Nextcloud Talk: profile=token|profile=token|... one room per Hermes profile (see hermes-nextcloud-bridge/README.md)" "hermes:NEXTCLOUD_TALK_PROFILE_ROOMS hermes-nextcloud-bridge:NEXTCLOUD_TALK_PROFILE_ROOMS"
-G talk-self-heal-room  "value:Nextcloud Talk: token of the dedicated self-heal approval room (owner and Hermes bot only)" "self-heal:TALK_SELF_HEAL_ROOM hermes-nextcloud-bridge:TALK_SELF_HEAL_ROOM?"
 
 declare -A KEY_GROUP   # "service/KEY" -> group
 for g in "${GROUP_NAMES[@]}"; do

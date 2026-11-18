@@ -32,7 +32,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Pi-hole](pi-hole/README.md) | Network-wide DNS filtering | `pihole.${DOMAIN}` | Management |
 | [Prometheus](prometheus/README.md) | Metrics collection and querying | `prometheus.${DOMAIN}` | Monitoring |
 | [SearXNG](searxng/README.md) | Privacy-respecting metasearch | `searxng.${DOMAIN}` | Search |
-| [Self-heal](self-heal/README.md) | Grafana alerts diagnosed by the read-only Hermes `devops-diagnose` profile (host, container, metric and log tools); container restarts only after approval in Talk (`fix`, optional TOTP) | Private only | Not listed |
 | [Speech](speech/README.md) | CPU speech-to-text (Parakeet, Greek Parakeet, automatic English/Greek) and GPU text-to-speech (audio.cpp: Supertonic, OmniVoice, Kokoro, Phonon) through an OpenAI-compatible gateway, plus a voice tester | `speech.${DOMAIN}` | AI |
 | [Uptime Kuma](uptime-kuma/README.md) | Uptime monitoring with AutoKuma discovery | `uptime-kuma.${DOMAIN}` | Monitoring |
 | [Vaultwarden](vaultwarden/README.md) | Bitwarden-compatible password management | `vaultwarden.${DOMAIN}` | Security |
@@ -82,8 +81,8 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   completes each stack's `.env` from its `.env.example` (mode 600). It
   generates API tokens, secret keys and internal passwords in the format the
   example documents (default `openssl rand -hex 32`), keeps secrets that must
-  match across stacks identical (for example `LLAMA_API_KEY`, the `SELF_HEAL_*`
-  secrets, `TALK_DELIVER_SECRET`, `N8N_MCP_AUTH_TOKEN`), and asks for
+  match across stacks identical (for example `LLAMA_API_KEY`,
+  `TALK_DELIVER_SECRET`, `N8N_MCP_AUTH_TOKEN`), and asks for
   usernames, e-mail addresses, login passwords (empty answer generates one) and
   the tokens only an application UI can issue (Enter skips; a hint says where
   to create each). It never changes a value that is already set (anything but
