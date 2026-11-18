@@ -34,7 +34,6 @@
 !benchmark/
 !docker-state-exporter/
 !databases/
-!drawio/
 !excalidraw/
 !grafana/
 !hermes/
@@ -226,8 +225,6 @@ wger/static/
 !web-search/requirements.txt
 !web-search/app/
 !web-search/app/*.py
-!drawio/Dockerfile
-!drawio/.dockerignore
 !n8n/Dockerfile
 !n8n/.dockerignore
 !n8n/scripts/

@@ -17,7 +17,7 @@ Docker Compose deployment for the [Hermes Agent](https://github.com/NousResearch
 
 - Docker Engine with Docker Compose, the external `webgateway` network, and Traefik
 - A `llama-cpp` container reachable as `llama-cpp:8080` on `webgateway`, serving the `HERMES_MODEL` alias
-- The Nextcloud, n8n, draw.io, wger, and web-search MCP services on `hermes-mcp` (this stack creates that network)
+- The Nextcloud, n8n, wger, and web-search MCP services on `hermes-mcp` (this stack creates that network)
 - `hermes-nextcloud-bridge` for Talk delivery
 - The [hermes-sandboxes](../hermes-sandboxes/README.md) stack (it creates the external `hermes-sandbox` network) and its `setup-keys.sh` run once
 - The [self-heal](../self-heal/README.md) stack, which creates the external `self-heal-agent` network (the controller and its read-only diagnose MCP)

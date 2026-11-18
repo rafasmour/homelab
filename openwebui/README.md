@@ -14,7 +14,7 @@ web search. Traefik publishes it at `https://webui.<DOMAIN>`.
 - `llama-server:8080` and `llama-classifier:8080` on `webgateway`
 - The Hermes API at `hermes:8642` on `webgateway`
 - The MCP servers on `hermes-mcp`: `web-search-mcp`, `nextcloud-mcp`,
-  `wger-mcp`, `n8n-mcp`, and `drawio-mcp`
+  `wger-mcp`, and `n8n-mcp`
 - Traefik configured to route `webui.<DOMAIN>`
 
 ## Configuration
@@ -95,7 +95,6 @@ native `POST /v1/systemone` endpoint is not used.
 | `nextcloud` | `http://nextcloud-mcp:8000/mcp` | none |
 | `wger` | `http://wger-mcp:8765/mcp` | Bearer `WGER_MCP_TOKEN` |
 | `n8n` | `http://n8n-mcp:3000/mcp` | Bearer `N8N_MCP_TOKEN` |
-| `drawio` | `http://drawio-mcp:8000/mcp` | none |
 
 Direct llama.cpp chats can call these tools. The Hermes models use their own
 tools inside Hermes.

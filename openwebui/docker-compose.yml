@@ -99,9 +99,7 @@ services:
         "config": {"enable": true}, "info": {"id": "wger", "name": "wger"}},
         {"type": "mcp", "url": "http://n8n-mcp:3000/mcp", "auth_type": "bearer",
         "key": "${N8N_MCP_TOKEN:?Set N8N_MCP_TOKEN in .env}",
-        "config": {"enable": true}, "info": {"id": "n8n", "name": "n8n"}},
-        {"type": "mcp", "url": "http://drawio-mcp:8000/mcp", "auth_type": "none", "key": "",
-        "config": {"enable": true}, "info": {"id": "drawio", "name": "draw.io"}}
+        "config": {"enable": true}, "info": {"id": "n8n", "name": "n8n"}}
         ]
 
       # Built-in web search through the web-search service REST endpoints.

@@ -628,7 +628,6 @@ servers = {
         "url": "http://n8n-mcp:3000/mcp",
         "headers": {"Authorization": f"Bearer {env['N8N_MCP_AUTH_TOKEN']}"},
     },
-    "drawio": {"url": "http://drawio-mcp:8000/mcp"},
     "web_search": {
         "url": "http://web-search-mcp:8000/mcp",
         "headers": {"Authorization": f"Bearer {env['WEB_SEARCH_MCP_TOKEN']}"},
