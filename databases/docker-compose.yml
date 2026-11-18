@@ -1,0 +1,93 @@
+# Shared databases for the homelab stacks (since 2026-11-13).
+#
+# postgres: one PostgreSQL 17 server for immich, wger, n8n and hindsight (one
+#   database and one owner role per app). The immich image is used because it
+#   ships the vchord (VectorChord) and vector (pgvector) extensions that immich
+#   and hindsight need. wal_level=logical is for wger's PowerSync.
+# mariadb: Nextcloud's MariaDB (moved here from nextcloud/).
+#
+# Apps reach them on the internal `databases` network as `postgres:5432` and
+# `mariadb:3306`. Start this stack before the apps. See README.md.
+services:
+  postgres:
+    container_name: postgres
+    image: ghcr.io/immich-app/postgres:${POSTGRES_IMAGE_TAG:-17-vectorchord0.4.3-pgvector0.8.1}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      POSTGRES_INITDB_ARGS: --data-checksums
+      DB_STORAGE_TYPE: SSD
+    # The image's config (vchord preload, autovacuum tuning) plus small-host
+    # memory settings. Command-line values override the config file.
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=150
+      - -c
+      - max_parallel_workers_per_gather=0
+      - -c
+      - jit=off
+      - -c
+      - max_wal_size=1GB
+      - -c
+      - wal_level=logical
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    networks:
+      - databases
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1536m}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    labels:
+      kuma.postgres.docker.name: "postgres"
+      kuma.postgres.docker.docker_host_name: local-docker-host
+      kuma.postgres.docker.docker_container: postgres
+
+  mariadb:
+    container_name: mariadb
+    image: mariadb:${MARIADB_VERSION:-lts}
+    restart: unless-stopped
+    command:
+      - --transaction-isolation=READ-COMMITTED
+      - --binlog-format=ROW
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=60
+      - --performance-schema=OFF
+    environment:
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:?Set MARIADB_ROOT_PASSWORD in .env}"
+    volumes:
+      - ./mariadb:/var/lib/mysql
+    networks:
+      - databases
+    mem_limit: ${MARIADB_MEM_LIMIT:-512m}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    labels:
+      kuma.mariadb.docker.name: "mariadb"
+      kuma.mariadb.docker.docker_host_name: local-docker-host
+      kuma.mariadb.docker.docker_container: mariadb
+
+networks:
+  databases:
+    name: databases
+    internal: true

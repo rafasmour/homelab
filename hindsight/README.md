@@ -12,7 +12,7 @@ shared bank, recalled by semantic + keyword + graph + temporal search.
 
 There is no Traefik route, no Homepage entry and no host port. The API has
 **no authentication of its own**; it is reachable only from containers on the
-internal `hindsight` network (Hindsight, the relay and `hermes-api`). Do not
+internal `hindsight` network (Hindsight, the relay and `hermes`). Do not
 publish it without an authentication middleware.
 
 ## Privacy and network isolation
@@ -63,11 +63,11 @@ uses the single bank `hermes`. Health: `docker exec hindsight python -c "import 
 
 ## Hermes
 
-`hermes-api` must join the external network `hindsight`:
+`hermes` must join the external network `hindsight`:
 
 ```yaml
 services:
-  hermes-api:
+  hermes:
     networks:
       - hindsight
 networks:
@@ -95,3 +95,7 @@ Back up `./postgres` (stop `hindsight-db` or use `pg_dump`):
 `docker exec hindsight-db pg_dump -U hindsight hindsight > hindsight.sql`.
 Limits: API 1.5 GB (about 0.36 GB used), database 0.75 GB (about 0.06 GB used),
 relay 64 MB. `shm_size` 256m for PostgreSQL.
+
+## Database (since 2026-11-13)
+
+The database runs in the shared [databases](../databases/README.md) stack: PostgreSQL (`postgres`, database `hindsight`) on the `databases` network. Start that stack first. The old `postgres` folder is the pre-move copy, kept for rollback; older notes in this README that mention the stack's own database container refer to the setup before the move.

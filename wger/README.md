@@ -95,3 +95,7 @@ Back up `.env`, `postgres/`, `media/`, and `redis/`. `static/` and `celery-beat/
 ```bash
 docker compose --env-file wger/.env -f wger/docker-compose.yml exec db pg_dump -U wger wger
 ```
+
+## Database (since 2026-11-13)
+
+The database runs in the shared [databases](../databases/README.md) stack: PostgreSQL (`postgres`, database `wger`) on the `databases` network. Start that stack first. The old `postgres` folder is the pre-move copy, kept for rollback; older notes in this README that mention the stack's own database container refer to the setup before the move.

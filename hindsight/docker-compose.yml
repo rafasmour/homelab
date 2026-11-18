@@ -1,39 +1,4 @@
 services:
-  # PostgreSQL with pgvector >= 0.8 (iterative HNSW scans). Backend only.
-  hindsight-db:
-    image: ${PGVECTOR_IMAGE:-pgvector/pgvector:0.8.1-pg17}
-    container_name: hindsight-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: "${HINDSIGHT_DB_NAME:-hindsight}"
-      POSTGRES_USER: "${HINDSIGHT_DB_USER:-hindsight}"
-      POSTGRES_PASSWORD: "${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}"
-    # Small host: modest buffers, few connections (the API pool is capped below).
-    command:
-      - postgres
-      - -c
-      - shared_buffers=128MB
-      - -c
-      - max_connections=40
-      - -c
-      - maintenance_work_mem=64MB
-      - -c
-      - work_mem=8MB
-      - -c
-      - max_parallel_workers_per_gather=0
-    volumes:
-      - ./postgres:/var/lib/postgresql/data
-    shm_size: 256m
-    mem_limit: ${HINDSIGHT_DB_MEM_LIMIT:-768m}
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-
   # Egress relay: the only container that can reach the llama.cpp routers.
   # Forwards :8001 -> llama-server and :8002 -> llama-classifier (nginx.conf).
   hindsight-relay:
@@ -55,14 +20,12 @@ services:
     restart: unless-stopped
     stop_grace_period: 75s
     depends_on:
-      hindsight-db:
-        condition: service_healthy
       hindsight-relay:
         condition: service_started
     environment:
       HINDSIGHT_API_HOST: "0.0.0.0"
       HINDSIGHT_API_PORT: "8888"
-      HINDSIGHT_API_DATABASE_URL: "postgresql://${HINDSIGHT_DB_USER:-hindsight}:${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}@hindsight-db:5432/${HINDSIGHT_DB_NAME:-hindsight}"
+      HINDSIGHT_API_DATABASE_URL: "postgresql://${HINDSIGHT_DB_USER:-hindsight}:${HINDSIGHT_DB_PASSWORD:?Set HINDSIGHT_DB_PASSWORD in .env}@postgres:5432/${HINDSIGHT_DB_NAME:-hindsight}"
       HINDSIGHT_API_VECTOR_EXTENSION: pgvector
       HINDSIGHT_API_DB_POOL_MIN_SIZE: "2"
       HINDSIGHT_API_DB_POOL_MAX_SIZE: "10"
@@ -108,6 +71,7 @@ services:
     networks:
       - backend
       - hindsight
+      - databases
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8888/health', timeout=5)"]
       interval: 30s
@@ -116,10 +80,13 @@ services:
       start_period: 90s
 
 networks:
+  databases:
+    external: true
+    name: databases
   # Database network: internal, no internet.
   backend:
     internal: true
-  # Internal (no internet) network shared with hermes-api (declare it there
+  # Internal (no internet) network shared with hermes (declare it there
   # as an external network named `hindsight`).
   hindsight:
     name: hindsight

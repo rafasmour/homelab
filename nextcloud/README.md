@@ -20,7 +20,7 @@ Start the Hermes stack before this stack. Hermes creates the shared network, whi
 docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d
 ```
 
-Hermes connects to `http://nextcloud-mcp:8000/mcp` from the default profile and from the dedicated `nextcloud` profile. Recreate `hermes-api` after this service is healthy so the new network attachment is applied and Hermes discovers the tools.
+Hermes connects to `http://nextcloud-mcp:8000/mcp` from the default profile and from the dedicated `nextcloud` profile. Recreate `hermes` after this service is healthy so the new network attachment is applied and Hermes discovers the tools.
 
 In this deployment the MCP account is the administrator account `pi.hole`, so Hermes creates events and to-dos directly in that user's calendars. The model sees the tools as `mcp__nextcloud__<tool>`, for example `mcp__nextcloud__nc_calendar_create_event` and `mcp__nextcloud__nc_calendar_create_todo`.
 
@@ -72,3 +72,7 @@ Keep server-side encryption disabled, or Paperless would read encrypted files. D
 ## Backup and important notes
 
 Back up `.env`, `html`, `mcp-data`, and a consistent MariaDB dump or stopped copy of `database`. `redis` is a cache and is not a substitute for the database backup.
+
+## Database (since 2026-11-13)
+
+The database runs in the shared [databases](../databases/README.md) stack: MariaDB (`mariadb`, database `nextcloud`) on the `databases` network. Start that stack first. The old `database` folder is the pre-move copy, kept for rollback; older notes in this README that mention the stack's own database container refer to the setup before the move.

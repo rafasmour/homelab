@@ -36,8 +36,8 @@ x-wger-environment: &wger-environment
   POSTGRES_USER: "${POSTGRES_USER:-wger}"
   POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
   POSTGRES_DB: "${POSTGRES_DB:-wger}"
-  PS_DATABASE_URI: "postgres://${POSTGRES_USER:-wger}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wger}"
-  PS_STORAGE_PG_URI: "postgres://powersync_storage:${POWERSYNC_STORAGE_PASSWORD:?Set POWERSYNC_STORAGE_PASSWORD in .env}@db:5432/${POSTGRES_DB:-wger}"
+  PS_DATABASE_URI: "postgres://${POSTGRES_USER:-wger}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wger}"
+  PS_STORAGE_PG_URI: "postgres://powersync_storage:${POWERSYNC_STORAGE_PASSWORD:?Set POWERSYNC_STORAGE_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-wger}"
   PS_PORT: "8080"
   POWERSYNC_URL_PATH: "ps"
   DJANGO_PERFORM_MIGRATIONS: "True"
@@ -74,46 +74,6 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  db:
-    container_name: wger-database
-    image: docker.io/postgres:${POSTGRES_VERSION:-15-alpine}
-    restart: unless-stopped
-    shm_size: 256mb
-    logging: *default-logging
-    environment:
-      TZ: "${TZ:-Europe/Athens}"
-      POSTGRES_USER: "${POSTGRES_USER:-wger}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
-      POSTGRES_DB: "${POSTGRES_DB:-wger}"
-    volumes:
-      - ./postgres:/var/lib/postgresql/data
-    command:
-      - postgres
-      - -c
-      - wal_level=logical
-      - -c
-      - shared_buffers=256MB
-      - -c
-      - effective_cache_size=768MB
-      - -c
-      - work_mem=8MB
-      - -c
-      - random_page_cost=1.1
-      - -c
-      - max_connections=30
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h localhost -U \"$$POSTGRES_USER\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - backend
-    labels:
-      kuma.wger-database.docker.name: "wger-database"
-      kuma.wger-database.docker.docker_host_name: local-docker-host
-      kuma.wger-database.docker.docker_container: wger-database
-
   cache:
     container_name: wger-redis
     image: docker.io/redis:${REDIS_VERSION:-7-alpine}
@@ -149,8 +109,6 @@ services:
     logging: *default-logging
     stop_grace_period: 60s
     depends_on:
-      db:
-        condition: service_healthy
       cache:
         condition: service_healthy
     environment:
@@ -168,6 +126,7 @@ services:
       - backend
       - egress
       - hermes-mcp
+      - databases
 
   celery_worker:
     container_name: wger-celery-worker
@@ -191,6 +150,7 @@ services:
     networks:
       - backend
       - egress
+      - databases
 
   celery_beat:
     container_name: wger-celery-beat
@@ -207,6 +167,7 @@ services:
       - ./celery-beat:/home/wger/beat
     networks:
       - backend
+      - databases
 
   powersync:
     container_name: wger-powersync
@@ -215,21 +176,20 @@ services:
     logging: *default-logging
     command: ["start", "-r", "unified"]
     depends_on:
-      db:
-        condition: service_healthy
       web:
         condition: service_healthy
     environment:
       TZ: "${TZ:-Europe/Athens}"
       POWERSYNC_CONFIG_PATH: /config/powersync.yaml
-      PS_DATABASE_URI: "postgres://${POSTGRES_USER:-wger}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-wger}"
-      PS_STORAGE_PG_URI: "postgres://powersync_storage:${POWERSYNC_STORAGE_PASSWORD}@db:5432/${POSTGRES_DB:-wger}"
+      PS_DATABASE_URI: "postgres://${POSTGRES_USER:-wger}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wger}"
+      PS_STORAGE_PG_URI: "postgres://powersync_storage:${POWERSYNC_STORAGE_PASSWORD}@postgres:5432/${POSTGRES_DB:-wger}"
       PS_PORT: "8080"
       PS_JWKS_URL: http://web:8000/api/v2/powersync-keys
     volumes:
       - ./powersync:/config:ro
     networks:
       - backend
+      - databases
 
   nginx:
     container_name: wger
@@ -295,6 +255,9 @@ services:
       start_period: 15s
 
 networks:
+  databases:
+    external: true
+    name: databases
   backend:
     internal: true
   egress:

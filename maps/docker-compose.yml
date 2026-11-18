@@ -162,6 +162,9 @@ services:
       xpack.security.enabled: "false"
       xpack.watcher.enabled: "false"
       ingest.geoip.downloader.enabled: "false"
+      # The image defaults to memory_lock=true, which pins the JVM in RAM; let
+      # the kernel swap idle pages instead (2026-11-13, RAM pressure).
+      bootstrap.memory_lock: "false"
     ulimits:
       memlock:
         soft: -1

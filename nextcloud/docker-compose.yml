@@ -1,31 +1,4 @@
 services:
-  database:
-    container_name: nextcloud-database
-    labels:
-      kuma.nextcloud-database.docker.name: "nextcloud-database"
-      kuma.nextcloud-database.docker.docker_host_name: local-docker-host
-      kuma.nextcloud-database.docker.docker_container: nextcloud-database
-    image: mariadb:${MARIADB_VERSION:-lts}
-    restart: unless-stopped
-    command:
-      - --transaction-isolation=READ-COMMITTED
-      - --binlog-format=ROW
-    environment:
-      MARIADB_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}"
-      MARIADB_DATABASE: nextcloud
-      MARIADB_USER: nextcloud
-      MARIADB_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}"
-    volumes:
-      - ./database:/var/lib/mysql
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-
   redis:
     container_name: nextcloud-redis
     labels:
@@ -51,12 +24,10 @@ services:
     image: nextcloud:${NEXTCLOUD_VERSION:-apache}
     restart: unless-stopped
     depends_on:
-      database:
-        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
-      MYSQL_HOST: database
+      MYSQL_HOST: mariadb
       MYSQL_DATABASE: nextcloud
       MYSQL_USER: nextcloud
       MYSQL_PASSWORD: "${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}"
@@ -73,6 +44,7 @@ services:
       - ./php/timezone.ini:/usr/local/etc/php/conf.d/zz-timezone.ini:ro
     networks:
       - backend
+      - databases
       # hermes-nextcloud-bridge: Talk bot webhooks and bot replies.
       - hermes-mcp
       - webgateway
@@ -114,6 +86,7 @@ services:
       - ./php/timezone.ini:/usr/local/etc/php/conf.d/zz-timezone.ini:ro
     networks:
       - backend
+      - databases
 
   mcp:
     container_name: nextcloud-mcp
@@ -146,6 +119,9 @@ services:
       start_period: 20s
 
 networks:
+  databases:
+    external: true
+    name: databases
   backend:
     internal: true
   hermes-mcp:
