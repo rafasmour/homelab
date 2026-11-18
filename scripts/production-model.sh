@@ -12,21 +12,22 @@
 #   2. llama-cpp/models/router-config.ini: moves "load-on-startup = true" and
 #      "sleep-idle-seconds = -1" from the old preset to the new one;
 #   3. .env files (backed up as .env.bak-<time> first; values are not printed):
-#        hermes/.env      HERMES_MODEL, HERMES_CONTEXT_LENGTH (ctx-size / parallel, or
-#                         64k with kv-unified-per-slot), HERMES_SESSION_CONTEXT_LENGTH
-#                         (kv-unified-per-slot, else the same per-slot size)
+#        hermes/.env      HERMES_MODEL
+#        hermes/profiles/_base/config.yaml  model.context_length for every profile
+#                         (ctx-size / parallel, or 64k with kv-unified-per-slot)
 #        hindsight/.env   HINDSIGHT_LLM_MODEL
 #        speech/.env      WARM_LLM
 #   4. reloads the router presets, unloads the old model, loads the new one;
 #   5. docker compose up -d --no-deps for hermes, hindsight and
-#      speech-gateway, recreating those whose environment changed (Hermes'
-#      start.sh rewrites every profile's model and context from the env);
+#      speech-gateway, recreating those whose environment changed (hermes is
+#      rebuilt: profiles/_base/config.yaml is baked into its image);
 #   6. n8n/scripts/hermes-digests-setup.sh --credentials-only, so the n8n
 #      digests' LLM credential sends the new model (HERMES_MODEL).
 #
 # Slot claims (unchanged by a switch, need >= 3 slots): 0 = primed ai-assistant
-# (HERMES_SLOT_PRIMED), 1 = Hindsight (HINDSIGHT_LLM_SLOT), 2 = every other
-# Hermes profile and the n8n digests (HERMES_SLOT_OTHERS); slots 3+ are unpinned.
+# (id_slot in hermes/profiles/ai-assistant/config.yaml), 1 = Hindsight
+# (HINDSIGHT_LLM_SLOT), 2 = every other Hermes profile (id_slot in their
+# config.yaml) and the n8n digests; slots 3+ are unpinned.
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -86,8 +87,7 @@ PY
 show_status() {
   printf '%-34s %s\n' "router-config.ini (load-on-startup)" "$(current_model)"
   printf '%-34s %s\n' "hermes/.env HERMES_MODEL" "$(env_get "$ROOT/hermes/.env" HERMES_MODEL)"
-  printf '%-34s %s\n' "hermes/.env HERMES_CONTEXT_LENGTH" "$(env_get "$ROOT/hermes/.env" HERMES_CONTEXT_LENGTH)"
-  printf '%-34s %s\n' "hermes/.env HERMES_SESSION_CONTEXT" "$(env_get "$ROOT/hermes/.env" HERMES_SESSION_CONTEXT_LENGTH)"
+  printf '%-34s %s\n' "hermes _base model.context_length" "$(sed -n 's/^  context_length: //p' "$ROOT/hermes/profiles/_base/config.yaml" | head -n 1)"
   printf '%-34s %s\n' "hindsight/.env HINDSIGHT_LLM_MODEL" "$(env_get "$ROOT/hindsight/.env" HINDSIGHT_LLM_MODEL)"
   printf '%-34s %s\n' "speech/.env WARM_LLM" "$(env_get "$ROOT/speech/.env" WARM_LLM)"
   printf '%-34s %s\n' "router loaded now" "$("$ROUTER" loaded 2>/dev/null | paste -sd, - || echo '?')"
@@ -161,8 +161,14 @@ set_env() {  # FILE KEY VALUE
   echo "  ${f#"$ROOT"/} $k=$v"
 }
 set_env "$ROOT/hermes/.env" HERMES_MODEL "$TARGET"
-set_env "$ROOT/hermes/.env" HERMES_CONTEXT_LENGTH "$PER_SLOT"
-set_env "$ROOT/hermes/.env" HERMES_SESSION_CONTEXT_LENGTH "$SESSION_CTX"
+# The context length is a versioned setting shared by every profile.
+HERMES_BASE="$ROOT/hermes/profiles/_base/config.yaml"
+if [ -f "$HERMES_BASE" ]; then
+  [ -e "$HERMES_BASE.bak-$STAMP" ] || cp -p "$HERMES_BASE" "$HERMES_BASE.bak-$STAMP"
+  sed -i "s|^  context_length: .*|  context_length: $PER_SLOT|" "$HERMES_BASE"
+  echo "  hermes/profiles/_base/config.yaml context_length: $PER_SLOT"
+  [ "$SESSION_CTX" = "$PER_SLOT" ] || echo "  note: sessions could use $SESSION_CTX tokens, but one value now applies to every profile"
+fi
 set_env "$ROOT/hindsight/.env" HINDSIGHT_LLM_MODEL "$TARGET"
 set_env "$ROOT/speech/.env" WARM_LLM "$TARGET"
 
@@ -175,10 +181,11 @@ if [ -n "$OLD" ] && [ "$OLD" != "$TARGET" ]; then "$ROUTER" unload "$OLD"; sleep
 # 5. containers
 if [ "$RESTART" = 1 ]; then
   # Only the services that read these variables; --no-deps leaves the rest alone.
-  for pair in hermes:api hindsight:hindsight speech:speech-gateway; do
+  for pair in hermes:hermes hindsight:hindsight speech:speech-gateway; do
     stack="${pair%%:*}"; svc="${pair#*:}"
     echo "== $stack: docker compose up -d --no-deps $svc"
-    (cd "$ROOT/$stack" && docker compose up -d --no-deps "$svc" 2>&1 | grep -E "Recreat|Start|Running|Error" || true)
+    build=""; [ "$stack" = hermes ] && build="--build"
+    (cd "$ROOT/$stack" && docker compose up -d $build --no-deps "$svc" 2>&1 | grep -E "Recreat|Start|Running|Error|Built" || true)
   done
 else
   echo "--no-restart: run docker compose up -d in hermes, hindsight and speech to apply the env"

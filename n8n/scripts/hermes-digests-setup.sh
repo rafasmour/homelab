@@ -41,7 +41,8 @@ require() {
 LLAMA_API_KEY=$(env_value "$ROOT/llama-cpp/.env" LLAMA_API_KEY)
 MCP_STATIC_TOKEN=$(env_value "$ROOT/wger/.env" MCP_STATIC_TOKEN)
 PRODUCTION_MODEL=$(env_value "$ROOT/hermes/.env" HERMES_MODEL)
-HERMES_SLOT_OTHERS=$(env_value "$ROOT/hermes/.env" HERMES_SLOT_OTHERS)
+# llama.cpp slot of every non-ai-assistant profile: id_slot in hermes/profiles/default/config.yaml
+HERMES_SLOT_OTHERS=$(sed -n 's/^ *id_slot: *//p' "$ROOT/hermes/profiles/default/config.yaml" | head -n 1)
 require "llama-cpp/.env LLAMA_API_KEY" "$LLAMA_API_KEY"
 require "wger/.env MCP_STATIC_TOKEN" "$MCP_STATIC_TOKEN"
 require "hermes/.env HERMES_MODEL" "$PRODUCTION_MODEL"
@@ -59,8 +60,8 @@ import os
 import sys
 
 env = os.environ
-# The digests share the slot of the other Hermes profiles (hermes/.env
-# HERMES_SLOT_OTHERS, default 2; 0 = primed ai-assistant, 1 = Hindsight), so
+# The digests share the slot of the other Hermes profiles (id_slot in
+# hermes/profiles/default/config.yaml, default 2; 0 = primed ai-assistant, 1 = Hindsight), so
 # they never evict the assistant's warm prompt. For a range ("2-4") the first
 # slot is used; -1 sends no id_slot.
 slot_others = (env.get("HERMES_SLOT_OTHERS") or "2").strip()

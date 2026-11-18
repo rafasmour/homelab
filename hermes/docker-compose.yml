@@ -1,68 +1,101 @@
 services:
   # One container for everything Hermes serves: the OpenAI-compatible API
   # (8642), the Desktop Webapp (9120), the web dashboard (9119) and the
-  # Hermes-Relay server (8767). start.sh configures the profiles and runs the
-  # gateway.
+  # Hermes-Relay server (8767). It starts through the image's own entrypoint
+  # (s6), which runs the gateway below and the relay and dashboard services
+  # that the Dockerfile adds. Profiles are repo files, mounted read-only.
   hermes:
-    image: nousresearch/hermes-agent:${HERMES_AGENT_VERSION:-v0.23.2}
+    build:
+      context: .
+      args:
+        HERMES_AGENT_VERSION: "${HERMES_AGENT_VERSION:-v0.23.2}"
+    image: hermes-local:${HERMES_AGENT_VERSION:-v0.23.2}
     container_name: hermes
     restart: unless-stopped
-    command: ["sh", "/usr/local/bin/start.sh"]
+    command: ["gateway", "run"]
     volumes:
-      # Profiles, SOULs and sessions (shared with
-      # the hermes-sandbox CLI). Runtime data,
-      # never commit.
+      # Profiles, sessions, memories, Kanban, cron: runtime data, never commit.
       - ./data:/home/hermes/.hermes
-      - ./start.sh:/usr/local/bin/start.sh:ro
+      # default profile (repo-owned, read-only: agents cannot rewrite their own SOUL or config).
+      - ./profiles/default/config.yaml:/home/hermes/.hermes/config.yaml:ro
+      - ./profiles/default/SOUL.md:/home/hermes/.hermes/SOUL.md:ro
+      - ./profiles/default/hindsight.json:/home/hermes/.hermes/hindsight/config.json:ro
+      # nextcloud
+      - ./profiles/nextcloud/config.yaml:/home/hermes/.hermes/profiles/nextcloud/config.yaml:ro
+      - ./profiles/nextcloud/SOUL.md:/home/hermes/.hermes/profiles/nextcloud/SOUL.md:ro
+      - ./profiles/nextcloud/hindsight.json:/home/hermes/.hermes/profiles/nextcloud/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/nextcloud/.env:ro
+      # ai-news
+      - ./profiles/ai-news/config.yaml:/home/hermes/.hermes/profiles/ai-news/config.yaml:ro
+      - ./profiles/ai-news/SOUL.md:/home/hermes/.hermes/profiles/ai-news/SOUL.md:ro
+      - ./profiles/ai-news/hindsight.json:/home/hermes/.hermes/profiles/ai-news/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/ai-news/.env:ro
+      # hf-models
+      - ./profiles/hf-models/config.yaml:/home/hermes/.hermes/profiles/hf-models/config.yaml:ro
+      - ./profiles/hf-models/SOUL.md:/home/hermes/.hermes/profiles/hf-models/SOUL.md:ro
+      - ./profiles/hf-models/hindsight.json:/home/hermes/.hermes/profiles/hf-models/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/hf-models/.env:ro
+      # llamacpp-vulkan
+      - ./profiles/llamacpp-vulkan/config.yaml:/home/hermes/.hermes/profiles/llamacpp-vulkan/config.yaml:ro
+      - ./profiles/llamacpp-vulkan/SOUL.md:/home/hermes/.hermes/profiles/llamacpp-vulkan/SOUL.md:ro
+      - ./profiles/llamacpp-vulkan/hindsight.json:/home/hermes/.hermes/profiles/llamacpp-vulkan/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/llamacpp-vulkan/.env:ro
+      # llamacpp-rocm
+      - ./profiles/llamacpp-rocm/config.yaml:/home/hermes/.hermes/profiles/llamacpp-rocm/config.yaml:ro
+      - ./profiles/llamacpp-rocm/SOUL.md:/home/hermes/.hermes/profiles/llamacpp-rocm/SOUL.md:ro
+      - ./profiles/llamacpp-rocm/hindsight.json:/home/hermes/.hermes/profiles/llamacpp-rocm/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/llamacpp-rocm/.env:ro
+      # selfhosted
+      - ./profiles/selfhosted/config.yaml:/home/hermes/.hermes/profiles/selfhosted/config.yaml:ro
+      - ./profiles/selfhosted/SOUL.md:/home/hermes/.hermes/profiles/selfhosted/SOUL.md:ro
+      - ./profiles/selfhosted/hindsight.json:/home/hermes/.hermes/profiles/selfhosted/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/selfhosted/.env:ro
+      # calories
+      - ./profiles/calories/config.yaml:/home/hermes/.hermes/profiles/calories/config.yaml:ro
+      - ./profiles/calories/SOUL.md:/home/hermes/.hermes/profiles/calories/SOUL.md:ro
+      - ./profiles/calories/hindsight.json:/home/hermes/.hermes/profiles/calories/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/calories/.env:ro
+      # models
+      - ./profiles/models/config.yaml:/home/hermes/.hermes/profiles/models/config.yaml:ro
+      - ./profiles/models/SOUL.md:/home/hermes/.hermes/profiles/models/SOUL.md:ro
+      - ./profiles/models/hindsight.json:/home/hermes/.hermes/profiles/models/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/models/.env:ro
+      # planner
+      - ./profiles/planner/config.yaml:/home/hermes/.hermes/profiles/planner/config.yaml:ro
+      - ./profiles/planner/SOUL.md:/home/hermes/.hermes/profiles/planner/SOUL.md:ro
+      - ./profiles/planner/hindsight.json:/home/hermes/.hermes/profiles/planner/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/planner/.env:ro
+      # n8n
+      - ./profiles/n8n/config.yaml:/home/hermes/.hermes/profiles/n8n/config.yaml:ro
+      - ./profiles/n8n/SOUL.md:/home/hermes/.hermes/profiles/n8n/SOUL.md:ro
+      - ./profiles/n8n/hindsight.json:/home/hermes/.hermes/profiles/n8n/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/n8n/.env:ro
+      # web-search
+      - ./profiles/web-search/config.yaml:/home/hermes/.hermes/profiles/web-search/config.yaml:ro
+      - ./profiles/web-search/SOUL.md:/home/hermes/.hermes/profiles/web-search/SOUL.md:ro
+      - ./profiles/web-search/hindsight.json:/home/hermes/.hermes/profiles/web-search/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/web-search/.env:ro
+      # ai-assistant
+      - ./profiles/ai-assistant/config.yaml:/home/hermes/.hermes/profiles/ai-assistant/config.yaml:ro
+      - ./profiles/ai-assistant/SOUL.md:/home/hermes/.hermes/profiles/ai-assistant/SOUL.md:ro
+      - ./profiles/ai-assistant/hindsight.json:/home/hermes/.hermes/profiles/ai-assistant/hindsight/config.json:ro
+      - ./.env:/home/hermes/.hermes/profiles/ai-assistant/.env:ro
     environment:
       HERMES_HOME: /home/hermes/.hermes
       HERMES_UID: "${HERMES_UID:-1000}"
       HERMES_GID: "${HERMES_GID:-1000}"
-      HERMES_INFERENCE_BASE_URL: "${HERMES_INFERENCE_BASE_URL:-http://llama-cpp:8080/v1}"
+      # llama.cpp endpoint and model. Profiles read both through ${...} in
+      # profiles/_base/config.yaml; every served profile also sees hermes/.env
+      # as its own .env (mounted above), which is where Hermes resolves them.
+      HERMES_INFERENCE_BASE_URL: "${HERMES_INFERENCE_BASE_URL:?Set HERMES_INFERENCE_BASE_URL in .env}"
+      HERMES_MODEL: "${HERMES_MODEL:?Set HERMES_MODEL in .env}"
       # Same value as LLAMA_API_KEY in llama-cpp/.env.
       LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
-      HERMES_MODEL: "${HERMES_MODEL:-nemotron-3.5-bolt-e4b-dflash}"
-      # Context Hermes plans for (it compacts at the threshold below): every
-      # profile and cron job HERMES_CONTEXT_LENGTH, the interactive
-      # HERMES_SESSION_PROFILES HERMES_SESSION_CONTEXT_LENGTH. Both must fit
-      # the preset's per-slot size (ctx-size / parallel, or kv-unified-per-slot).
-      HERMES_CONTEXT_LENGTH: "${HERMES_CONTEXT_LENGTH:-65536}"
-      HERMES_SESSION_PROFILES: "${HERMES_SESSION_PROFILES:-ai-assistant}"
-      HERMES_SESSION_CONTEXT_LENGTH: "${HERMES_SESSION_CONTEXT_LENGTH:-65536}"
-      # Fraction of that context at which Hermes compacts (0.8 = ~52k of 64k tokens).
-      HERMES_COMPRESSION_THRESHOLD: "${HERMES_COMPRESSION_THRESHOLD:-0.8}"
-      # llama.cpp slot reservation: the ai-assistant profile always
-      # uses HERMES_SLOT_PRIMED; every other profile gets a fixed slot from
-      # HERMES_SLOT_OTHERS (a slot, a range spread round-robin, or -1 = no pin).
-      # Hindsight uses slot 1 (hindsight/.env HINDSIGHT_LLM_SLOT).
-      HERMES_SLOT_PRIMED: "${HERMES_SLOT_PRIMED:-0}"
-      HERMES_SLOT_OTHERS: "${HERMES_SLOT_OTHERS:-2}"
-      # ai-assistant only: thinking budget in tokens (-1 = unlimited); every other profile is unlimited.
-      HERMES_AI_ASSISTANT_THINK_BUDGET: "${HERMES_AI_ASSISTANT_THINK_BUDGET:-1024}"
-      # Sampling sent to llama.cpp for every profile except default (start.sh puts
-      # it into each profile's custom_providers extra_body). Set empty to keep the
-      # model preset's own value (hence "-", not ":-").
-      HERMES_SAMPLING_TEMPERATURE: "${HERMES_SAMPLING_TEMPERATURE-0.6}"
-      HERMES_SAMPLING_PRESENCE_PENALTY: "${HERMES_SAMPLING_PRESENCE_PENALTY-0}"
-      # Self-hosted Hindsight memory (hindsight stack; start it first, it creates
-      # the external "hindsight" network). Unset = hindsight; set it empty to use
-      # only the built-in MEMORY.md/USER.md. Excluded profiles never use it.
-      HERMES_MEMORY_PROVIDER: "${HERMES_MEMORY_PROVIDER-hindsight}"
-      HERMES_MEMORY_EXCLUDE: "${HERMES_MEMORY_EXCLUDE-coding devops}"
-      HERMES_HINDSIGHT_RETAIN_EVERY: "${HERMES_HINDSIGHT_RETAIN_EVERY:-1}"
-      HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
-      # Speech-to-text and text-to-speech of every profile (start.sh): the
-      # speech stack's gateway on webgateway. STT "auto" switches between
-      # Parakeet and Greek Parakeet; TTS engines/voices come from audio.cpp.
-      # Empty HERMES_SPEECH_URL keeps Hermes' own speech settings.
-      HERMES_SPEECH_URL: "${HERMES_SPEECH_URL:-http://speech-gateway:8000/v1}"
-      HERMES_STT_MODEL: "${HERMES_STT_MODEL:-auto}"
-      HERMES_TTS_MODEL: "${HERMES_TTS_MODEL:-assistant}"
-      HERMES_TTS_VOICE: "${HERMES_TTS_VOICE:-assistant}"
-      # Hermes-Relay streaming voice output (start.sh patches the relay's
-      # openai_tts renderer): the gateway streams Jarvis sentence by sentence.
-      # The gateway has no authentication, the key is a placeholder.
-      HERMES_RELAY_OPENAI_TTS_URL: "${HERMES_SPEECH_URL:-http://speech-gateway:8000/v1}"
+      # Hermes-Relay streaming voice output (the Dockerfile patches the
+      # relay's openai_tts renderer): the speech stack's gateway streams the
+      # assistant voice sentence by sentence. The gateway has no
+      # authentication, the key is a placeholder.
+      HERMES_RELAY_OPENAI_TTS_URL: http://speech-gateway:8000/v1
       HERMES_RELAY_OPENAI_TTS_KEY: speech-gateway
       # write_file/patch path allowlist.
       # cache/audio: where text_to_speech writes its clips (outside every other
@@ -73,38 +106,38 @@ services:
       API_SERVER_PORT: "8642"
       API_SERVER_KEY: "${API_SERVER_KEY:?Set API_SERVER_KEY in .env}"
       API_SERVER_MODEL_NAME: "${API_SERVER_MODEL_NAME:-hermes-agent}"
+      # MCP bearer tokens: profile configs reference them as ${NAME}.
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
-      # Hermes-Relay (Android app): web dashboard on 9119 and relay on 8767,
-      # both started by start.sh next to the gateway. The dashboard is served
-      # only when HERMES_DASHBOARD_PASSWORD is set and not CHANGE_ME; the relay terminal stays off unless explicitly enabled.
+      # Login of the web dashboard (9119, s6 service hermes-dashboard) and of
+      # the Desktop Webapp (9120, the gateway): Hermes' basic-auth provider
+      # reads these. The secret signs the sessions, so logins survive restarts.
       HERMES_DASHBOARD_ENABLED: "${HERMES_DASHBOARD_ENABLED:-true}"
-      HERMES_DASHBOARD_USERNAME: "${HERMES_DASHBOARD_USERNAME:-admin}"
-      HERMES_DASHBOARD_PASSWORD: "${HERMES_DASHBOARD_PASSWORD:-}"
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: "${HERMES_DASHBOARD_USERNAME:-admin}"
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: "${HERMES_DASHBOARD_PASSWORD:?Set HERMES_DASHBOARD_PASSWORD in .env}"
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: "${HERMES_DASHBOARD_SECRET:?Set HERMES_DASHBOARD_SECRET in .env}"
       # Public origin behind Traefik: trusted by the dashboard Host/Origin
       # guards and advertised in pairing QR codes (`hermes pair`).
       HERMES_DASHBOARD_PUBLIC_URL: "https://hermes-dash.${DOMAIN}"
+      # Hermes-Relay (Android app): the relay (8767, s6 service hermes-relay).
+      # The relay terminal stays off unless explicitly enabled.
       HERMES_RELAY_ENABLED: "${HERMES_RELAY_ENABLED:-true}"
       HERMES_RELAY_TERMINAL_ENABLED: "${HERMES_RELAY_TERMINAL_ENABLED:-false}"
-      # Desktop Webapp on 9120: start.sh writes webapp.* and
-      # dashboard.trusted_proxies into the default profile's config.yaml (no
-      # environment override). Same login as the dashboard.
+      # Desktop Webapp on 9120: webapp.* and dashboard.trusted_proxies in
+      # profiles/default/config.yaml read these two.
       HERMES_WEBAPP_PUBLIC_URL: "https://hermes.${DOMAIN}"
-      # Traefik's webgateway subnet (bounded CIDR; unbounded fails closed).
+      # Traefik's webgateway subnet (one bounded CIDR; unbounded fails closed).
       HERMES_TRUSTED_PROXIES: "${HERMES_TRUSTED_PROXIES:-172.20.1.0/24}"
       # Phone-reachable Hermes API base URL the relay hands to the app. It
       # needs the full API surface (/api/sessions, /api/jobs), which on
       # hermes.DOMAIN belongs to the Desktop, so it uses hermes-api.DOMAIN.
       RELAY_WEBAPI_URL: "https://hermes-api.${DOMAIN}"
-      # API address in dashboard and `hermes pair` QR codes (start.sh patches
-      # the plugin to use it instead of the container IP).
+      # API address in dashboard and `hermes pair` QR codes (the Dockerfile
+      # patches the plugin to use it instead of the container IP).
       HERMES_RELAY_PAIR_API_URL: "https://hermes-api.${DOMAIN}"
       # Traefik terminates TLS and sets X-Forwarded-Proto: https.
       RELAY_TRUST_PROXY_HEADERS: "1"
-      # start.sh installs the relay's extra Python packages here (the image
-      # venv is read-only); the folder is absent while the relay is disabled.
-      PYTHONPATH: /home/hermes/.hermes/relay/deps
     labels:
       traefik.enable: "true"
       traefik.docker.network: webgateway

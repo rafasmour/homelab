@@ -88,6 +88,7 @@ C N8N_ENCRYPTION_KEY    gen hex:32 ""
 C WEBUI_SECRET_KEY      gen hex:32 ""
 C AUTH_SECRET           gen hex:32 ""
 C SEARXNG_SECRET        gen hex:32 ""
+C HERMES_DASHBOARD_SECRET gen hex:32 ""    # hermes: signs dashboard and Desktop login sessions
 C wger/SECRET_KEY       gen urlsafe:64 "" # 50+ URL-safe characters
 
 # Human logins.
