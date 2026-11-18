@@ -1,5 +1,5 @@
 'use strict';
-// Hermes benchmark: runs the real Hermes profiles (container hermes-api) on a
+// Hermes benchmark: runs the real Hermes profiles (container hermes) on a
 // given llama.cpp model with `hermes chat --query-file ... --quiet` and scores
 // correctness, rule-following and speed. A `chat` run never posts to the real
 // Talk rooms: see "Talk isolation" below.
@@ -15,7 +15,7 @@ const { KANBAN_DIR, KANBAN_DB, kanbanCards } = require('./helpers');
 const hooks = require('./hooks');
 const content = require('./content');
 
-const CONTAINER = 'hermes-api';
+const CONTAINER = 'hermes';
 const HERMES_HOME = '/home/hermes/.hermes';
 const PY = '/opt/hermes/.venv/bin/python3';
 const QUERY_FILE = '/tmp/bench_q.txt';
@@ -53,7 +53,7 @@ const BENCH_HOME = '/tmp/bench-home';
 // Profiles the ask_agent tool can consult (hermes/plugins/agents). Each gets a throw-away copy under BENCH_HOME/profiles/<p>
 // (the agents plugin runs the target with HERMES_HOME=<root>/profiles/<p>, root = BENCH_HOME), so a consulted profile is as
 // sandboxed as the profile under test.
-const CONSULT_PROFILES = ['calories', 'finance', 'nextcloud', 'planner', 'web-search', 'n8n', 'models', 'hf-models', 'ai-news', 'selfhosted', 'llamacpp-vulkan', 'llamacpp-rocm'];
+const CONSULT_PROFILES = ['calories', 'nextcloud', 'planner', 'web-search', 'n8n', 'models', 'hf-models', 'ai-news', 'selfhosted', 'llamacpp-vulkan', 'llamacpp-rocm'];
 const SHARED_PLUGINS = '/usr/local/share/hermes/plugins';
 // nc_<app>_<verb>: calendar, notes, webdav, deck, ... (nc_notes_create_note and nc_notes_append_content count as writes).
 const WRITE_TOOL = /(^|__)(store_|update_|delete_|destroy_|create_|log_ingredient|nc_[a-z]+_(create|update|delete|complete|bulk|manage|append|write|upload|move|copy|add|remove|share|edit))/;
@@ -88,7 +88,7 @@ function talkGuard(profile, toolsets, ts) {
   if (viaMcp.length) throw new Error(`refused: MCP ${viaMcp.map((t) => `${t} (${ts.talk_mcp[t].join(',')})`).join('; ')} would post to Talk as the real Nextcloud user; drop those tools from the profile's include list`);
   if (toolsets.includes('talk')) {
     if (!TALK_ROOM) throw new Error('refused: toolset talk needs BENCHMARK_TALK_ROOM (the mock room) in benchmark/.env');
-    if (!ts.talk_plugin) throw new Error(`refused: profile ${profile}'s talk_send plugin has no benchmark mode yet; restart hermes-api to install it`);
+    if (!ts.talk_plugin) throw new Error(`refused: profile ${profile}'s talk_send plugin has no benchmark mode yet; restart hermes to install it`);
   }
 }
 
@@ -109,7 +109,7 @@ const LEAK_PATTERNS = [
 
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
-// ------------------------------------------------------------------ live toolsets from hermes-api
+// ------------------------------------------------------------------ live toolsets from hermes
 // Only the profiles' toolsets are read live; cron prompts come from tasks/*.md (see cases.js).
 const CONFIG_PY = `
 import json, glob, yaml, fnmatch, os
@@ -325,7 +325,7 @@ function listCases(opts = {}) {
 async function resolveCase(c) {
   const cfg = await loadLiveConfig();
   const ts = cfg.toolsets[c.profile];
-  if (!ts) throw new Error(`profile ${c.profile} not found in hermes-api`);
+  if (!ts) throw new Error(`profile ${c.profile} not found in hermes`);
   if (ts.error) throw new Error(`profile ${c.profile} config unreadable: ${ts.error}`);
   if (c.kind === 'cron') {
     if (!ts.cron.length) throw new Error(`profile ${c.profile} has no platform_toolsets.cron`);
@@ -355,7 +355,6 @@ function mcpClients() {
   return {
     wger: new McpClient(process.env.WGER_MCP_URL || 'http://wger-mcp:8765/mcp', { token: process.env.MCP_STATIC_TOKEN }),
     nextcloud: new McpClient(process.env.NEXTCLOUD_MCP_URL || 'http://nextcloud-mcp:8000/mcp'),
-    firefly: new McpClient(process.env.FIREFLY_MCP_URL || 'http://firefly-mcp:3000/mcp'),
   };
 }
 
@@ -935,7 +934,7 @@ async function runCase(ctx, c, repeat) {
 
 // ------------------------------------------------------------------ rescoring
 // Checks that can be re-graded offline from a stored row and its transcript. Everything verified against
-// live data at run time (wger, Nextcloud, Firefly state) keeps its stored result.
+// live data at run time (wger, Nextcloud state) keeps its stored result.
 const OFFLINE_VERIFY = new Set(['shortAnswer']);
 
 /**
@@ -1012,7 +1011,7 @@ async function describeCase(c) {
 // Check categories for the scoring rubric (lib/report.js).
 const CATEGORY = { completed: 'completed', correct: 'correctness', read_only: 'correctness', links_real: 'correctness', no_reasoning_leak: 'rules', no_forbidden_tools: 'rules', spoken_style: 'rules', silent_ok: 'rules', size_ok: 'rules' };
 
-/** Before the first model: snapshot test-date items and Firefly lists. */
+/** Before the first model: snapshot test-date items in wger and Nextcloud. */
 async function prepareRun() {
   // A run killed mid-case (container restart, host crash) leaves a Hindsight config moved aside: put it back,
   // otherwise Hindsight would stay off for real Hermes traffic.
@@ -1029,7 +1028,7 @@ async function prepareRun() {
 async function finalCleanup(snap) {
   const res = snap ? await runCleanup(mcpClients(), snap) : { removed: [], leftovers: ['no start snapshot'], verification: {} };
   const tmp = await dockerExec(CONTAINER, ['sh', '-c', `ls /tmp/bench_* 2>/dev/null; rm -f /tmp/bench_*; rm -rf ${KANBAN_DIR} ${BENCH_HOME}`], { timeoutMs: 30_000 });
-  for (const f of tmp.stdout.split('\n').filter(Boolean)) res.removed.push(`hermes-api ${f}`);
+  for (const f of tmp.stdout.split('\n').filter(Boolean)) res.removed.push(`hermes ${f}`);
   return res;
 }
 

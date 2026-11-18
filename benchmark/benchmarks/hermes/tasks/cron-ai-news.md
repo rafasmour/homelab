@@ -7,7 +7,7 @@ web: true  # needs the web search/extract tools: opt-in (--web or --cases), not 
 order: 1
 heading: "r/LocalLLaMA"
 research: true
-toolsets: cron  # platform_toolsets.cron of the profile, read from hermes-api at run time
+toolsets: cron  # platform_toolsets.cron of the profile, read from hermes at run time
 schedule: "0 1 * * *"  # reference only: the former Hermes cron schedule
 source: hermes/start.sh ensure_cron_job ai-news ai-news, CRON_RULES expanded; frozen 2026-10-24, output contract revised 2026-10-24
 ---

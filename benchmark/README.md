@@ -1,7 +1,7 @@
 # Benchmark
 
 Compares llama.cpp router models as the brain of the Hermes agent profiles. It
-runs the profiles' real jobs through `hermes-api`, checks correctness,
+runs the profiles' real jobs through `hermes`, checks correctness,
 rule-following and speed, stores every result in SQLite
 (`data/benchmark.db`) and generates Markdown, JSON and Excel reports with
 charts from it.
@@ -19,7 +19,7 @@ The stack has two containers:
 ## Security
 
 - **The Docker socket is mounted, and access to it is root-equivalent on the
-  host.** The runner uses it only for `docker exec` into `hermes-api` (to run
+  host.** The runner uses it only for `docker exec` into `hermes` (to run
   Hermes and read its logs and session database read-only) and `llama-server`
   (GPU sysfs readings and `docker logs` timings). Do not expose this container
   or add other tools to it.
@@ -33,8 +33,7 @@ The stack has two containers:
   your real lists and phone until the case deletes them. Each case deletes what it
   created. The run also takes a snapshot first and runs a final cleanup in a
   `finally` block, even after an abort or an error. That cleanup removes new
-  test-date items in wger and Nextcloud and any Firefly bill or transaction
-  created during the run, deletes `/tmp/bench_*` in `hermes-api`, and verifies
+  test-date items in wger and Nextcloud, deletes `/tmp/bench_*` in `hermes`, and verifies
   that the test date is empty. The runner never deletes items that existed
   before the run.
 - Reports and the database contain transcripts and answers with personal data
@@ -62,7 +61,7 @@ KV type). The file must exist, or Docker creates an empty folder in its place.
 
 The container joins the external `webgateway` network (to reach
 `llama-server:8080`) and the external `hermes-mcp` network (to reach
-`nextcloud-mcp:8000`, `wger-mcp:8765` and `firefly-mcp:3000`). Code is baked
+`nextcloud-mcp:8000` and `wger-mcp:8765`). Code is baked
 into the image, so rebuild with `up -d --build` after you edit it (never
 during a run: recreating `benchmark` kills the run). To rebuild only the UI:
 `docker compose --env-file benchmark/.env -f benchmark/docker-compose.yml up -d --build --no-deps benchmark-ui`.
@@ -75,7 +74,7 @@ during a run: recreating `benchmark` kills the run). To rebuild only the UI:
 docker exec benchmark npm run benchmark -- qwen-3.6-35b-a3b --only hermes --cases cron-ai-news
 docker exec benchmark npm run benchmark -- --list            # benchmarks, cases, models
 docker exec benchmark npm run benchmark -- all --dry-run     # plan only, no model calls
-docker exec benchmark npm run benchmark -- qwen-3.8-27b mellum-2.1-thinking --profiles finance,nextcloud
+docker exec benchmark npm run benchmark -- qwen-3.8-27b mellum-2.1-thinking --profiles calories,nextcloud
 docker exec benchmark npm run benchmark -- ornith-1.5-9b-dflash --profiles ai-assistant   # the opt-in "assistant" group only
 docker exec benchmark npm run benchmark -- m1 m2 m3 --only hermes --with-optin             # default selection + assistant group
 docker exec benchmark npm run benchmark -- m1 --only hermes --web                          # default selection + web cases
@@ -87,7 +86,7 @@ docker exec benchmark npm run benchmark -- lfm-3-1.7b --repeat 3 --cases researc
 | `model ...` | Router model ids or aliases from `GET /models`. Use `all` or give none to test every preset, skipping `-vision` variants and disabled presets. |
 | `--only a,b` | Run only these benchmarks (folders under `benchmarks/`). |
 | `--cases x,y` | Run only these case ids. |
-| `--profiles p,q` | Run only cases of these Hermes profiles (`default`, `finance`, `nextcloud`, ...). `--profiles ai-assistant` is the "assistant" group, see [Assistant cases](#assistant-cases-ai-assistant). |
+| `--profiles p,q` | Run only cases of these Hermes profiles (`default`, `nextcloud`, `calories`, ...). `--profiles ai-assistant` is the "assistant" group, see [Assistant cases](#assistant-cases-ai-assistant). |
 | `--with-optin` | Add the opt-in assistant group to the default selection. |
 | `--web` | Add the web cases (`web: true`, need web search/extract). |
 | `--repeat N` | Run every case N times. |
@@ -113,6 +112,8 @@ run (and after an abort), it reloads `PRODUCTION_MODEL`
 (default `ornith-1.5-9b-dflash`, the Hermes model; the compose default was `qwen-3.6-35b-a3b` until 2026-11-03, so an unset `PRODUCTION_MODEL` reloaded the wrong model). The GPU is sampled every 15 s through
 `llama-server` sysfs. If the VRAM temperature (temp3) stays at or above 104 °C
 for 60 s, the run aborts and writes a partial report.
+
+**Warmer:** `speech-gateway`'s warmer would reload the production model whenever llama.cpp looks idle (between two models of a run). The runner switches it off for every run that loads router models, however it was started: it writes `/tmp/warmer.pause` in `speech-gateway` before the first load, re-asserts it before each model and removes it after the production model is restored (only if the runner created it). `WARMER_CONTAINER=` (empty) disables this; see `speech/README.md` "Warm models".
 
 **Interference:** the router keeps one model loaded. Any other client (Hermes
 gateway cron jobs at night, Talk messages, Open WebUI) that requests another
@@ -151,7 +152,7 @@ and notes the swap on that case.
 - Setup: `BENCH_API_TOKEN` and `BENCHMARK_MCP_TOKEN` in `benchmark/.env`
   (`openssl rand -hex 32` each); the same `BENCHMARK_MCP_TOKEN` in
   `hermes/.env`. Then `docker compose up -d --build benchmark benchmark-mcp` here and
-  recreate `hermes-api` (see `hermes/README.md`). The MCP server only
+  recreate `hermes` (see `hermes/README.md`). The MCP server only
   authenticates by bearer token; the network is the VPN-only homelab.
 
 ## Database
@@ -243,7 +244,9 @@ has a version, recorded per run and benchmark in `run_benchmarks` (also in `resu
 | hermes | 3.1.0 | 2026-11-06 | `2026-11-06_16-12` | ai-assistant slim Kanban toolset (delegate plugin) and SOUL fixes. |
 | hermes | 3.2.0 | 2026-11-06 | `2026-11-06_18-19` to `2026-11-06_22-12` (4 runs) | Clock hooks, last SOUL fixes, reply language not checked; optional preset-sampling switch (the LFM3 runs `2026-11-06_21-12`). |
 | hermes | 3.3.0 | 2026-11-07 | `hermes-3.3.0-2026-11-07` run | Reminder argument repair (clock hook), ai-assistant reply cleaner (`spoken_reply`). |
+| hermes | 4.1.0 | 2026-11-10 | `2026-11-11_08-15`, `2026-11-11_11-07`, `2026-11-13_14-50` | The three fixed-date v3 cases (`assistant-event-en`, `assistant-reminders-el`, `assistant-event-el`, test day 2027-01-15) are back beside the four `assistant-cal-*` cases, unchanged except their order (30-32). |
 | hermes | 4.0.0 | 2026-11-09 | none yet | Assistant calendar cases by difficulty on relative dates (`assistant-cal-easy-en`, `-medium-el`, `-medium-event-el`, `-hard-el`) replace `assistant-event-en`, `assistant-reminders-el`, `assistant-event-el`. Hermes: `clock_to_utc` `add_days` + `time` with `relative`/`in_past`, datetime guard on new items, `spoken_reply` removed. |
+| hermes | 4.2.0 | 2026-11-13 | none yet | Firefly III and the Hermes `finance` profile were removed: `cron-payments-unpaid` and `subscriptions-read` are gone and the run no longer snapshots or cleans Firefly. `assistant-delegate-n8n` now names the live workflow "hermes digest morning-digest" instead of the deleted Firefly one. 19 cases with `--with-optin`, 6 in the default set; the other 18 cases are unchanged from 4.1.0. |
 | stt | 1.0.0 | 2026-11-03 | all 5 stt runs | FLEURS el/en subset, WER/CER, pass at WER <= 25%. |
 | tts | 1.0.0 | 2026-11-04 | all 3 tts runs | Texts from Hermes answers, round-trip WER by an STT judge, five sanity checks. |
 
@@ -302,8 +305,8 @@ filter bar, then the content in a centred container (max 1440 px).
 - **Statuses and checks:** `pass` = every check passed; `fail` = the run
   finished but a check failed; `error` / `timeout` = the run itself broke.
   The `completed` check is shown as **Run finished** (Hermes ended normally)
-  and `correct` as **Task correct** (verified against Nextcloud, wger or
-  Firefly). A legend under the leaderboard and the checks explains them.
+  and `correct` as **Task correct** (verified against Nextcloud or wger;
+  Firefly in runs before 4.2.0). A legend under the leaderboard and the checks explains them.
 - **Charts** (plain SVG drawn at the card width, with hover details): average
   score per model, speed against score, average prompt and output tokens per
   case, and failures by type. Below them, a paginated **Results** table and a
@@ -389,7 +392,7 @@ Every case runs:
 ```sh
 docker exec -u hermes -e HERMES_BENCHMARK=1 -e HERMES_HOME=/tmp/bench-home -e HERMES_BENCHMARK_TALK_ROOM=<mock room> \
   -e NEXTCLOUD_TALK_HOME_ROOM=<mock room> -e NEXTCLOUD_TALK_PROFILE_ROOMS= \
-  hermes-api timeout 900 hermes chat --query-file /tmp/bench_q.txt \
+  hermes timeout 900 hermes chat --query-file /tmp/bench_q.txt \
   -m <model> -t <toolsets> --quiet --max-turns 25 --source tool
 ```
 
@@ -399,7 +402,7 @@ benchmark run never posts to the user's Talk rooms (see
 
 ### Sandbox (no real data is read or changed)
 
-Every case runs with `HERMES_HOME=/tmp/bench-home` inside `hermes-api`: a throw-away copy of the profile's
+Every case runs with `HERMES_HOME=/tmp/bench-home` inside `hermes`: a throw-away copy of the profile's
 `config.yaml`, `.env`, `SOUL.md`, `auth.json`, plugins, skills, hooks and platforms (no `-p`). It starts with empty
 `memories/`, `sessions/`, `cron/`, `logs/` and a fresh `state.db`, and is deleted after the case. Consequences:
 
@@ -415,7 +418,7 @@ Every case runs with `HERMES_HOME=/tmp/bench-home` inside `hermes-api`: a throw-
 | Tool | In a benchmark case |
 | --- | --- |
 | `talk_send`, `send_message`, `cronjob`, `delegate_task`, `terminal`, `write_file`, `patch`, `execute_code`, `process` | not executed, fake success |
-| MCP writes: Nextcloud notes, WebDAV, contacts, shares, mail, Talk; Firefly `store_*`/`update_*`/`delete_*`; n8n create/test/activate; `start_benchmark`; every other tool whose verb is a write | not executed, fake success (`{"success": true, "id": ...}`) |
+| MCP writes: Nextcloud notes, WebDAV, contacts, shares, mail, Talk; n8n create/test/activate; `start_benchmark`; every other tool whose verb is a write | not executed, fake success (`{"success": true, "id": ...}`) |
 | `nc_calendar_create_event`, `nc_calendar_create_todo`, wger `log_ingredient` | real (the checks read the real state); deleted by recorded id after the case, plus the hooks' snapshot/diff cleanup |
 | update/complete/delete of an event, to-do or wger log item | real only for an id this case created; fake for any existing item |
 | wger `create_meal` (the MCP cannot delete a meal) | fake meal id; the real `log_ingredient` is called without it and the reply shows the fake meal again |
@@ -443,8 +446,8 @@ needs more `parallel` than the preset has, or the sandbox is broken): no score e
 
 | Group | Cases | How to run |
 | --- | --- | --- |
-| default | `cron-hf-models`, `cron-payments-unpaid`, `cron-morning-digest`, `cron-calories-report`, `food-log`, `reminder-todo`, `calendar-event`, `subscriptions-read` | no flags |
-| opt-in `assistant` (`optin: true`) | the nine `assistant-*` cases | `--profiles ai-assistant`, `--with-optin`, or `--cases` |
+| default | `cron-hf-models`, `cron-morning-digest`, `cron-calories-report`, `food-log`, `reminder-todo`, `calendar-event` | no flags |
+| opt-in `assistant` (`optin: true`) | the 13 `assistant-*` cases | `--profiles ai-assistant`, `--with-optin`, or `--cases` |
 | web (`web: true`) | `cron-ai-news`, `cron-selfhosted`, `cron-llamacpp-vulkan`, `cron-llamacpp-rocm`, `research-qa`: their prompts need `web_search`/`fetch_url` | `--web` or `--cases`; never selected by `--profiles` |
 
 The web cases are kept (not deleted) and stay graded (Reddit RSS, GitHub, link checks); add `web: true` to any task file
@@ -481,7 +484,7 @@ Mock user and room (created once with `occ`):
 Test delivery to the mock room without a model request:
 
 ```sh
-docker exec -e ROOM="<mock room token>" hermes-api sh -c 'curl -fsS -X POST "$NEXTCLOUD_TALK_DELIVER_URL" \
+docker exec -e ROOM="<mock room token>" hermes sh -c 'curl -fsS -X POST "$NEXTCLOUD_TALK_DELIVER_URL" \
   -H "Authorization: Bearer $NEXTCLOUD_TALK_DELIVER_SECRET" -H "Content-Type: application/json" \
   -d "{\"room_token\":\"$ROOM\",\"message\":\"Benchmark mock test\"}"' >/dev/null && echo delivered
 ```
@@ -505,20 +508,18 @@ task file):
 | Case | Profile | What is checked |
 | --- | --- | --- |
 | `cron-hf-models` (default); `cron-ai-news`, `cron-llamacpp-vulkan`, `cron-llamacpp-rocm`, `cron-selfhosted` (web, opt-in) | own profile | Frozen task prompt with Hermes' exact cron wrapper. Checks the heading or `[SILENT]`, that every link appears in a tool result, the size, and that only the tools named in the prompt are used (Hermes built-ins `memory` and `clock_*` are always allowed). |
-| `cron-payments-unpaid` | finance | Same checks. The expected unpaid bills are computed from Firefly `list_bill`. |
 | `cron-morning-digest` | nextcloud | Same checks. Must not be `[SILENT]` while open to-dos exist. |
 | `cron-calories-report` | calories | Same checks. `[SILENT]` only when today has 0 kcal; otherwise the kcal total must appear. |
 | `food-log` | default | wger entries on 2027-01-15 at 13:00 Athens, meal set, about 150 g, no duplicates. Then deleted. |
 | `reminder-todo` | nextcloud | One VTODO (not a VEVENT) on `homelab`, due 2027-01-15 08:00Z. Then deleted. |
 | `calendar-event` | default | One VEVENT on `personal`, 15:00Z-16:00Z. Then deleted. |
-| `subscriptions-read` | finance | All 6 bills listed. Bills are unchanged (`list_bill` before and after). |
 | `research-qa` (web, opt-in) | ai-news | Short answer about router mode, no leaked reasoning. |
 
 ### Assistant cases (ai-assistant)
 
-Ten opt-in cases for the `ai-assistant` profile (Jarvis persona, minimal Nextcloud tools, Kanban delegation and the `ask_agent` consult tool), taken
+Thirteen opt-in cases for the `ai-assistant` profile (Jarvis persona, minimal Nextcloud tools, Kanban delegation and the `ask_agent` consult tool), taken
 from the owner's real requests of 2026-10-30 to 2026-11-08 (personal details paraphrased; the four calendar cases use
-dates relative to today, the others the 2027-01-15 test day). They are the "assistant" group: **opt-in**, they run only with `--profiles ai-assistant` or
+dates relative to today, the others the 2027-01-15 test day; the three fixed-date calendar cases of v3 run beside them since 4.1.0). They are the "assistant" group: **opt-in**, they run only with `--profiles ai-assistant` or
 `--cases` (or `--with-optin`), and never in the default selection (so `all` stays comparable with the earlier
 default runs). The benchmark job API starts them with `profile: ai-assistant`.
 
@@ -527,12 +528,15 @@ default runs). The benchmark job API starts them with `profile: ai-assistant`.
 | `assistant-cal-easy-en` (easy) | "Create a calendar event today at `LATER` to check my to-do list, because many tasks are overdue" (the real answer said "Done" without ever calling `nc_calendar_create_event`) | Exactly one VEVENT on `personal` today, `LATER` to `LATER`+1 h Athens, about the to-do check, no extra to-do; spoken style. |
 | `assistant-cal-medium-el` (medium) | Greek: tomorrow 10:00 accountant about income tax, tomorrow 13:00 pay the loans, the day after tomorrow 17:00 pay for the house furniture | Exactly three separate VTODOs on `personal-1` (furniture also `tasks`), due tomorrow 10:00 / 13:00 and the day after 17:00 Athens, no events; Greek answer. |
 | `assistant-reminder-delegate` | "Remind me tomorrow at 9 to check my phone and note that I have ate a toast" | One VTODO (`tasks` or `personal-1`) due 07:00Z and and, for the toast, either a Kanban card assigned to `calories` mentioning the toast or an `ask_agent` consult of `calories` whose request mentions it (the assistant has no food tools). |
-| `assistant-delegate-n8n` | Greek: ask the n8n agent why the workflow "firefly subs to nextcloud payments" does not work | A card for `n8n` (or `default`) naming the workflow, or an `ask_agent` consult of `n8n` naming it; nothing created in Nextcloud ("Hermes tasks go to the Kanban"). |
+| `assistant-delegate-n8n` | Greek: ask the n8n agent why the workflow "hermes digest morning-digest" does not work | A card for `n8n` (or `default`) naming the workflow, or an `ask_agent` consult of `n8n` naming it; nothing created in Nextcloud ("Hermes tasks go to the Kanban"). |
 | `assistant-delegate-plan` | Planner agent should research fine-tuning a small model for Greek and homelab tools and not return before Monday 10:00 | One card for `planner` mentioning fine-tuning and Greek; nothing created in Nextcloud. |
 | `assistant-agenda` | "What do I have to do for the day?" / "What is on my calendar today?" | Calls `nc_calendar_search_todos` and an events tool, creates nothing, names at least one item the tools returned (live data, so no fixed titles). |
 | `assistant-garbled-el` | Speech-recognition noise in Greek (a book passage read aloud) that the real assistant answered with a Kanban loop and a lecture | No card, no Nextcloud item, at most one tool call, short Greek reply. |
 | `assistant-time-el` | "What time is it right now?" in Greek | Calls `clock_now`, at most 2 tool calls, Greek, no ISO/UTC reading. |
 | `assistant-cal-medium-event-el` (medium) | Greek: dentist appointment the day after tomorrow from 5 to 6 in the afternoon | One VEVENT on `personal`, the day after tomorrow 17:00-18:00 Athens, dentist; Greek answer. |
+| `assistant-event-en` (fixed date, v3) | "Create a calendar event on 15 January 2027 at 10:00 to check my to-do list, because many tasks are overdue" | Exactly one VEVENT on `personal`, 08:00Z-09:00Z on the test day, about the to-do check, no extra to-do; spoken style. |
+| `assistant-reminders-el` (fixed date, v3) | Greek: three reminders on 15 January 2027 (accountant about income tax 10:00, pay the loans 13:00, pay for the house furniture 17:00) | Exactly three VTODOs on `personal-1` (furniture also `tasks`), due 08:00Z / 11:00Z / 15:00Z, no events; Greek answer. |
+| `assistant-event-el` (fixed date, v3) | Greek: dentist appointment on 15 January 2027 from 5 to 6 in the afternoon | One VEVENT on `personal`, 15:00Z-16:00Z on the test day, dentist; Greek answer. |
 | `assistant-cal-hard-el` (hard) | The failure of 2026-11-08: a later weekday named with its date ("την Παρασκευή 13 Νοεμβρίου", today+4) at 11:00 for the plumber, then "αύριο" at 11:00 for the accountant. The model filed "tomorrow" on the later date it had just resolved | Two VTODOs (`tasks` or `personal-1`): plumber due today+4 11:00, accountant due tomorrow 11:00 Athens; Greek answer. |
 
 **Relative dates.** The four `assistant-cal-*` cases (easy: today; medium: tomorrow and the day after; hard: a later
@@ -561,7 +565,7 @@ Kanban card check OR the consult check passes (the check notes say which matched
 and `assistant-delegate-n8n`; `assistant-delegate-plan` still needs the planner card (deferred work).
 
 *Consult sandbox.* The consulted profile runs with `HERMES_HOME=/tmp/bench-home/profiles/<p>`, so `prepareHome` builds a
-throw-away copy there for each consultable profile (calories, finance, nextcloud, planner, web-search, n8n, models,
+throw-away copy there for each consultable profile (calories, nextcloud, planner, web-search, n8n, models,
 hf-models, ai-news, selfhosted, llamacpp-vulkan, llamacpp-rocm) in the same docker exec as the main copy: same file
 list, shared `local_only` and `talk_send` plugins refreshed, the `id_slot` remap applied to every copy, and a clear
 failure when a copy lacks `plugins/local_only/benchmark_sandbox.py`. The copies are a few hundred KB each (skills
@@ -586,7 +590,7 @@ other profiles.
 ### Kanban isolation
 
 Hermes profiles with the `kanban` toolset can create cards, and the real dispatcher would start a specialist
-for each. Every case therefore runs with `HERMES_KANBAN_DB=/tmp/bench-kanban/kanban.db` in `hermes-api`, an empty
+for each. Every case therefore runs with `HERMES_KANBAN_DB=/tmp/bench-kanban/kanban.db` in `hermes`, an empty
 throw-away board that is created before and deleted after each case. A card the model creates never reaches the
 real board; the `assistantOutcome` verifier reads the cards from that file and the transcript stores them as
 `kanban_cards`. Other cases still treat `kanban_*` calls as forbidden. Consulted profiles (`ask_agent`) inherit `HERMES_KANBAN_DB`, so their cards go to the same
@@ -604,7 +608,7 @@ These checks run on every case:
 - `no_forbidden_tools`: no `talk_send`, `send_message`, kanban (except
   `kanban: true` cases), clarify, `delegate_task` or cronjob calls (`ask_agent` is allowed in chat cases), no repeated
   identical calls (`clock_*` excepted in chat cases) and no write tools in
-  read-only cases (calendar, notes, webdav, wger and Firefly writes);
+  read-only cases (calendar, notes, webdav and wger writes);
   `memory`, `clock_*` and `hindsight_*` are built-ins and always allowed;
 - `spoken_style` (ai-assistant cases only; no Markdown, URLs, emoji, ISO/UTC/ids, no language check, no sentence limit): see [Assistant cases](#assistant-cases-ai-assistant).
 
@@ -620,7 +624,7 @@ marked `aborted`. Runs after that crash have no `decode_tps`/`prompt_tps`:
 the crash left NUL blocks in the `llama-server` Docker log, and `docker logs
 --since` stops at them, until the container is recreated.
 
-Metrics come from `hermes-api`:
+Metrics come from `hermes`:
 
 - Hermes logs (`agent.log*` of the profile, matched by session id and time);
 - the profile's `config.yaml` (toolsets only);
@@ -633,7 +637,7 @@ Metrics come from `hermes-api`:
 ---
 case: reminder-todo          # case key (default: the file name)
 kind: chat                   # cron | chat | any other label (agentic, coding, ...)
-profile: nextcloud           # Hermes profile (-p); must exist in hermes-api
+profile: nextcloud           # Hermes profile (-p); must exist in hermes
 order: 11                    # position in the run (cron 1-9, chat 10+)
 toolsets: cli                # cli | cron | explicit list "a,b"
 write_tools: true            # false: any write tool call fails no_forbidden_tools
@@ -656,23 +660,23 @@ Remind me on {{TEST_DATE}} at 10:00 to update the llama.cpp ROCm image on the se
 - Cron tasks (`kind: cron`) also need `job` and `heading` (the expected
   heading of a non-silent answer); `schedule` and `source` are reference only.
   Their correctness check is the heading/`[SILENT]` rule; the jobs
-  `payments-unpaid`, `morning-digest` and `calories-report` add live
+  `morning-digest` and `calories-report` add live
   expectations (`cronExpectation` in `cases.js`).
 - Hooks are small named functions in `benchmarks/hermes/hooks.js`. A setup hook
   snapshots state before the run, a verify hook returns a `correct` check
   (and `read_only` for read-only cases), and a cleanup hook deletes what the
   case created and reports leftovers (a leftover disqualifies a model for the
   chat role). Shared snapshot helpers live in `helpers.js`.
-- Available hooks: setup `wgerTestDateAndToday`, `nextcloudSnapshot`,
-  `fireflyBillsSnapshot`; verify `wgerMealLogged`, `nextcloudTodoCreated`,
-  `nextcloudEventCreated`, `fireflyBillsListedReadOnly`, `shortAnswer`,
+- Available hooks: setup `wgerTestDateAndToday`, `nextcloudSnapshot`;
+  verify `wgerMealLogged`, `nextcloudTodoCreated`,
+  `nextcloudEventCreated`, `shortAnswer`,
   `assistantOutcome` (to-dos, events and Kanban cards together, plus spoken style);
   cleanup `wgerTestDate`, `nextcloudNew`. Their `params` are documented in
   `hooks.js`.
 - Cases without hooks get only the generic checks. Any kind other than `cron`
   runs like a chat case; the leaderboard reports per-kind scores, and the
   `cron`/`chat` role scores use only those two kinds.
-- A new case for a new profile needs that profile in `hermes-api` (the case
+- A new case for a new profile needs that profile in `hermes` (the case
   fails with `profile ... not found` otherwise). `npm run benchmark -- --list`
   shows every case with its resolved toolsets.
 

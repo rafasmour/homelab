@@ -6,7 +6,7 @@
 const path = require('node:path');
 const { filesIn } = require('../../lib/version');
 
-const BENCHMARK_VERSION = '4.0.0';
+const BENCHMARK_VERSION = '4.2.0';
 
 const CHANGELOG = [
   { version: '1.0.0', date: '2026-10-24', summary: 'First release: 13 cases (8 cron, 5 chat) on the Hermes profiles.' },
@@ -17,6 +17,8 @@ const CHANGELOG = [
   { version: '3.2.0', date: '2026-11-06', summary: 'Clock hooks, last SOUL fixes, no language check; optional preset-sampling switch (HERMES_BENCH_PRESET_SAMPLING, used for the LFM3 runs).' },
   { version: '3.3.0', date: '2026-11-07', summary: 'Reminder argument repair (clock hook), ai-assistant reply cleaner (spoken_reply).' },
   { version: '4.0.0', date: '2026-11-09', summary: 'Assistant calendar cases by difficulty on relative dates (easy: today; medium: tomorrow and the day after; hard: a later weekday, then tomorrow at the same time) replace the three fixed-date cases. Hermes: clock_to_utc add_days + time with relative/in_past, datetime guard on new items, spoken_reply removed.' },
+  { version: '4.1.0', date: '2026-11-10', summary: 'The three fixed-date v3 cases (assistant-event-en, assistant-reminders-el, assistant-event-el on 2027-01-15) are back beside the four calendar cases: 13 assistant cases, 21 with --with-optin.' },
+  { version: '4.2.0', date: '2026-11-13', summary: 'Firefly III and the Hermes finance profile were removed: cron-payments-unpaid and subscriptions-read are gone and the run no longer snapshots or cleans Firefly. assistant-delegate-n8n now names the live workflow "hermes digest morning-digest" instead of the deleted Firefly one. 19 cases with --with-optin, 6 in the default set; the other 18 cases are unchanged from 4.1.0.' },
 ];
 
 /** Version of a stored run without one (run folder name `YYYY-MM-DD_HH-MM[-n]`, local time). First matching threshold from the end. */

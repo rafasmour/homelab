@@ -3,13 +3,13 @@
 //   setup: <name>    setup(clients, params)                 -> `before` state (snapshot)
 //   verify: <name>   verify(clients, before, run, params)   -> { checks, notes?, leftovers? }
 //   cleanup: <name>  cleanup(clients, before, params)       -> { leftovers, deleted }
-// clients = { wger, nextcloud, firefly } MCP clients; run = { answer, exit, timedOut, logs, calls, toolText };
+// clients = { wger, nextcloud } MCP clients; run = { answer, exit, timedOut, logs, calls, toolText };
 // params = the task's `params` JSON with {{TEST_DATE}} expanded. A verify hook returns checks named
 // `correct` (category correctness) or `read_only`; generic checks (completed, leaks, tools) run anyway.
 // Add a hook here, then reference it from a task file; no other code changes are needed.
 const {
   TEST_DATE, athensParts, todayAthens, parseDate, fold, check,
-  ncSnapshot, ncDiff, ncCleanup, wgerItems, fireflyBills, kanbanCards,
+  ncSnapshot, ncDiff, ncCleanup, wgerItems, kanbanCards,
 } = require('./helpers');
 
 const near = (dateStr, iso, ms = 60_000) => { const d = parseDate(dateStr); return Boolean(d) && Math.abs(d.getTime() - Date.parse(iso)) <= ms; };
@@ -88,8 +88,6 @@ const setup = {
   },
   /** Nextcloud to-dos and events around the test date and today. */
   nextcloudSnapshot: ({ nextcloud }) => ncSnapshot(nextcloud),
-  /** Firefly bills (id, name, amounts, dates, flags). */
-  fireflyBillsSnapshot: ({ firefly }) => fireflyBills(firefly),
 };
 
 // ---------------------------------------------------------------- verify
@@ -256,25 +254,6 @@ const verify = {
       checks.push(check('spoken_style', sp.length === 0, sp.join('; ') || 'spoken style ok'));
     }
     return { checks, notes };
-  },
-
-  /** The answer names every bill in params.expected (accent-insensitive) and no Firefly bill changed (read_only). */
-  async fireflyBillsListedReadOnly({ firefly }, before, { answer }, p = {}) {
-    const checks = [];
-    const expected = p.expected || [];
-    const a = fold(answer);
-    const missing = expected.filter((n) => !a.includes(fold(n)));
-    checks.push(check('correct', missing.length === 0, missing.length ? `missing: ${missing.join(', ')}` : `all ${expected.length} bills listed`));
-    const after = await fireflyBills(firefly);
-    const changes = [];
-    for (const b of after) {
-      const o = before.find((x) => x.id === b.id);
-      if (!o) changes.push(`new bill ${b.id} "${b.name}"`);
-      else if (JSON.stringify(o) !== JSON.stringify(b)) changes.push(`bill ${b.id} "${b.name}" changed`);
-    }
-    for (const o of before) if (!after.some((b) => b.id === o.id)) changes.push(`bill ${o.id} "${o.name}" deleted`);
-    checks.push(check('read_only', changes.length === 0, changes.join('; ') || 'bills unchanged'));
-    return { checks, leftovers: changes.map((c) => `firefly: ${c} (not reverted automatically)`) };
   },
 
   /**

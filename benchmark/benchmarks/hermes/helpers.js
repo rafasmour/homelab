@@ -1,6 +1,6 @@
 'use strict';
 // Shared helpers for the Hermes benchmark: dates, check(), and read-only snapshots of the
-// MCP-backed data (Nextcloud, wger, Firefly) used by the case hooks and the run cleanup.
+// MCP-backed data (Nextcloud, wger) used by the case hooks and the run cleanup.
 
 const TEST_DATE = '2027-01-15';
 const TZ = 'Europe/Athens';
@@ -118,33 +118,6 @@ async function wgerItems(wger, when) {
   return asList(await wger.call('list_log_items', { when, limit: 500 }), 'result');
 }
 
-// ---------------------------------------------------------------- firefly snapshots
-async function fireflyBills(ff) {
-  const r = await ff.call('list_bill', { limit: 50 });
-  return asList(r, 'data').map((b) => {
-    const a = b.attributes || {};
-    return { id: b.id, name: a.name, amount_min: a.amount_min, amount_max: a.amount_max, date: a.date, repeat_freq: a.repeat_freq, active: a.active, skip: a.skip, updated_at: a.updated_at };
-  });
-}
-
-async function fireflyTransactions(ff) {
-  // Window covering recent real data, today and the test date; ids are compared before/after.
-  const start = addDays(todayAthens(), -60);
-  const end = addDays(TEST_DATE, 16);
-  const out = [];
-  for (let page = 1; page <= 40; page++) {
-    const r = await ff.call('list_transaction', { start, end, limit: 50, page });
-    for (const t of asList(r, 'data')) {
-      const a = (t.attributes && t.attributes.transactions && t.attributes.transactions[0]) || {};
-      out.push({ id: String(t.id), description: a.description, date: a.date, amount: a.amount });
-    }
-    const pg = r && r.meta && r.meta.pagination;
-    if (!pg || page >= pg.total_pages) break;
-  }
-  return out;
-}
-
-
 // ---------------------------------------------------------------- isolated Kanban board
 // Every benchmark case runs with HERMES_KANBAN_DB pointing at this throw-away board, so a model that calls
 // kanban_create never writes to the real board (whose dispatcher would start a real specialist run).
@@ -164,7 +137,7 @@ print(json.dumps(out))
 /** Cards the model created on the isolated benchmark board during the current case. */
 async function kanbanCards() {
   const { dockerExec } = require('../../lib/docker');
-  const r = await dockerExec('hermes-api', ['/opt/hermes/.venv/bin/python3', '-'], { user: 'hermes', input: KANBAN_PY, timeoutMs: 30_000 });
+  const r = await dockerExec('hermes', ['/opt/hermes/.venv/bin/python3', '-'], { user: 'hermes', input: KANBAN_PY, timeoutMs: 30_000 });
   if (r.code !== 0) throw new Error(`cannot read the benchmark Kanban board: ${r.stderr.slice(0, 200)}`);
   return JSON.parse(r.stdout);
 }
@@ -174,6 +147,6 @@ const onTestDate = (s) => { const d = parseDate(s); return Boolean(d) && athensP
 module.exports = {
   TEST_DATE, TZ, athensParts, todayAthens, addDays, parseDate, fold, check, asList, onTestDate,
   athensUtc, dateWords, relativeVars,
-  ncSnapshot, ncDiff, ncCleanup, wgerItems, fireflyBills, fireflyTransactions,
+  ncSnapshot, ncDiff, ncCleanup, wgerItems,
   KANBAN_DIR, KANBAN_DB, kanbanCards,
 };

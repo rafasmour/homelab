@@ -9,6 +9,7 @@
 //                     --profiles; runs with --web or when named in --cases (see README "Web cases").
 //   kind: chat|...  - any other kind runs as an interactive request with optional setup/verify/
 //                     cleanup hooks (hooks.js) and the profile's CLI toolsets.
+//   needs: a,b      - services the case reads or writes (nextcloud, wger); informational.
 // Chat cases write on the test date 2027-01-15 through the real MCP servers, are verified through
 // those servers, and are always cleaned up afterwards. The relative-date cases (assistant-cal-*: today, tomorrow,
 // a later weekday) use {{D0}}..{{D7}}, {{LATER}}, {{UTC:...}} (helpers.relativeVars): they get a `bind(now)` that
@@ -19,7 +20,7 @@ const path = require('node:path');
 const H = require('./helpers');
 const hooks = require('./hooks');
 
-const { TEST_DATE, todayAthens, fold, check, asList, wgerItems, ncSnapshot, ncDiff, fireflyBills, fireflyTransactions, onTestDate, athensUtc, relativeVars } = H;
+const { TEST_DATE, todayAthens, fold, check, asList, wgerItems, ncSnapshot, ncDiff, onTestDate, athensUtc, relativeVars } = H;
 const TASKS_DIR = path.join(__dirname, 'tasks');
 
 /**
@@ -105,18 +106,16 @@ const CRON_JOBS = TASKS.filter((t) => t.kind === 'cron');
 const CHAT_CASES = TASKS.filter((t) => t.kind !== 'cron');
 
 // ---------------------------------------------------------------- run-level snapshot / cleanup
-/** Snapshot taken once before the run: what already exists on the test date and in Firefly. */
+/** Snapshot taken once before the run: what already exists on the test date in wger and Nextcloud. */
 async function runSnapshot(c) {
   const snap = { errors: [] };
   const tryIt = async (k, fn) => { try { snap[k] = await fn(); } catch (e) { snap.errors.push(`${k}: ${e.message}`); } };
   await tryIt('wger', () => wgerItems(c.wger, TEST_DATE));
   await tryIt('nextcloud', () => ncSnapshot(c.nextcloud));
-  await tryIt('bills', () => fireflyBills(c.firefly));
-  await tryIt('transactions', () => fireflyTransactions(c.firefly));
   return snap;
 }
 
-/** Remove everything the run created on the test date and in Firefly; verify counts afterwards. */
+/** Remove everything the run created on the test date; verify counts afterwards. */
 async function runCleanup(c, snap) {
   const removed = [];
   const leftovers = [];
@@ -145,29 +144,6 @@ async function runCleanup(c, snap) {
       }
     } catch (e) { leftovers.push(`nextcloud cleanup: ${e.message}`); }
   } else leftovers.push('nextcloud: no start snapshot, nothing deleted');
-  // Firefly: bills/transactions created during the run.
-  if (snap.bills) {
-    try {
-      const known = new Set(snap.bills.map((b) => b.id));
-      for (const b of await fireflyBills(c.firefly)) {
-        if (known.has(b.id)) {
-          const o = snap.bills.find((x) => x.id === b.id);
-          if (JSON.stringify(o) !== JSON.stringify(b)) leftovers.push(`firefly bill ${b.id} "${b.name}" changed during the run (not reverted)`);
-          continue;
-        }
-        try { await c.firefly.call('delete_bill', { id: b.id }); removed.push(`firefly bill ${b.id} "${b.name}"`); } catch (e) { leftovers.push(`firefly bill ${b.id}: ${e.message}`); }
-      }
-    } catch (e) { leftovers.push(`firefly bills cleanup: ${e.message}`); }
-  }
-  if (snap.transactions) {
-    try {
-      const known = new Set(snap.transactions.map((t) => t.id));
-      for (const t of await fireflyTransactions(c.firefly)) {
-        if (known.has(t.id)) continue;
-        try { await c.firefly.call('delete_transaction', { id: t.id }); removed.push(`firefly transaction ${t.id} "${t.description}" ${t.date}`); } catch (e) { leftovers.push(`firefly transaction ${t.id}: ${e.message}`); }
-      }
-    } catch (e) { leftovers.push(`firefly transactions cleanup: ${e.message}`); }
-  }
   // Final verification search on the test date.
   try { verification.wger_items_on_test_date = (await wgerItems(c.wger, TEST_DATE)).length; } catch (e) { verification.wger_items_on_test_date = `error: ${e.message}`; }
   try {
@@ -184,18 +160,6 @@ async function runCleanup(c, snap) {
 /** Extra expectations computed from live data (read-only MCP calls). */
 async function cronExpectation(job, clients) {
   const today = todayAthens();
-  if (job === 'payments-unpaid' && clients.firefly) {
-    const r = await clients.firefly.call('list_bill', { start: `${today.slice(0, 8)}01`, end: today, limit: 50 });
-    const unpaid = [];
-    for (const b of asList(r, 'data')) {
-      const a = b.attributes || {};
-      if (!a.active) continue;
-      const pay = (a.pay_dates || []).map((d) => String(d.date || d).slice(0, 10)).filter((d) => d <= today);
-      const paid = (a.paid_dates || []).map((d) => String(d.date || d).slice(0, 10));
-      if (pay.some((d) => !paid.includes(d))) unpaid.push(a.name);
-    }
-    return { expectSilent: unpaid.length === 0, mustMention: unpaid, why: unpaid.length ? `unpaid: ${unpaid.join(', ')}` : 'no unpaid bills due' };
-  }
   if (job === 'calories-report' && clients.wger) {
     const s = await clients.wger.call('nutrition_summary', { when: today });
     const kcal = Number((s && s.totals && s.totals.kcal) || 0);

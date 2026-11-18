@@ -6,7 +6,7 @@ profile: nextcloud
 order: 8
 heading: "Good morning"
 research: false
-toolsets: cron  # platform_toolsets.cron of the profile, read from hermes-api at run time
+toolsets: cron  # platform_toolsets.cron of the profile, read from hermes at run time
 schedule: "0 7 * * *"  # reference only: the former Hermes cron schedule
 source: hermes/start.sh ensure_cron_job nextcloud morning-digest, CRON_RULES expanded; frozen 2026-10-24, output contract revised 2026-10-24
 ---

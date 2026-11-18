@@ -13,7 +13,7 @@ services:
     # Reports are written as this user so the host owner can manage them.
     user: "${BENCH_UID:-1000}:${BENCH_GID:-1000}"
     # Access to the Docker socket is root-equivalent on the host. The runner
-    # uses it only for `docker exec` into hermes-api and llama-server.
+    # uses it only for `docker exec` into hermes and llama-server.
     group_add:
       - "${DOCKER_SOCKET_GID:?Set DOCKER_SOCKET_GID in .env}"
     environment:
@@ -25,7 +25,6 @@ services:
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
       WGER_MCP_URL: "${WGER_MCP_URL:-http://wger-mcp:8765/mcp}"
       NEXTCLOUD_MCP_URL: "${NEXTCLOUD_MCP_URL:-http://nextcloud-mcp:8000/mcp}"
-      FIREFLY_MCP_URL: "${FIREFLY_MCP_URL:-http://firefly-mcp:3000/mcp}"
       PRODUCTION_MODEL: "${PRODUCTION_MODEL:-ornith-1.5-9b-mtp}"
       # Mock Nextcloud user's Talk room (README "Talk isolation"). Empty: cases
       # with the talk toolset are refused; nothing ever goes to the real rooms.

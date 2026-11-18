@@ -48,10 +48,34 @@ test('calendar cases by difficulty: relative dates bound when the case starts', 
   assert.strictEqual(hard.verifyHook, 'assistantOutcome');
 });
 
+test('v3 fixed-date assistant cases run beside the calendar cases (4.1.0)', () => {
+  const all = ids({ withOptin: true });
+  for (const id of ['assistant-event-en', 'assistant-reminders-el', 'assistant-event-el',
+    'assistant-cal-easy-en', 'assistant-cal-medium-el', 'assistant-cal-medium-event-el', 'assistant-cal-hard-el']) assert.ok(all.includes(id), id);
+  assert.strictEqual(all.filter((x) => x.startsWith('assistant-')).length, 13);
+  const ev = calCase('assistant-event-en');
+  assert.ok(!ev.relative && !/\{\{/.test(ev.prompt + JSON.stringify(ev.params)));
+  assert.strictEqual(ev.params.events[0].start_utc, '2027-01-15T08:00:00Z');
+  assert.deepStrictEqual(calCase('assistant-reminders-el').params.todos.map((t) => t.due_utc),
+    ['2027-01-15T08:00:00Z', '2027-01-15T11:00:00Z', '2027-01-15T15:00:00Z']);
+});
+
 test('default selection: no opt-in group, no web cases, no gpu-watch', () => {
   const d = ids({ defaultSelection: true });
   for (const x of ['cron-ai-news', 'cron-selfhosted', 'cron-llamacpp-vulkan', 'cron-llamacpp-rocm', 'research-qa', 'assistant-cal-easy-en', 'cron-gpu-watch']) assert.ok(!d.includes(x), x);
-  for (const x of ['cron-hf-models', 'food-log', 'reminder-todo', 'calendar-event', 'subscriptions-read', 'cron-calories-report']) assert.ok(d.includes(x), x);
+  for (const x of ['cron-hf-models', 'food-log', 'reminder-todo', 'calendar-event', 'cron-morning-digest', 'cron-calories-report']) assert.ok(d.includes(x), x);
+  assert.strictEqual(d.length, 6);
+});
+
+test('Firefly III is gone: no Firefly cases, no finance profile, no Firefly hooks (4.2.0)', () => {
+  const all = hermes.listCases({ withOptin: true, web: true });
+  assert.ok(!all.some((c) => ['cron-payments-unpaid', 'subscriptions-read'].includes(c.id) || c.profile === 'finance'));
+  assert.strictEqual(ids({ defaultSelection: true, withOptin: true }).length, 19);
+  const hooks = require('../benchmarks/hermes/hooks');
+  assert.ok(![...Object.keys(hooks.setup), ...Object.keys(hooks.verify)].some((k) => /firefly/i.test(k)));
+  const n8n = calCase('assistant-delegate-n8n');
+  assert.match(n8n.prompt, /morning-digest/);
+  assert.ok(!/firefly/i.test(n8n.prompt + JSON.stringify(n8n.params)));
 });
 
 test('--profiles ai-assistant selects the group, --with-optin adds it, --web adds web cases, --cases names anything', () => {

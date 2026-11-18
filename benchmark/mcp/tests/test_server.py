@@ -63,9 +63,9 @@ class Tests(unittest.TestCase):
 
     def test_valid_start_posts_once(self):
         f = Fake()
-        self.start(f, "good-model", "cron", "finance")
+        self.start(f, "good-model", "cron", "calories")
         posts = [c for c in f.calls if c[0] == "POST"]
-        self.assertEqual(posts, [("POST", "/runs", {"model": "good-model", "suite": "cron", "profile": "finance"})])
+        self.assertEqual(posts, [("POST", "/runs", {"model": "good-model", "suite": "cron", "profile": "calories"})])
 
     def test_run_id_validation(self):
         for ok in ("latest", "2026-10-27_17-09", "2026-10-27_17-09-2"):

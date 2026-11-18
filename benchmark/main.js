@@ -27,7 +27,7 @@ Options:
   --only a,b        run only these benchmarks (default: all under benchmarks/ except the opt-in speech
                     benchmarks stt and tts, which use their own audio.cpp model ids and never touch llama.cpp)
   --cases x,y       run only these case ids
-  --profiles p,q    run only cases of these Hermes profiles (default, finance, ...)
+  --profiles p,q    run only cases of these Hermes profiles (default, nextcloud, ...)
   --with-optin      add the opt-in group (ai-assistant) to the default selection
   --web             add the web cases (front matter web: true; they need the web search/extract tools)
   --repeat N        run each case N times (default 1)
@@ -103,6 +103,35 @@ function makeRunDir() {
 function log(...a) {
   const t = new Date().toLocaleTimeString('en-GB', { timeZone: TZ, hour12: false });
   console.log(`[${t}]`, ...a);
+}
+
+// speech-gateway's warmer reloads the production model (and Jarvis/Parakeet in
+// audio.cpp) whenever it sees llama.cpp idle, e.g. between two models of a run.
+// The runner switches it off for the whole run, however the run was started
+// (scripts/bench.sh, benchmark-mcp / the job API, docker exec): it creates the
+// warmer's pause file and removes it at the end, but only if the runner created
+// it, so a pause set by hand or by bench.sh stays. Re-asserted before each
+// model load in case speech-gateway restarted (its /tmp is a tmpfs).
+// WARMER_CONTAINER= (empty) turns this off.
+const WARMER_CONTAINER = process.env.WARMER_CONTAINER ?? 'speech-gateway';
+const WARMER_PAUSE_FILE = process.env.WARMER_PAUSE_FILE || '/tmp/warmer.pause';
+const warmer = { ours: false };
+async function warmerOff() {
+  if (!WARMER_CONTAINER) return;
+  const { dockerExec } = require('./lib/docker');
+  const f = WARMER_PAUSE_FILE.replace(/'/g, '');
+  const r = await dockerExec(WARMER_CONTAINER, ['sh', '-c', `if [ -e '${f}' ]; then echo kept; else echo "benchmark pid ${process.pid}" > '${f}' && echo paused; fi`], { timeoutMs: 15_000 }).catch((e) => ({ code: 1, stderr: e.message, stdout: '' }));
+  const out = String(r.stdout || '').trim();
+  if (out === 'paused') { if (!warmer.ours) log(`warmer: switched off (${WARMER_CONTAINER}:${f})`); warmer.ours = true; }
+  else if (r.code !== 0) log(`warmer: could not switch off (${String(r.stderr || '').trim().slice(0, 160)})`);
+}
+async function warmerOn() {
+  if (!WARMER_CONTAINER || !warmer.ours) return;
+  const { dockerExec } = require('./lib/docker');
+  const f = WARMER_PAUSE_FILE.replace(/'/g, '');
+  const r = await dockerExec(WARMER_CONTAINER, ['sh', '-c', `rm -f '${f}'`], { timeoutMs: 15_000 }).catch((e) => ({ code: 1, stderr: e.message }));
+  log(r.code === 0 ? 'warmer: switched on again' : `warmer: could not switch on (${String(r.stderr || '').trim().slice(0, 160)}); run: docker exec ${WARMER_CONTAINER} rm -f ${f}`);
+  warmer.ours = false;
 }
 
 function acquireLock() {
@@ -422,8 +451,10 @@ async function main() {
       snapshots[p.b.name] = await p.b.prepareRun();
       if (snapshots[p.b.name] && snapshots[p.b.name].errors && snapshots[p.b.name].errors.length) log(`  snapshot warnings: ${snapshots[p.b.name].errors.join('; ')}`);
     }
+    if (routerPlan.length) await warmerOff();
     for (const [mi, model] of models.entries()) {
       if (run.aborted) break;
+      await warmerOff();
       log(`[${mi + 1}/${models.length}] loading ${model}`);
       gpu.setLabel(`${model}:load`);
       let lr = await router.load(model, { log: (m) => log(`  ${m}`) });
@@ -512,6 +543,7 @@ async function main() {
       const r = await router.load(PRODUCTION_MODEL, { log: (m) => log(`  ${m}`) }).catch((e) => ({ ok: false, error: e.message }));
       run.notes.push(r.ok ? `production model ${PRODUCTION_MODEL} reloaded` : `could not reload ${PRODUCTION_MODEL}: ${r.error}`);
     }
+    await warmerOn();
     gpu.stop();
     run.finished_at = new Date().toISOString();
     save();

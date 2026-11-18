@@ -6,7 +6,7 @@ profile: hf-models
 order: 2
 heading: "Hugging Face models"
 research: true
-toolsets: cron  # platform_toolsets.cron of the profile, read from hermes-api at run time
+toolsets: cron  # platform_toolsets.cron of the profile, read from hermes at run time
 schedule: "30 1 * * *"  # reference only: the former Hermes cron schedule
 source: hermes/start.sh ensure_cron_job hf-models hf-models, CRON_RULES expanded; frozen 2026-10-24, output contract revised 2026-10-24
 ---
