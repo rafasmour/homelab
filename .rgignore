@@ -19,8 +19,6 @@ unsloth-studio/work/
 nextcloud/html/
 nextcloud/mcp-data/
 benchmark/reports/
-tandoor-recipes/mediafiles/
-tandoor-recipes/staticfiles/
 wger/media/
 wger/static/
 wger/celery-beat/

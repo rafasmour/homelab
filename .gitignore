@@ -68,7 +68,6 @@
 !n8n-drift-runner/.dockerignore
 !n8n-drift-runner/server.py
 !n8n-drift-runner/README.md
-!tandoor-recipes/
 !unsloth-studio/
 !uptime-kuma/
 !vaultwarden/
@@ -132,9 +131,6 @@ searxng/config/
 searxng/data/
 searxng/valkey/
 silverbullet/space/
-tandoor-recipes/mediafiles/
-tandoor-recipes/postgres/
-tandoor-recipes/staticfiles/
 unsloth-studio/huggingface/
 unsloth-studio/studio/
 unsloth-studio/work/

@@ -38,7 +38,6 @@ Use this checklist for a fresh installation. Complete the shared prerequisites b
 
 - [X] [Immich](immich/README.md): check CPU and memory requirements, create the administrator, then disable setup mode.
 - [ ] [Mealie](mealie/README.md): sign in, immediately replace the initial password, and disable signups when ready.
-- [ ] [Tandoor Recipes](tandoor-recipes/README.md): configure secrets, start the stack, and create the administrator with the documented command.
 
 ## Search
 

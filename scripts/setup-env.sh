@@ -94,7 +94,6 @@ C TALK_BOT_SECRET       gen hex:32 ""     # Talk requires 40-128 characters
 C HOST_PROBE_TOKEN      gen hex:32 ""
 C BENCH_API_TOKEN       gen hex:32 ""
 C SELF_HEAL_TOTP_SECRET gen b32:20 ""     # base32, >= 16 characters; only used when SELF_HEAL_REQUIRE_TOTP=1 (add it to an authenticator then)
-C tandoor-recipes/SECRET_KEY gen b64:50 ""
 C wger/SECRET_KEY       gen urlsafe:64 "" # 50+ URL-safe characters
 
 # Human logins.

@@ -38,7 +38,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [SearXNG](searxng/README.md) | Privacy-respecting metasearch | `searxng.${DOMAIN}` | Search |
 | [Self-heal](self-heal/README.md) | Grafana alerts diagnosed by the read-only Hermes `devops-diagnose` profile (host, container, metric and log tools); container restarts only after approval in Talk (`fix`, optional TOTP) | Private only | Not listed |
 | [Speech](speech/README.md) | CPU speech-to-text (Parakeet, Greek Parakeet, automatic English/Greek) and GPU text-to-speech (audio.cpp: Supertonic, OmniVoice, Kokoro, Phonon) through an OpenAI-compatible gateway, plus a voice tester | `speech.${DOMAIN}` | AI |
-| [Tandoor Recipes](tandoor-recipes/README.md) | Recipe management | `tandoor.${DOMAIN}` | Food |
 | [Unsloth Studio](unsloth-studio/README.md) | AMD ROCm model fine-tuning workspace (Unsloth Studio) | `unsloth.${DOMAIN}` | AI |
 | [Uptime Kuma](uptime-kuma/README.md) | Uptime monitoring with AutoKuma discovery | `uptime-kuma.${DOMAIN}` | Monitoring |
 | [Vaultwarden](vaultwarden/README.md) | Bitwarden-compatible password management | `vaultwarden.${DOMAIN}` | Security |
