@@ -15,7 +15,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
 | [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles (`hermes.${DOMAIN}/v1`), the browser-hosted Hermes Desktop at the hostname root, the web dashboard, and the relay for the Hermes-Relay Android app | `hermes.${DOMAIN}`, `hermes-api.${DOMAIN}`, `hermes-dash.${DOMAIN}`, `hermes-relay.${DOMAIN}` | AI |
 | [Hermes Nextcloud Talk bridge](hermes-nextcloud-bridge/README.md) | Nextcloud Talk bot and delivery endpoint for Hermes | Private only | Not listed |
-| [Hermes sandboxes](hermes-sandboxes/README.md) | Per-profile SSH sandboxes for the API profiles' terminal/file tools, a restart-only Docker proxy and a Docker-in-Docker agent testbed | Private only | Not listed |
 | [Hindsight](hindsight/README.md) | Shared long-term agent memory for the Hermes profiles (internal API only, no internet; embeddings on llama-classifier, retain/reflect on llama-server) | Private only | Not listed |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
@@ -134,7 +133,7 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
     slot, token count and templates.
   - `lab n8n digests|drift|run ID|password`, `lab nextcloud occ ARGS...`,
     `lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]` (mode 600, never overwrites),
-    `lab wger sync-ingredients`, `lab testbed ps|reset`, `lab logs C [opts]`,
+    `lab wger sync-ingredients`, `lab logs C [opts]`,
     `lab sh C [USER]`.
   Secrets are never printed; values stay in the containers or the scripts it calls.
 - `bin/sandbox` is a menu over agent-sandbox: start a session (harness,

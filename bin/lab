@@ -24,7 +24,6 @@
 #
 #   lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]   dump to FILE (default ./<name>-<date>.sql; never overwrites)
 #   lab wger sync-ingredients        start the ingredient bulk sync (background)
-#   lab testbed ps|reset             agent-testbed containers / reset the testbed
 #
 #   lab logs CONTAINER [docker logs options]   e.g. lab logs speech-gateway --since 10m
 #   lab sh CONTAINER [USER]          interactive shell in a container (escape hatch)
@@ -198,15 +197,6 @@ wger() {
   echo "ingredient sync started in the background (lab logs wger-web -f)"
 }
 
-testbed() {
-  need_running agent-testbed
-  case "${1:-ps}" in
-    ps) exec docker exec agent-testbed docker ps --format '{{.Names}} {{.Status}}' ;;
-    reset) exec docker exec agent-testbed /homelab/hermes-sandboxes/testbed/reset.sh ;;
-    *) die "testbed ps|reset" ;;
-  esac
-}
-
 # ---------------------------------------------------------------- dispatch
 [ $# -gt 0 ] || { usage; exit 0; }
 group="$1"; shift
@@ -219,7 +209,6 @@ case "$group" in
   nextcloud|nc) nextcloud "$@" ;;
   db) db "$@" ;;
   wger) wger "$@" ;;
-  testbed) testbed "$@" ;;
   logs) [ $# -ge 1 ] || die "logs CONTAINER [options]"; c="$1"; shift; exec docker logs "$@" "$c" ;;
   sh|shell) [ $# -ge 1 ] || die "sh CONTAINER [USER]"; need_running "$1"
     exec docker exec -it ${2:+-u "$2"} "$1" sh -c 'command -v bash >/dev/null && exec bash || exec sh' ;;

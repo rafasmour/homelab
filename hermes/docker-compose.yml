@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     command: ["sh", "/usr/local/bin/start.sh"]
     volumes:
-      # Profiles, SOULs, sessions and sandbox client keys (shared with
+      # Profiles, SOULs and sessions (shared with
       # hermes-nextcloud-bridge and the hermes-sandbox CLI). Runtime data,
       # never commit.
       - ./data:/home/hermes/.hermes
@@ -74,8 +74,7 @@ services:
       # The gateway has no authentication, the key is a placeholder.
       HERMES_RELAY_OPENAI_TTS_URL: "${HERMES_SPEECH_URL:-http://speech-gateway:8000/v1}"
       HERMES_RELAY_OPENAI_TTS_KEY: speech-gateway
-      # write_file/patch path allowlist. Profiles with an SSH sandbox write
-      # these paths inside their sandbox (hermes-sandboxes), never in here.
+      # write_file/patch path allowlist.
       # cache/audio: where text_to_speech writes its clips (outside every other
       # root, so spoken replies were refused).
       HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/home/hermes/.hermes/cache/audio
@@ -171,9 +170,6 @@ services:
         aliases: [hermes-api]
       hermes-mcp:
         aliases: [hermes-api]
-      # SSH to the per-profile sandboxes (hermes-sandboxes stack, start it first).
-      hermes-sandbox:
-        aliases: [hermes-api]
       # Hindsight memory API (internal network, no internet).
       hindsight:
         aliases: [hermes-api]
@@ -185,9 +181,6 @@ networks:
     internal: true
   hermes-mcp:
     name: hermes-mcp
-  hermes-sandbox:
-    external: true
-    name: hermes-sandbox
   hindsight:
     external: true
     name: hindsight

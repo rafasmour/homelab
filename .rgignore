@@ -24,6 +24,5 @@ home-assistant/whisper/
 pi-hole/etc-pihole/
 silverbullet/space/
 hermes/workspace/
-hermes-sandboxes/keys/
 *.gguf
 *.safetensors

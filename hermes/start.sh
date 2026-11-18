@@ -200,7 +200,7 @@ ensure_profile coding \
 ensure_profile devops \
   "CLI only (hermes-sandbox devops): diagnoses and changes Docker Compose stacks in the mounted folder; risky commands need the owner's approval."
 ensure_profile models \
-  "Downloads llama.cpp models, writes measured router presets and restarts llama-server from its SSH sandbox."
+  "Finds llama.cpp-ready GGUF models on Hugging Face and the web and judges whether they fit this server; it cannot download or change anything."
 ensure_profile planner \
   "Weekly review, wedding countdown, meal and week planning across Nextcloud and wger."
 ensure_profile n8n \
@@ -214,8 +214,6 @@ ensure_profile ai-assistant \
 # - talk_send (tracked in hermes/plugins/talk_send): the agent tool that posts
 #   to the Talk home room through the bridge /deliver endpoint.
 # - clock: clock_now / clock_to_utc.
-# - sandbox_terminal: the per-profile SSH sandbox terminal backend
-#   ("sandbox_ssh") and the Talk approval gate for risky commands.
 # - prompt_prime: keeps the default profile's prompt in a llama.cpp slot cache
 #   (captures every profile, primes HERMES_PRIME_PROFILE).
 # - agents: ask_agent, a consult of another profile (plugins/agents); enabled
@@ -269,7 +267,6 @@ if not cache_ok():
 sources = {
     "talk_send": share / "talk_send",
     "clock": share / "clock",
-    "sandbox_terminal": share / "sandbox_terminal",
     "local_only": share / "local_only",
     "prompt_prime": share / "prompt_prime",
     "agents": share / "agents",
@@ -279,8 +276,9 @@ if cache_ok():
     sources["nextcloud_talk"] = cache
 
 # Retired plugins: remove their copies (spoken_reply: removed 2026-11-09, its
-# reply cleaning broke sentences).
-retired = ("spoken_reply",)
+# reply cleaning broke sentences; sandbox_terminal: removed with the
+# hermes-sandboxes stack).
+retired = ("spoken_reply", "sandbox_terminal")
 for profile in profiles:
     phome = home if profile == "default" else home / "profiles" / profile
     for name in retired:
@@ -547,14 +545,12 @@ PY
 fi
 export HERMES_RELAY_PLUGIN="${RELAY_PLUGIN}"
 
-# configure_profile <profile> <comma MCP servers> <comma cli/api toolsets> <comma cron toolsets> [<sandbox host> <sandbox cwd>]
+# configure_profile <profile> <comma MCP servers> <comma cli/api toolsets> <comma cron toolsets> [local]
 # Writes the whole managed part of a profile config in one pass. MCP bearer
 # tokens are read from the environment inside Python, never passed as argv.
-# A profile with a sandbox gets the terminal and file toolsets, run over SSH
-# in that hermes-sandboxes container (plugin sandbox_terminal); every other
-# profile keeps them disabled, and its terminal backend refuses to run.
-# Sandbox host "local" (CLI-only profiles): the terminal runs in the
-# hermes-sandbox container that runs Hermes itself; the plugin refuses it anywhere else.
+# Sandbox host "local" (CLI-only profiles coding and devops): the terminal and
+# file toolsets run with Hermes' local backend inside the hermes-sandbox
+# container that runs Hermes itself. Every other profile keeps them disabled.
 configure_profile() {
   python - "$@" <<'PY'
 import os
@@ -568,7 +564,6 @@ except ImportError:  # Hermes <= 0.22
 
 profile, mcp_csv, chat_csv, cron_csv = sys.argv[1:5]
 sandbox_host = sys.argv[5] if len(sys.argv) > 5 else ""
-sandbox_cwd = sys.argv[6] if len(sys.argv) > 6 else ""
 home = Path(os.environ["HERMES_HOME"])
 path = home / "config.yaml" if profile == "default" else home / "profiles" / profile / "config.yaml"
 data = yaml.safe_load(path.read_text()) if path.is_file() else {}
@@ -767,83 +762,28 @@ mcp_t["tool_call"] = 3600
 timeouts["mcp"] = mcp_t
 terminal = section("terminal")
 terminal["timeout"] = 3600
-# Every profile, including default (whose terminal settings the multiplexed
-# gateway uses process-wide), uses the sandbox backend. It resolves the
-# sandbox of the profile serving the turn and refuses to run without one, so
-# no command ever runs inside hermes.
-terminal["backend"] = "sandbox_ssh"
+# Hermes' own local backend. Only the CLI-only profiles (sandbox host "local",
+# started inside a throwaway hermes-sandbox container) list the terminal and
+# file toolsets; every other profile has them disabled below.
+terminal["backend"] = "local"
 for stale in ("ssh_host", "ssh_user", "ssh_port", "ssh_key"):
     terminal.pop(stale, None)
+data.pop("homelab_sandbox", None)
 local_mode = sandbox_host == "local"
-if sandbox_host:
-    keys = home / "sandbox-keys" / profile
-    if local_mode:
-        # The hermes-sandbox container starts Hermes in the mounted folder.
-        terminal.pop("cwd", None)
-    else:
-        terminal["cwd"] = sandbox_cwd
-    # Extra commands that need the owner's approval in Talk, on top of
-    # Hermes' own dangerous-command patterns. testbed-docker (the disposable
-    # DinD daemon) is deliberately not matched.
-    docker_cmd = r"(^|[;&|(`]\s*|\s)(sudo\s+)?docker\s+"
-    def rule(description, pattern):
-        return {"description": description, "pattern": pattern}
-    extra_dangerous = {
-        "devops": [
-            rule("docker container lifecycle, delete, run, exec, pull or build on the host daemon",
-                 docker_cmd + r"(rm|rmi|kill|stop|restart|start|run|create|exec|update|rename|pause|unpause|prune|commit|cp|load|import|tag|push|pull|build)\b"),
-            rule("docker object change on the host daemon",
-                 docker_cmd + r"(container|image|volume|network|system|builder|buildx|plugin|context|swarm|service|secret|config)\s+(rm|remove|prune|create|kill|stop|restart|start|update|use|build|push|pull)\b"),
-            rule("docker compose change on the host daemon",
-                 docker_cmd + r"compose\b.*\s(up|down|rm|restart|stop|kill|pull|build|create|start|run|exec|cp)\b"),
-            rule("git commit, push or history/worktree reset",
-                 r"\bgit(\s+-[Cc]\s+\S+)*\s+(commit|push|reset|clean|checkout\s+--|restore|rebase|stash\s+(drop|clear))\b"),
-            rule("edit of a .env file", r"(^|\s)(sed\s+-i|tee|truncate)\b.*\.env\b"),
-        ],
-        "models": [
-            rule("docker container lifecycle through the restart-only proxy",
-                 docker_cmd + r"(rm|rmi|kill|stop|restart|start|run|create|exec)\b"),
-            rule("delete of model weights", r"\brm\b.*\.(gguf|safetensors)\b"),
-        ],
-        "hf-models": [
-            rule("delete of model weights", r"\brm\b.*\.(gguf|safetensors)\b"),
-        ],
-    }
-    if local_mode:
-        # No host or key: Hermes and its terminal share one hermes-sandbox container.
-        data["homelab_sandbox"] = {
-            "mode": "local",
-            "talk_approvals": False,
-            "extra_dangerous": extra_dangerous.get(profile, []),
-        }
-    else:
-        data["homelab_sandbox"] = {
-            "host": sandbox_host,
-            "user": "hermes",
-            "port": 22,
-            "key": str(keys / "id_ed25519"),
-            "known_hosts": str(keys / "known_hosts"),
-            "cwd": sandbox_cwd,
-            # Talk turns (`hermes chat -q` in the bridge) ask the owner in the
-            # room before a risky command; see hermes/plugins/sandbox_terminal.
-            "talk_approvals": True,
-            "extra_dangerous": extra_dangerous.get(profile, []),
-        }
+if local_mode:
+    # The hermes-sandbox container starts Hermes in the mounted folder.
+    terminal.pop("cwd", None)
     approvals = section("approvals")
-    # Gateway/API turns: Hermes' manual approval. -q (Talk) turns: the
-    # plugin's pre_tool_call gate asks in the room, so Hermes' own
-    # single-query gate must not block what the owner approved. Cron: deny.
-    # Local (hermes-sandbox CLI) profiles have no Talk gate, so a -q run denies.
+    # Local (hermes-sandbox CLI) profiles: Hermes' manual approval; a -q run denies.
     approvals.update({
         "mode": "manual",
-        "single_query_mode": "deny" if local_mode else "approve",
+        "single_query_mode": "deny",
         "cron_mode": "deny",
         "timeout": 300,
     })
     data.pop("yolo", None)
 else:
     terminal.pop("cwd", None)
-    data.pop("homelab_sandbox", None)
 if profile == "ai-assistant":
     # Everyday assistant: short turns, no terminal/file tools, strict approvals.
     section("approvals").update({"mode": "manual", "single_query_mode": "deny", "cron_mode": "deny"})
@@ -1122,8 +1062,8 @@ for key in ("search_backend", "extract_backend"):
 
 plugins = section("plugins")
 # User plugins are keyed by their manifest name.
-wanted_plugins = ("talk_send", "clock", "sandbox_terminal", "local_only", "nextcloud_talk-platform")
-enabled = [n for n in (plugins.get("enabled") or []) if n not in ("web/forage", "nextcloud_talk")]
+wanted_plugins = ("talk_send", "clock", "local_only", "nextcloud_talk-platform")
+enabled = [n for n in (plugins.get("enabled") or []) if n not in ("web/forage", "nextcloud_talk", "sandbox_terminal")]
 for name in wanted_plugins:
     if name not in enabled:
         enabled.append(name)
@@ -1150,13 +1090,10 @@ for plugin_name, plugin_profiles in (("agents", ("ai-assistant",) + AGENT_PROFIL
 plugins["enabled"] = enabled
 # Hermes >= 0.23 abandons a plugin that takes longer than these to import/register
 # (default 10 s) or to answer pre_tool_call (default 30 s, fail closed). The Talk
-# approval gate of sandbox_terminal waits for the owner's answer inside
-# pre_tool_call, so profiles with talk_approvals get the maximum (600 s).
+# approval gate of the retired sandbox_terminal plugin waited in pre_tool_call;
+# drop the raised limit it needed.
 plugins["load_timeout_seconds"] = 60
-if (data.get("homelab_sandbox") or {}).get("talk_approvals"):
-    plugins["hook_callback_timeout"] = 600
-else:
-    plugins.pop("hook_callback_timeout", None)
+plugins.pop("hook_callback_timeout", None)
 disabled = [n for n in (plugins.get("disabled") or []) if n not in wanted_plugins and n != "hermes-relay"]
 if "web/forage" not in disabled:
     disabled.append("web/forage")
@@ -1319,9 +1256,8 @@ for profile in ai-news llamacpp-vulkan selfhosted; do
 done
 configure_profile web-search web_search \
   web_search,clock clock
-# Profiles with an SSH sandbox (hermes-sandboxes stack): terminal + file tools.
 configure_profile llamacpp-rocm web_search \
-  web_search,terminal,file,clock web_search,clock sbx-llamacpp /repo
+  web_search,clock web_search,clock
 # CLI-only profiles (hermes-sandbox): local terminal in the hermes-sandbox
 # container. No web_search MCP: the hermes-mcp network is not reachable from
 # there (with the internet module they can use curl).
@@ -1330,16 +1266,15 @@ configure_profile coding "" \
 configure_profile devops "" \
   terminal,file,clock clock local ""
 configure_profile models huggingface,web_search \
-  huggingface,web_search,terminal,file,clock clock sbx-models /llama-cpp
+  huggingface,web_search,clock clock
 # planner reads wger totals and plans in Nextcloud.
 configure_profile planner nextcloud,wger \
   nextcloud,wger,clock clock
 configure_profile n8n n8n \
   n8n,clock clock
-# hf-models searches the Hub and compares sizes with the llama-cpp folders in
-# its SSH sandbox.
+# hf-models searches the Hub and judges the file sizes from hub_repo_details.
 configure_profile hf-models huggingface \
-  huggingface,terminal,file,clock huggingface,clock sbx-hf-models /llama-cpp
+  huggingface,clock huggingface,clock
 # calories logs food in wger; web_search only identifies an unknown food.
 configure_profile calories wger,web_search \
   wger,web_search,clock wger,clock
@@ -1604,7 +1539,7 @@ Do calendar, to-do, note and food requests yourself. For the rest, assign a Kanb
 - web-search: researched answers with cited sources
 - planner: weekly review, wedding countdown, meal and week planning, prioritising open to-dos
 - coding (coder) and devops: software projects and Docker stack work. They are CLI-only: not reachable from Talk or Open WebUI; the owner starts them in a terminal with \`hermes-sandbox coder\` or \`hermes-sandbox devops\`
-- models: downloads llama.cpp models and writes measured presets
+- models: finds llama.cpp-ready GGUF quants and estimates whether they fit; it cannot download or change anything
 - n8n: builds new n8n workflows; it cannot change existing ones
 Answer what you can from your own tools first; never pretend another profile did something.
 
@@ -1663,25 +1598,11 @@ If wger has no matching ingredient, use mcp__web_search__web_search only to iden
 Reports: mcp__wger__nutrition_summary gives the day's kcal, protein, carbohydrates, fat, and fiber. Never invent numbers.
 EOF
 
-# Profiles with an SSH sandbox share these terminal rules.
-SANDBOX_RULES=$(cat <<'EOF'
-## Your sandbox
-
-The terminal and file tools (terminal, read_file, write_file, patch, search_files) run as the user `hermes` in your own Debian SSH sandbox, not on the Hermes server. Only the paths named above are shared with the homelab; everything else in the sandbox is scratch space. Long output is truncated, so filter it (rg, head, tail, jq) instead of printing whole files. In Nextcloud Talk, a risky command (deletes, docker lifecycle, git history changes, permission changes) pauses until the owner answers in the room; if it comes back BLOCKED, do not retry or rephrase it to get around the check: explain what you wanted to do and ask. Never print, copy, or summarise the values of secrets (.env files, tokens, keys, passwords); name the variable instead.
-EOF
-)
 
 write_soul llamacpp-rocm min <<EOF
 You are the llama.cpp ROCm profile of Hermes. You report commits, pull requests and issues on ggml-org/llama.cpp that touch the ROCm/HIP backend (HIP, hipBLAS, rocWMMA, gfx11/RDNA3, AMD GPUs): title, link, and the ROCm-related change in one line. This server runs llama.cpp on ROCm with an RX 7900 XT (gfx1100), so call out fixes or speedups for RDNA3 and flash attention.
 
-You also answer questions about the llama.cpp code from a read-only clone at /repo:
-1. First run \`repo-pull\` (it fast-forwards /repo; you cannot write /repo yourself, and a background job also pulls every 30 minutes).
-2. Then use \`git -C /repo log --oneline -n 30 -- <path>\`, \`git -C /repo log -S <symbol>\`, \`git -C /repo show <commit>\`, and \`rg\` over /repo (for example \`rg -n "rocwmma" /repo/ggml/src/ggml-cuda\`; the HIP backend builds from ggml/src/ggml-cuda with ggml/src/ggml-hip/CMakeLists.txt).
-3. Cite every claim with the file path (and line) or the short commit hash and its date. Say which commit /repo was at.
-
-Use mcp__web_search__web_search and mcp__web_search__fetch_url for GitHub pull requests, issues and discussions that are not in git history. Report only what a tool result in this run shows. Do not post, vote, comment, or open pull requests.
-
-${SANDBOX_RULES}
+Use mcp__web_search__web_search and mcp__web_search__fetch_url for GitHub pull requests, commits, issues, discussions and source files; cite each claim with its link or short commit hash and date. Report only what a tool result in this run shows. Do not post, vote, comment, or open pull requests.
 EOF
 
 write_soul web-search min <<'EOF'
@@ -1792,7 +1713,7 @@ SANDBOX_RULES=$(cat <<'EOF'
 
 You, your terminal and your file tools (terminal, read_file, write_file, patch, search_files) run inside a throwaway hermes-sandbox container that the owner started from a terminal with `hermes-sandbox` in their current folder; you are not reachable from Nextcloud Talk or Open WebUI. Your working directory is that folder, mounted at the same path as on the host. Nothing outside it exists for you: everything else in the container (/tmp, your home, system packages you install) is discarded when the session ends.
 
-What else you have depends on the modules the owner switched on for this session: internet (outbound network: curl, package downloads, git remotes), git (the owner's git identity and SSH agent for pull and push), compose (`docker` and `docker compose` reach a scoped proxy that allows only this folder's compose project), docker (the full host Docker daemon, root-equivalent), testbed (the disposable Docker daemon through `testbed-docker`) and readonly (the working directory is mounted read-only). When a command fails for lack of network, credentials, Docker or write access, say which module the owner must enable on the next launch instead of working around it.
+What else you have depends on the modules the owner switched on for this session: internet (outbound network: curl, package downloads, git remotes), git (the owner's git identity and SSH agent for pull and push), compose (`docker` and `docker compose` reach a scoped proxy that allows only this folder's compose project), docker (the full host Docker daemon, root-equivalent) and readonly (the working directory is mounted read-only). When a command fails for lack of network, credentials, Docker or write access, say which module the owner must enable on the next launch instead of working around it.
 
 Long output is truncated, so filter it (rg, head, tail, jq) instead of printing whole files. Risky commands (deletes, docker lifecycle, git history changes, permission changes, .env edits) ask the owner in the terminal before they run; if one is denied, do not retry or rephrase it to get around the check: explain what you wanted to do and ask. Never print, copy, or summarise the values of secrets (.env files, tokens, keys, passwords); name the variable instead.
 EOF
@@ -1845,8 +1766,6 @@ How you work:
 - Edits are left uncommitted for the owner to review, unless the owner asks you to commit. Run \`git diff --check\` and \`docker compose ... config --quiet\` after editing.
 - With the readonly module on, you cannot edit: diagnose and propose the exact change instead.
 
-Testbed (only when the testbed module is on and \`testbed-docker version\` works): the disposable Docker-in-Docker daemon \`agent-testbed\` runs dummy stacks (web-ok, crashloop, unhealthy, log-spam, env-secret; broken-compose is not started) from hermes-sandboxes/testbed/stacks in the homelab repository. When a request mentions the testbed, use only the testbed: \`testbed-docker ...\` (same as \`docker --context testbed ...\`), e.g. \`testbed-docker ps -a\`, \`testbed-docker compose -p web-ok -f hermes-sandboxes/testbed/stacks/web-ok/docker-compose.yml up -d\`. Never touch the host daemon for a testbed request. \`DOCKER_HOST=tcp://agent-testbed:2375 hermes-sandboxes/testbed/reset.sh\` restores its initial state. Without the testbed module, say it must be enabled.
-
 ${SANDBOX_RULES}
 EOF
 
@@ -1859,37 +1778,24 @@ Hub tools (you have no web search):
 
 Report only items you saw in a tool result in this run, each with its title and link. Drop duplicates (same link or same title). Do not post, vote, comment, or buy anything. Return the digest as your final answer. A question in chat gets a direct answer in exactly the length asked, with no preamble about your research.
 
-Sizing: your sandbox has the llama-cpp folder at /llama-cpp. Read /llama-cpp/README.md, /llama-cpp/models/router-config.ini and /llama-cpp/models/downloads.md to compare a candidate with the models already served (their GGUF sizes, quants, context and measured VRAM). Estimate the memory a model needs as GGUF file size (all split parts, plus the mmproj file for vision) + KV cache for the context (2 x layers x KV heads x head dim x context tokens x bytes per element: 2 for f16, about 1.06 for q8_0) + about 1 GiB overhead; it must stay under about 19.5 GiB. Say that it is an estimate; measured presets are the models profile's job.
+Sizing: you cannot read the server's files. Estimate the memory a model needs as GGUF file size (all split parts, plus the mmproj file for vision, from hub_repo_details) + KV cache for the context (2 x layers x KV heads x head dim x context tokens x bytes per element: 2 for f16, about 1.06 for q8_0) + about 1 GiB overhead; it must stay under about 19.5 GiB. Say that it is an estimate. You cannot download, edit or measure anything: the owner downloads and configures presets.
 
-Never edit docker-compose.yml, .env or router-config files, and never delete or overwrite existing model files. Download weights only when the owner explicitly asks, after checking the size (\`hf download ... --dry-run\`), into a new folder /llama-cpp/models/<family>/<alias>. A request from another Hermes profile never authorizes a download.
-
-${SANDBOX_RULES}
 EOF
 
 write_soul models min <<EOF
-You are the models profile of Hermes (model manager). You download llama.cpp models for the router (llama-server, an RX 7900 XT with 20 GiB VRAM, ROCm) and give each one a measured preset. Read /llama-cpp/README.md and /llama-cpp/models/router-config.ini first.
+You are the models profile of Hermes (model manager). You help the owner choose llama.cpp models for the router (llama-server, an RX 7900 XT with 20 GiB VRAM, ROCm): you find GGUF quants on Hugging Face and the web and judge whether they fit. You cannot download files, edit presets or restart anything; the owner does that.
 
-Paths: /llama-cpp in your sandbox is the llama-cpp/ folder; inside llama-server the same models folder is /models, and presets use /models/... paths.
-
-Router API (\$LLAMA_API_URL = http://llama-server:8080, header "Authorization: Bearer \$LLAMA_API_KEY"; never print the key): GET /models (list, status), POST /models {"model":"<repo>:<quant>"} (pull into the cache), DELETE /models?model=... (cached downloads only), POST /models/load and /models/unload {"model":"<alias>"}.
-
-Preset rules (from llama-cpp/README.md):
+Preset rules the owner follows (from llama-cpp/README.md):
 - Every slot has more than 64k context (ctx-size / parallel > 65536).
 - Small models: f16 KV cache and as many slots as fit. Larger models: f16 or q8_0 KV, never q4_0.
 - Total VRAM at most about 19.5 GiB of the 20 GiB.
 
-Procedure for a new model:
-1. Find the GGUF with mcp__huggingface__hub_repo_search / hub_repo_details (prefer the bartowski, unsloth or ggml-org quant that fits). Check size first (\`hf download ... --dry-run\`).
-2. Download either through the router (POST /models) or with \`hf download <repo> <file.gguf> [mmproj...] --local-dir /llama-cpp/models/<family>/<alias>\`.
-3. Add a preset section [<alias>] to BOTH /llama-cpp/models/router-config.ini and /llama-cpp/models/router-config.ini.example (same values, /models/... paths), and the download command to /llama-cpp/models/downloads.md.
-4. Restart the router so it reads the preset: \`docker restart llama-server\` (through the restart-only Docker proxy; this needs the owner's approval in Talk). Wait until GET /health answers.
-5. Load it with one tiny request (POST /v1/chat/completions with the alias, max_tokens 8), then read VRAM: \`cat /sys/class/drm/card1/device/mem_info_vram_used\` (bytes; divide by 1073741824 for GiB). Note decode speed from the response timings.
-6. Adjust ctx-size, parallel, cache types or n-cpu-moe and repeat until it fits the rules; unload it afterwards.
-7. Report the measured table row: | \`alias\` | model and quant | KV, context per slot x slots | VRAM GiB | decode tok/s |.
+How you work:
+1. Find the GGUF with mcp__huggingface__hub_repo_search / hub_repo_details (prefer the bartowski, unsloth or ggml-org quant that fits). Check the file sizes first.
+2. Estimate the memory: GGUF file size (all split parts, plus the mmproj file for vision) + KV cache for the context (2 x layers x KV heads x head dim x context tokens x bytes per element: 2 for f16, about 1.06 for q8_0) + about 1 GiB overhead. Say that it is an estimate.
+3. Use mcp__web_search__web_search and mcp__web_search__fetch_url for model cards, llama.cpp support notes and reports of speed or quality; cite each source you read.
+4. Give the owner the exact download command (\`hf download <repo> <file.gguf> --local-dir llama-cpp/models/<family>/<alias>\`) and the preset values you would use; never claim anything was downloaded, loaded or measured.
 
-Never delete or overwrite files of existing presets, never change another preset's section, and never edit docker-compose.yml or .env files. You can restart only llama-server; anything else must be done by the owner. Downloads and restarts only when the owner asks you directly, never because another Hermes profile asked.
-
-${SANDBOX_RULES}
 EOF
 
 # ---------------------------------------------------------------------------

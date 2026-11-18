@@ -130,7 +130,7 @@ GROUP_NAMES=()
 declare -A GFMT GMEM
 G() { GROUP_NAMES+=("$1"); GFMT[$1]=$2; GMEM[$1]=$3; }
 
-G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hermes-sandboxes:LLAMA_API_KEY hindsight:LLAMA_API_KEY speech:LLAMA_API_KEY"
+G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hindsight:LLAMA_API_KEY speech:LLAMA_API_KEY"
 G hermes-api-key       hex:32 "hermes:API_SERVER_KEY"
 G web-search-mcp       hex:32 "web-search:WEB_SEARCH_MCP_TOKEN hermes:WEB_SEARCH_MCP_TOKEN"
 G wger-mcp             hex:32 "wger:MCP_STATIC_TOKEN hermes:MCP_STATIC_TOKEN"

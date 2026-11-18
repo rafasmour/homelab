@@ -24,9 +24,6 @@
 !plugins/spoken_reply/__init__.py
 !tests/
 !tests/test_ornith_fixes.py
-!plugins/sandbox_terminal/
-!plugins/sandbox_terminal/plugin.yaml
-!plugins/sandbox_terminal/__init__.py
 !plugins/local_only/
 !plugins/local_only/plugin.yaml
 !plugins/local_only/__init__.py
