@@ -10,7 +10,6 @@
 #   lab llm production [status|switch MODEL] [--dry-run]   (scripts/production-model.sh)
 #
 #   lab hermes profiles              profile names
-#   lab hermes prime                 prompt_prime state (slot, tokens, time) and template summary
 #   lab hermes doctor                relay doctor
 #   lab hermes pair                  pair the Hermes-Relay app (interactive)
 #   lab hermes PROFILE ARGS...       `hermes -p PROFILE ARGS` as user hermes (e.g. lab hermes ai-news cron list)
@@ -98,36 +97,10 @@ llm() {
 
 # ---------------------------------------------------------------- hermes
 hermes() {
-  local cmd="${1:-}"; [ -n "$cmd" ] || die "hermes: profiles | prime | doctor | pair | PROFILE ARGS..."
+  local cmd="${1:-}"; [ -n "$cmd" ] || die "hermes: profiles | doctor | pair | PROFILE ARGS..."
   need_running hermes
   case "$cmd" in
     profiles) docker exec -u hermes hermes sh -c 'ls -1 /home/hermes/.hermes/profiles' ;;
-    prime)
-      docker exec -i -u hermes hermes python3 - <<'PY'
-import json, os, time, glob
-d = "/home/hermes/.hermes/cache/prime"
-try:
-    s = json.load(open(os.path.join(d, "state.json")))
-    at = s.get("at")
-    print(f"primed: profile {s.get('profile')}, slot {s.get('slot')}, {s.get('n_prompt_tokens')} tokens, "
-          f"at {time.strftime('%F %T %Z', time.localtime(at)) if at else '-'}"
-          + (f", waiting for an idle slot since {s['seen']}" if s.get("seen") else ""))
-except FileNotFoundError:
-    print("primed: never (no state.json)")
-for f in sorted(glob.glob(os.path.join(d, "*.json"))):
-    if f.endswith("state.json"):
-        continue
-    try:
-        t = json.load(open(f)); b = t.get("body") or {}
-        sysmsg = next((m.get("content", "") for m in b.get("messages", []) if m.get("role") == "system"), "")
-        started = next((l for l in str(sysmsg).splitlines() if l.startswith("Conversation started:")), "")
-        print(f"template {os.path.basename(f)[:-5]}: model {b.get('model')}, platform {t.get('platform') or '-'}, "
-              f"{len(b.get('tools') or [])} tools, {started or 'no date line'}, "
-              f"updated {time.strftime('%F %T', time.localtime(os.path.getmtime(f)))}")
-    except Exception as e:
-        print(f"template {os.path.basename(f)}: unreadable ({e})")
-PY
-      ;;
     doctor) exec docker exec -u hermes hermes hermes relay doctor ;;
     pair)
       local domain; domain="$(env_get "$ROOT/hermes/.env" DOMAIN)"; [ -n "$domain" ] || domain="$(env_get "$ROOT/.env" DOMAIN)"

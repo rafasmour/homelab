@@ -14,7 +14,6 @@ services:
       # never commit.
       - ./data:/home/hermes/.hermes
       - ./start.sh:/usr/local/bin/start.sh:ro
-      - ./plugins:/usr/local/share/hermes/plugins:ro
     environment:
       HERMES_HOME: /home/hermes/.hermes
       HERMES_UID: "${HERMES_UID:-1000}"
@@ -32,10 +31,7 @@ services:
       HERMES_SESSION_CONTEXT_LENGTH: "${HERMES_SESSION_CONTEXT_LENGTH:-65536}"
       # Fraction of that context at which Hermes compacts (0.8 = ~52k of 64k tokens).
       HERMES_COMPRESSION_THRESHOLD: "${HERMES_COMPRESSION_THRESHOLD:-0.8}"
-      # Profile whose prompt prefix (system prompt + tools) the prompt_prime
-      # plugin keeps in a llama.cpp slot while the router is idle.
-      HERMES_PRIME_PROFILE: "${HERMES_PRIME_PROFILE:-ai-assistant}"
-      # llama.cpp slot reservation: the primed profile (ai-assistant) always
+      # llama.cpp slot reservation: the ai-assistant profile always
       # uses HERMES_SLOT_PRIMED; every other profile gets a fixed slot from
       # HERMES_SLOT_OTHERS (a slot, a range spread round-robin, or -1 = no pin).
       # Hindsight uses slot 1 (hindsight/.env HINDSIGHT_LLM_SLOT).
@@ -43,12 +39,6 @@ services:
       HERMES_SLOT_OTHERS: "${HERMES_SLOT_OTHERS:-2}"
       # ai-assistant only: thinking budget in tokens (-1 = unlimited); every other profile is unlimited.
       HERMES_AI_ASSISTANT_THINK_BUDGET: "${HERMES_AI_ASSISTANT_THINK_BUDGET:-1024}"
-      # ask_agent (plugins/agents): seconds a consult is awaited before it is
-      # stopped, the hard time limit of one consult, and the answer length
-      # handed back to the asking profile.
-      HERMES_ASK_AGENT_WAIT: "${HERMES_ASK_AGENT_WAIT:-120}"
-      HERMES_ASK_AGENT_HARD_CAP: "${HERMES_ASK_AGENT_HARD_CAP:-1800}"
-      HERMES_ASK_AGENT_MAX_CHARS: "${HERMES_ASK_AGENT_MAX_CHARS:-8000}"
       # Sampling sent to llama.cpp for every profile except default (start.sh puts
       # it into each profile's custom_providers extra_body). Set empty to keep the
       # model preset's own value (hence "-", not ":-").
