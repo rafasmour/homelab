@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Post a Markdown report to Nextcloud Notes through the existing integration:
-# inside hermes-api it reuses mcp_call() from cron-to-notes.py (nextcloud-mcp,
+# inside hermes it reuses mcp_call() from cron-to-notes.py (nextcloud-mcp,
 # tool nc_notes_create_note). No credentials are handled here.
 #
 #   scripts/post-note.sh TITLE [--category CAT] [--file FILE]   body from FILE or stdin
@@ -35,7 +35,7 @@ if os.environ["NOTE_CHECK"] == "1":
 r = ctn.mcp_call("nc_notes_create_note", {"title": os.environ["NOTE_TITLE"], "content": sys.stdin.read(), "category": os.environ["NOTE_CAT"]})
 print(json.dumps(r)[:300])
 '
-run() { docker exec -i -e NOTE_CHECK="$CHECK" -e NOTE_TITLE="$TITLE" -e NOTE_CAT="$CAT" hermes-api python3 -c "$PY"; }
+run() { docker exec -i -e NOTE_CHECK="$CHECK" -e NOTE_TITLE="$TITLE" -e NOTE_CAT="$CAT" hermes python3 -c "$PY"; }
 
 if [ "$CHECK" = 1 ]; then run </dev/null; exit 0; fi
 [ -n "$TITLE" ] || { usage; exit 2; }

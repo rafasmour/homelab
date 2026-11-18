@@ -3,7 +3,7 @@
 #
 # The password is read silently from the terminal, hashed with bcrypt inside
 # the n8n container (the same bcryptjs n8n uses), and written to the "user"
-# table in n8n-database. It never appears in argv, the shell history, or logs.
+# table in the shared postgres (databases/). It never appears in argv, the shell history, or logs.
 # Workflows, credentials and the account itself are kept; existing browser
 # sessions keep working until they expire.
 #
@@ -14,8 +14,8 @@ set -euo pipefail
 email=${1:-}
 
 if [[ -z $email ]]; then
-  email=$(docker exec n8n-database sh -c \
-    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT email FROM \"user\" WHERE \"roleSlug\" = '\''global:owner'\'' LIMIT 1"')
+  email=$(docker exec postgres sh -c \
+    'psql -U postgres -d n8n -Atc "SELECT email FROM \"user\" WHERE \"roleSlug\" = '\''global:owner'\'' LIMIT 1"')
   [[ -n $email ]] || { echo "No owner account found." >&2; exit 1; }
 fi
 
@@ -39,9 +39,9 @@ unset password repeat
 # hash, the email and then the statement all go through stdin.
 updated=$(printf '%s\n%s\n%s\n' "$hash" "$email" \
   "UPDATE \"user\" SET password = :'hash' WHERE email = :'email' RETURNING 1;" |
-  docker exec -i n8n-database sh -c '
+  docker exec -i postgres sh -c '
     read -r hash; read -r email
-    psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -v hash="$hash" -v email="$email"' |
+    psql -U postgres -d n8n -At -v ON_ERROR_STOP=1 -v hash="$hash" -v email="$email"' |
   head -n 1)
 
 if [[ $updated == 1 ]]; then

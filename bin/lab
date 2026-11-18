@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# lab - one command for the homelab chores that otherwise need `docker exec`.
+#
+#   lab warmer [status]              speech warmer: state, pause file, WARM_ENABLED, last log lines
+#   lab warmer pause|resume          pause/resume until the next speech-gateway restart
+#   lab warmer disable|enable        switch it off/on for good (speech/.env WARM_ENABLED, recreates speech-gateway)
+#
+#   lab llm [status]                 router presets: loaded/unloaded (scripts/llama-router.sh)
+#   lab llm loaded|presets|vram|reload|load MODEL|unload MODEL
+#   lab llm production [status|switch MODEL] [--dry-run]   (scripts/production-model.sh)
+#
+#   lab bench ...                    benchmark menu and runs (bin/bench: run, results, versions, status)
+#   lab bench stop                   stop the running benchmark cleanly (SIGTERM; it restores production)
+#   lab bench plan ARGS...           dry run of the runner (npm run benchmark -- ARGS --dry-run)
+#   lab bench list                   benchmarks, cases and models known to the runner
+#   lab bench rescore [RUN ...]      re-score stored runs
+#   lab bench import REPORT_DIR [--models a,b]
+#
+#   lab hermes profiles              profile names
+#   lab hermes prime                 prompt_prime state (slot, tokens, time) and template summary
+#   lab hermes doctor                relay doctor
+#   lab hermes pair                  pair the Hermes-Relay app (interactive)
+#   lab hermes PROFILE ARGS...       `hermes -p PROFILE ARGS` as user hermes (e.g. lab hermes ai-news cron list)
+#
+#   lab n8n digests [--credentials-only|--no-publish]   import digest credentials/workflows (n8n/scripts/hermes-digests-setup.sh)
+#   lab n8n drift [--diff WORKFLOW_ID]                  live workflows vs git
+#   lab n8n run WORKFLOW_ID                             execute a workflow once
+#   lab n8n password [EMAIL]                            reset an n8n password (scripts/reset-n8n-password.sh)
+#
+#   lab nextcloud occ ARGS...        php occ as www-data
+#   lab nextcloud scan-scans         rescan pi.hole/files/Scans (paperless consume folder)
+#
+#   lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]   dump to FILE (default ./<name>-<date>.sql; never overwrites)
+#   lab wger sync-ingredients        start the ingredient bulk sync (background)
+#   lab testbed ps|reset             agent-testbed containers / reset the testbed
+#
+#   lab logs CONTAINER [docker logs options]   e.g. lab logs speech-gateway --since 10m
+#   lab sh CONTAINER [USER]          interactive shell in a container (escape hatch)
+#
+# Read-only commands just run; commands that change something say what they do
+# first. Secrets are never printed: values come from the containers' own
+# environment or are read inside the scripts this tool calls.
+
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+SCRIPTS="$ROOT/scripts"
+WARM_PAUSE_FILE="${WARM_PAUSE_FILE:-/tmp/warmer.pause}"
+
+die() { echo "lab: $*" >&2; exit 1; }
+usage() { sed -n '2,43p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+need_running() {  # CONTAINER
+  [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = true ] || die "container $1 is not running"
+}
+tty_flags() { if [ -t 0 ] && [ -t 1 ]; then echo "-it"; else echo "-i"; fi; }
+
+# ---------------------------------------------------------------- warmer
+env_get() { [ -f "$1" ] && sed -n "s/^$2=//p" "$1" | tail -1 || true; }
+env_set() {  # FILE KEY VALUE (backup first; only this key changes)
+  local f="$1" k="$2" v="$3" stamp
+  [ -f "$f" ] || die "$f is missing"
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  cp -p "$f" "$f.bak-$stamp"
+  if grep -q "^$k=" "$f"; then sed -i "s|^$k=.*|$k=$v|" "$f"; else printf '%s=%s\n' "$k" "$v" >>"$f"; fi
+  echo "${f#"$ROOT"/}: $k=$v (backup ${f#"$ROOT"/}.bak-$stamp)"
+}
+
+warmer() {
+  local cmd="${1:-status}"
+  case "$cmd" in
+    status)
+      need_running speech-gateway
+      local enabled pause
+      enabled="$(docker exec speech-gateway sh -c 'echo "${WARM_ENABLED:-true}"')"
+      pause="$(docker exec speech-gateway sh -c "[ -e '$WARM_PAUSE_FILE' ] && { printf 'present since %s: ' \"\$(date -r '$WARM_PAUSE_FILE' '+%F %T' 2>/dev/null)\"; head -c 200 '$WARM_PAUSE_FILE'; [ -s '$WARM_PAUSE_FILE' ] || printf 'set by hand'; } || echo none")"
+      echo "WARM_ENABLED (container): $enabled"
+      echo "WARM_ENABLED (speech/.env): $(env_get "$ROOT/speech/.env" WARM_ENABLED || true)"
+      echo "pause file $WARM_PAUSE_FILE: $pause"
+      [ -e "$ROOT/benchmark/reports/.running.lock" ] && echo "benchmark: a run holds the lock (the runner pauses the warmer)" || echo "benchmark: no run"
+      echo "last warmer log lines:"
+      docker logs --since 24h speech-gateway 2>&1 | grep 'warmer:' | tail -5 | sed 's/^/  /' || true
+      ;;
+    pause)
+      need_running speech-gateway
+      docker exec speech-gateway touch "$WARM_PAUSE_FILE"
+      echo "warmer paused (until 'lab warmer resume' or a speech-gateway restart)" ;;
+    resume)
+      need_running speech-gateway
+      if [ -e "$ROOT/benchmark/reports/.running.lock" ]; then
+        die "a benchmark run holds the lock; the runner resumes the warmer when it ends (stop it with: lab bench stop)"
+      fi
+      docker exec speech-gateway rm -f "$WARM_PAUSE_FILE"
+      echo "warmer resumed (it acts within ~15 s)" ;;
+    disable|enable)
+      local v=false; [ "$cmd" = enable ] && v=true
+      env_set "$ROOT/speech/.env" WARM_ENABLED "$v"
+      (cd "$ROOT/speech" && docker compose up -d --no-deps speech-gateway 2>&1 | grep -E 'Recreat|Start|Running|Error' || true)
+      echo "warmer ${cmd}d" ;;
+    *) die "warmer: unknown command $cmd (status|pause|resume|disable|enable)" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- llm
+llm() {
+  local cmd="${1:-status}"; [ $# -gt 0 ] && shift
+  case "$cmd" in
+    status|loaded|presets|vram|reload|load|unload) exec "$SCRIPTS/llama-router.sh" "$cmd" "$@" ;;
+    production|prod) exec "$SCRIPTS/production-model.sh" "${@:-status}" ;;
+    *) die "llm: unknown command $cmd" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- bench
+bench() {
+  local cmd="${1:-}"
+  case "$cmd" in
+    stop)
+      need_running benchmark
+      docker exec benchmark pgrep -f '^node .*main[.]js' >/dev/null || die "no benchmark is running"
+      docker exec benchmark pkill -TERM -f '^node .*main[.]js'
+      echo "sent SIGTERM: the run aborts, cleans up, restores the production model and writes a partial report" ;;
+    plan) shift; need_running benchmark; exec docker exec benchmark npm run --silent benchmark -- "$@" --dry-run ;;
+    list) need_running benchmark; exec docker exec benchmark npm run --silent benchmark -- --list ;;
+    rescore) shift; need_running benchmark; exec docker exec benchmark node main.js rescore "$@" ;;
+    import) shift; [ $# -ge 1 ] || die "bench import REPORT_DIR [--models a,b]"
+      need_running benchmark; exec docker exec benchmark npm run --silent import -- "$@" ;;
+    *) exec "$ROOT/bin/bench" "$@" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- hermes
+hermes() {
+  local cmd="${1:-}"; [ -n "$cmd" ] || die "hermes: profiles | prime | doctor | pair | PROFILE ARGS..."
+  need_running hermes
+  case "$cmd" in
+    profiles) docker exec -u hermes hermes sh -c 'ls -1 /home/hermes/.hermes/profiles' ;;
+    prime)
+      docker exec -i -u hermes hermes python3 - <<'PY'
+import json, os, time, glob
+d = "/home/hermes/.hermes/cache/prime"
+try:
+    s = json.load(open(os.path.join(d, "state.json")))
+    at = s.get("at")
+    print(f"primed: profile {s.get('profile')}, slot {s.get('slot')}, {s.get('n_prompt_tokens')} tokens, "
+          f"at {time.strftime('%F %T %Z', time.localtime(at)) if at else '-'}"
+          + (f", waiting for an idle slot since {s['seen']}" if s.get("seen") else ""))
+except FileNotFoundError:
+    print("primed: never (no state.json)")
+for f in sorted(glob.glob(os.path.join(d, "*.json"))):
+    if f.endswith("state.json"):
+        continue
+    try:
+        t = json.load(open(f)); b = t.get("body") or {}
+        sysmsg = next((m.get("content", "") for m in b.get("messages", []) if m.get("role") == "system"), "")
+        started = next((l for l in str(sysmsg).splitlines() if l.startswith("Conversation started:")), "")
+        print(f"template {os.path.basename(f)[:-5]}: model {b.get('model')}, platform {t.get('platform') or '-'}, "
+              f"{len(b.get('tools') or [])} tools, {started or 'no date line'}, "
+              f"updated {time.strftime('%F %T', time.localtime(os.path.getmtime(f)))}")
+    except Exception as e:
+        print(f"template {os.path.basename(f)}: unreadable ({e})")
+PY
+      ;;
+    doctor) exec docker exec -u hermes hermes hermes relay doctor ;;
+    pair)
+      local domain; domain="$(env_get "$ROOT/hermes/.env" DOMAIN)"; [ -n "$domain" ] || domain="$(env_get "$ROOT/.env" DOMAIN)"
+      [ -n "$domain" ] || die "DOMAIN not found in hermes/.env"
+      exec docker exec -it -u hermes hermes hermes pair --mode public --public-url "https://hermes-dash.$domain" ;;
+    -*) die "hermes: give a profile first (lab hermes profiles)" ;;
+    *)
+      shift
+      docker exec -u hermes hermes test -d "/home/hermes/.hermes/profiles/$cmd" || [ "$cmd" = default ] \
+        || die "hermes: no profile $cmd (lab hermes profiles)"
+      # shellcheck disable=SC2046
+      exec docker exec $(tty_flags) -u hermes hermes hermes -p "$cmd" "$@" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- n8n
+n8n() {
+  local cmd="${1:-}"; [ $# -gt 0 ] && shift
+  case "$cmd" in
+    digests) exec sh "$ROOT/n8n/scripts/hermes-digests-setup.sh" "$@" ;;
+    drift) need_running n8n-drift-runner; exec docker exec n8n-drift-runner /app/check-workflow-drift.sh "$@" ;;
+    run) [ $# -eq 1 ] || die "n8n run WORKFLOW_ID"; need_running n8n
+      echo "executing workflow $1 once (a digest's manual trigger is a dry run; its schedule path delivers)"
+      exec docker exec -e N8N_RUNNERS_BROKER_PORT=5699 n8n n8n execute --id="$1" ;;
+    password) exec "$SCRIPTS/reset-n8n-password.sh" "$@" ;;
+    *) die "n8n: digests | drift | run | password" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- nextcloud
+nextcloud() {
+  local cmd="${1:-}"; [ $# -gt 0 ] && shift
+  need_running nextcloud
+  case "$cmd" in
+    occ)
+      # shellcheck disable=SC2046
+      exec docker exec $(tty_flags) -u www-data nextcloud php occ "$@" ;;
+    scan-scans)
+      docker exec -u www-data nextcloud mkdir -p /var/www/html/data/pi.hole/files/Scans
+      exec docker exec -u www-data nextcloud php occ files:scan --path="pi.hole/files/Scans" ;;
+    *) die "nextcloud: occ ARGS... | scan-scans" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- databases and small chores
+db() {
+  [ "${1:-}" = dump ] || die "db dump hindsight|immich|n8n|wger|nextcloud [FILE]"
+  local name="${2:-}" c out
+  # Shared databases stack (databases/): one Postgres for the apps, MariaDB for Nextcloud.
+  case "$name" in
+    hindsight|immich|n8n|wger) c=postgres ;;
+    nextcloud) c=mariadb ;;
+    *) die "db dump: hindsight, immich, n8n, wger or nextcloud" ;;
+  esac
+  need_running "$c"
+  out="${3:-./$name-$(date +%Y%m%d-%H%M%S).sql}"
+  [ ! -e "$out" ] || die "$out exists; choose another file"
+  if [ "$c" = postgres ]; then
+    ( umask 077; docker exec postgres pg_dump -U postgres "$name" >"$out" ) || { rm -f "$out"; die "pg_dump failed"; }
+  else
+    ( umask 077; docker exec mariadb sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction nextcloud' >"$out" ) || { rm -f "$out"; die "mariadb-dump failed"; }
+  fi
+  echo "$name dumped to $out ($(du -h "$out" | cut -f1), mode 600)"
+}
+
+wger() {
+  [ "${1:-}" = sync-ingredients ] || die "wger sync-ingredients"
+  need_running wger-web
+  docker exec -d wger-web python3 manage.py sync-ingredients-bulk
+  echo "ingredient sync started in the background (lab logs wger-web -f)"
+}
+
+testbed() {
+  need_running agent-testbed
+  case "${1:-ps}" in
+    ps) exec docker exec agent-testbed docker ps --format '{{.Names}} {{.Status}}' ;;
+    reset) exec docker exec agent-testbed /homelab/hermes-sandboxes/testbed/reset.sh ;;
+    *) die "testbed ps|reset" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- dispatch
+[ $# -gt 0 ] || { usage; exit 0; }
+group="$1"; shift
+case "$group" in
+  -h|--help|help) usage ;;
+  warmer) warmer "$@" ;;
+  llm|llama|router) llm "$@" ;;
+  bench) bench "$@" ;;
+  hermes) hermes "$@" ;;
+  n8n) n8n "$@" ;;
+  nextcloud|nc) nextcloud "$@" ;;
+  db) db "$@" ;;
+  wger) wger "$@" ;;
+  testbed) testbed "$@" ;;
+  logs) [ $# -ge 1 ] || die "logs CONTAINER [options]"; c="$1"; shift; exec docker logs "$@" "$c" ;;
+  sh|shell) [ $# -ge 1 ] || die "sh CONTAINER [USER]"; need_running "$1"
+    exec docker exec -it ${2:+-u "$2"} "$1" sh -c 'command -v bash >/dev/null && exec bash || exec sh' ;;
+  *) die "unknown command $group (lab --help)" ;;
+esac

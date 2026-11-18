@@ -10,6 +10,8 @@
 #   scripts/bench.sh status                  lock file, running benchmark process, newest logs
 #   options: --bg (detach, print the log path), --dry-run (print the commands only),
 #            --no-optin (llm: leave the ai-assistant group out)
+#   passed through to the benchmark (llm/stt/tts): --cases a,b  --profiles p,q  --repeat N  --web
+#   (interactive menu: bin/bench; --dry-run also works while a run holds the lock)
 #
 # Each run: refuses while benchmark/reports/.running.lock exists, touches
 # /tmp/warmer.pause in speech-gateway (removed again on exit, also on error),
@@ -25,9 +27,9 @@ BENCH="${BENCH_CONTAINER:-benchmark}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 die() { echo "bench: $*" >&2; exit 1; }
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
 
-BG=0 DRY=0 OPTIN=1 FG=0 LLM_MODELS="" KIND="" ARGS=()
+BG=0 DRY=0 OPTIN=1 FG=0 LLM_MODELS="" KIND="" ARGS=() PASS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
@@ -36,6 +38,9 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --no-optin) OPTIN=0 ;;
     --llm-models) shift; LLM_MODELS="${1:-}" ;;
+    --cases|--profiles|--repeat)
+      [ $# -ge 2 ] || die "$1 needs a value"; PASS+=("$1" "$2"); shift ;;
+    --web) PASS+=(--web) ;;
     -*) die "unknown option $1 (see --help)" ;;
     *) if [ -z "$KIND" ]; then KIND="$1"; else ARGS+=("$1"); fi ;;
   esac
@@ -77,8 +82,8 @@ join_args() { local IFS=' '; echo "$*"; }
 cmd_for() {  # KIND [MODELS...] -> npm arguments
   local k="$1"; shift
   case "$k" in
-    llm) echo "$* --only hermes$([ "$OPTIN" = 1 ] && echo ' --with-optin')" ;;
-    stt|tts) echo "--only $k $*" ;;
+    llm) echo "$* --only hermes$([ "$OPTIN" = 1 ] && echo ' --with-optin')${PASS[*]:+ ${PASS[*]}}" ;;
+    stt|tts) echo "--only $k $*${PASS[*]:+ ${PASS[*]}}" ;;
   esac
 }
 
@@ -94,7 +99,10 @@ run_one() {  # KIND [MODELS...]
 }
 
 run_all() {
-  [ ! -e "$LOCK" ] || die "a benchmark is running ($LOCK)"
+  if [ -e "$LOCK" ]; then
+    [ "$DRY" = 1 ] || die "a benchmark is running ($LOCK)"
+    echo "bench: note: a benchmark is running ($LOCK); a real run would refuse" >&2
+  fi
   if [ "$DRY" = 0 ]; then
     docker exec speech-gateway touch /tmp/warmer.pause 2>/dev/null || echo "bench: warmer not paused (speech-gateway down?)" >&2
     trap 'docker exec speech-gateway rm -f /tmp/warmer.pause 2>/dev/null || true' EXIT
@@ -109,10 +117,10 @@ run_all() {
 }
 
 if [ "$BG" = 1 ] && [ "$FG" = 0 ]; then
-  [ ! -e "$LOCK" ] || die "a benchmark is running ($LOCK)"
+  [ ! -e "$LOCK" ] || [ "$DRY" = 1 ] || die "a benchmark is running ($LOCK)"
   if [ "$DRY" = 1 ]; then echo "dry run: would detach: $0 $KIND $(join_args "${ARGS[@]}") --fg"; run_all; exit 0; fi
   LOG="$REPORTS/$KIND-$STAMP.driver.log"
-  fwd=(); [ "$OPTIN" = 1 ] || fwd+=(--no-optin); [ -z "$LLM_MODELS" ] || fwd+=(--llm-models "$LLM_MODELS")
+  fwd=("${PASS[@]}"); [ "$OPTIN" = 1 ] || fwd+=(--no-optin); [ -z "$LLM_MODELS" ] || fwd+=(--llm-models "$LLM_MODELS")
   nohup "$0" --fg "${fwd[@]}" "$KIND" "${ARGS[@]}" >"$LOG" 2>&1 &
   echo "detached (pid $!); follow with: tail -f ${LOG#"$ROOT"/}"
   exit 0

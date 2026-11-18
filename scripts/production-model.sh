@@ -20,12 +20,15 @@
 #        benchmark/.env   PRODUCTION_MODEL
 #        speech/.env      WARM_LLM
 #   5. reloads the router presets, unloads the old model, loads the new one;
-#   6. docker compose up -d --no-deps for hermes-api, hindsight, benchmark and
+#   6. docker compose up -d --no-deps for hermes, hindsight, benchmark and
 #      speech-gateway, recreating those whose environment changed (Hermes'
-#      start.sh rewrites every profile's model and context from the env).
+#      start.sh rewrites every profile's model and context from the env);
+#   7. n8n/scripts/hermes-digests-setup.sh --credentials-only, so the n8n
+#      digests' LLM credential sends the new PRODUCTION_MODEL.
 #
-# Slot claims (unchanged by a switch, need >= 3 slots): 0 = other Hermes
-# profiles, 1 = primed ai-assistant, 2 = Hindsight; slots 3+ are unpinned.
+# Slot claims (unchanged by a switch, need >= 3 slots): 0 = primed ai-assistant
+# (HERMES_SLOT_PRIMED), 1 = Hindsight (HINDSIGHT_LLM_SLOT), 2 = every other
+# Hermes profile and the n8n digests (HERMES_SLOT_OTHERS); slots 3+ are unpinned.
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -117,7 +120,7 @@ if [ "$PER_SLOT_CAP" -gt 0 ]; then
 else
   PER_SLOT=$((CTX / PAR)); SESSION_CTX=$PER_SLOT
 fi
-[ "$PAR" -ge 3 ] || [ "$FORCE" = 1 ] || die "[$TARGET] has $PAR slot(s); slots 0-2 are claimed (others, ai-assistant, Hindsight). Raise parallel or pass --force."
+[ "$PAR" -ge 3 ] || [ "$FORCE" = 1 ] || die "[$TARGET] has $PAR slot(s); slots 0-2 are claimed (ai-assistant, Hindsight, others). Raise parallel or pass --force."
 [ "$PER_SLOT" -ge 32768 ] || die "[$TARGET] has only $PER_SLOT tokens per slot (Hermes' first call is ~35-38k)"
 [ ! -e "$LOCK" ] || die "a benchmark is running ($LOCK); try again when it finishes"
 
@@ -185,5 +188,11 @@ if [ "$RESTART" = 1 ]; then
   done
 else
   echo "--no-restart: run docker compose up -d in hermes, hindsight, benchmark and speech to apply the env"
+fi
+
+# 7. n8n digests: their LLM credential carries the model name.
+if docker ps --format '{{.Names}}' | grep -qx n8n; then
+  echo "== n8n: digest LLM credential"
+  sh "$ROOT/n8n/scripts/hermes-digests-setup.sh" --credentials-only || echo "n8n credential update failed; run: sh n8n/scripts/hermes-digests-setup.sh --credentials-only" >&2
 fi
 echo; show_status

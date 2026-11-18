@@ -8,7 +8,7 @@
 # never printed; only key names and file paths are.
 #
 # Not rotated (stateful, or issued by another service and needing your input):
-#   HF_TOKEN, N8N_API_KEY, FIREFLY_III_ACCESS_TOKEN, WGER_API_KEY,
+#   HF_TOKEN, N8N_API_KEY, WGER_API_KEY,
 #   NEXTCLOUD_MCP_APP_PASSWORD, UPTIME_KUMA_API_KEY, API_TOKEN_FOR_HOMEPAGE,
 #   TALK_BOT_SECRET (registered in Nextcloud Talk), vaultwarden ADMIN_TOKEN,
 #   Cloudflare tokens, and every database password, APP_KEY, encryption key,
@@ -46,8 +46,6 @@ WEB_SEARCH_MCP_TOKEN web-search               32
 MCP_STATIC_TOKEN     wger                     32
 N8N_MCP_AUTH_TOKEN   n8n                      32
 TALK_DELIVER_SECRET  hermes-nextcloud-bridge  32
-AUTO_IMPORT_SECRET   firefly-iii              32
-STATIC_CRON_TOKEN    firefly-iii              16
 '
 
 if (( list )); then
@@ -137,6 +135,39 @@ case " $changed " in
 esac
 
 printf 'Rotated keys in: %s\n' "$changed"
+
+# Pi (coding agent) keeps the llama.cpp router key in its auth.json; sync it so
+# Pi keeps working after LLAMA_API_KEY rotates. No-op if Pi has no llama.cpp login.
+case " $changed " in
+  *" llama-cpp "*)
+    pi_home=$HOME
+    [[ -n ${SUDO_USER:-} ]] && pi_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    pi_auth=${PI_AUTH_FILE:-$pi_home/.pi/agent/auth.json}
+    if [[ -f $pi_auth ]]; then
+      ENV_FILE=$root/llama-cpp/.env AUTH=$pi_auth python3 -I - <<'PY'
+import json, os, re, tempfile
+env = open(os.environ["ENV_FILE"]).read()
+m = re.search(r"^[ \t]*(?:export[ \t]+)?LLAMA_API_KEY[ \t]*=[ \t]*(.*)$", env, re.M)
+key = m.group(1).strip().strip("'\"") if m else ""
+path = os.environ["AUTH"]
+data = json.load(open(path))
+cred = data.get("llama.cpp")
+if key and isinstance(cred, dict):
+    cred["key"] = key
+    st = os.stat(path)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".auth.")
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(tmp, 0o600)
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.replace(tmp, path)
+    print(f"Pi: updated llama.cpp key in {path}")
+else:
+    print(f"Pi: no llama.cpp login in {path}; skipped")
+PY
+    fi
+    ;;
+esac
 if (( restart )); then
   cd "$root"
   for c in "${commands[@]}"; do
@@ -147,4 +178,4 @@ else
   printf 'Apply with (from %s):\n' "$root"
   printf '  %s\n' "${commands[@]}"
 fi
-printf 'Also update clients outside this repo that use a rotated key (Pi, scripts, Home Assistant UI).\n'
+printf 'Also update clients outside this repo that use a rotated key (scripts, Home Assistant UI). Pi is synced above.\n'

@@ -78,8 +78,6 @@ declare -A CLS_KIND CLS_ARG CLS_HINT
 C() { CLS_KIND[$1]=$2; CLS_ARG[$1]=$3; CLS_HINT[$1]=$4; }
 
 # Generated: shared secrets get their format from SHARED_GROUPS below.
-C APP_KEY               gen alnum:32 ""   # Laravel needs a 32-byte key; 32 alphanumeric characters are valid.
-C STATIC_CRON_TOKEN     gen hex:16 ""     # exactly 32 alphanumeric characters
 C DB_PASSWORD           gen hex:32 ""     # immich: A-Za-z0-9 only
 C MYSQL_ROOT_PASSWORD   gen hex:32 ""
 C MYSQL_PASSWORD        gen hex:32 ""
@@ -113,7 +111,6 @@ C PAPERLESS_ADMIN_USER  user "" ""
 C PAPERLESS_ADMIN_PASSWORD pass b64:24 ""
 C PAPERLESS_ADMIN_MAIL  user "" ""
 C ADMIN_EMAIL           user "" ""        # mealie
-C SITE_OWNER            user "" ""        # firefly
 C JUPYTER_PASSWORD      pass b64:24 ""
 C UNSLOTH_STUDIO_PASSWORD pass b64:24 "" # unsloth-studio: Studio admin (user "unsloth"), first boot only
 C HERMES_DASHBOARD_USERNAME user "" ""    # hermes: Hermes web dashboard login (Hermes-Relay app)
@@ -124,7 +121,6 @@ C SELF_HEAL_OWNER_ACTOR user "" ""        # users/<Nextcloud user id>
 C WEBPASSWORD           passhash "" ""    # pi-hole stores sha256(sha256(password))
 
 # Values only an application UI or an external party can provide.
-C PIRAEUS_ZIP_PASSWORD  token "" "password of the bank statement zip (set by the bank)"
 C N8N_API_KEY           token "" "n8n: Settings > n8n API > Create an API key (full access, for the n8n-mcp container)"
 C N8N_DRIFT_API_KEY     token "" "n8n: Settings > n8n API > new API key with ONLY workflow:list and workflow:read scopes"
 C PAPERLESS_GPT_API_TOKEN token "" "Paperless: profile menu > My Profile > API Auth Token (after first start)"
@@ -133,8 +129,6 @@ C UPTIME_KUMA_API_KEY   token "" "Uptime Kuma: Settings > Security > API Keys"
 C SELF_HEAL_GRAFANA_TOKEN token "" "Grafana: Administration > Users and access > Service accounts (Viewer role) > Add token"
 C WGER_API_KEY          token "" "wger: Settings > API key of the owner account"
 C ADMIN_TOKEN           token "" "Vaultwarden Argon2 hash: docker run --rm -it vaultwarden/server:latest /vaultwarden hash"
-C FIREFLY_III_ACCESS_TOKEN tokenopt "" "Firefly III: /profile/oauth > Personal access tokens (alternative to the client ID)"
-C FIREFLY_III_CLIENT_ID valueopt "" "Firefly III: /profile/oauth > public OAuth client, numeric client ID (alternative to the access token)"
 C HF_TOKEN              tokenopt "" "Hugging Face: Settings > Access Tokens (read scope), only for gated repositories"
 C chartdb/OPENAI_API_KEY tokenopt "" "OpenAI API key, only for ChartDB's AI features"
 C TALK_ALERTS_ROOM      value "" "Nextcloud Talk: token of the 'Grafana alerts' room (last part of the room URL)"
@@ -145,6 +139,7 @@ C JWT_PRIVATE_KEY       manual "" "wger: docker compose exec web ./manage.py gen
 # Optional or deliberately empty: leave alone.
 C BENCHMARK_TALK_ROOM   skip "" ""
 C PAPERLESS_GPT_OPENAI_BASE_URL skip "" ""
+C HERMES_TRUSTED_PROXIES skip "" ""  # hermes: webgateway subnet for the Webapp, checked at compose time
 
 # --------------------------------------------------------------------------
 # Secrets that must be identical in several stacks.
@@ -156,12 +151,11 @@ GROUP_NAMES=()
 declare -A GFMT GMEM
 G() { GROUP_NAMES+=("$1"); GFMT[$1]=$2; GMEM[$1]=$3; }
 
-G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hermes-sandboxes:LLAMA_API_KEY paperless:LLAMA_API_KEY hindsight:LLAMA_API_KEY benchmark:LLAMA_API_KEY speech:LLAMA_API_KEY openwebui:OPENAI_API_KEY"
-G hermes-api-key       hex:32 "hermes:API_SERVER_KEY openwebui:HERMES_API_KEY"
-G web-search-mcp       hex:32 "web-search:WEB_SEARCH_MCP_TOKEN hermes:WEB_SEARCH_MCP_TOKEN openwebui:WEB_SEARCH_MCP_TOKEN"
-G wger-mcp             hex:32 "wger:MCP_STATIC_TOKEN hermes:MCP_STATIC_TOKEN benchmark:MCP_STATIC_TOKEN openwebui:WGER_MCP_TOKEN"
-G n8n-mcp              hex:32 "n8n:N8N_MCP_AUTH_TOKEN hermes:N8N_MCP_AUTH_TOKEN openwebui:N8N_MCP_TOKEN"
-G firefly-auto-import  hex:16 "firefly-iii:AUTO_IMPORT_SECRET n8n:AUTO_IMPORT_SECRET"
+G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hermes-sandboxes:LLAMA_API_KEY paperless:LLAMA_API_KEY hindsight:LLAMA_API_KEY benchmark:LLAMA_API_KEY speech:LLAMA_API_KEY"
+G hermes-api-key       hex:32 "hermes:API_SERVER_KEY"
+G web-search-mcp       hex:32 "web-search:WEB_SEARCH_MCP_TOKEN hermes:WEB_SEARCH_MCP_TOKEN"
+G wger-mcp             hex:32 "wger:MCP_STATIC_TOKEN hermes:MCP_STATIC_TOKEN benchmark:MCP_STATIC_TOKEN"
+G n8n-mcp              hex:32 "n8n:N8N_MCP_AUTH_TOKEN hermes:N8N_MCP_AUTH_TOKEN8N_MCP_TOKEN"
 G benchmark-mcp        hex:32 "benchmark:BENCHMARK_MCP_TOKEN hermes:BENCHMARK_MCP_TOKEN"
 G self-heal-webhook    hex:32 "self-heal:SELF_HEAL_WEBHOOK_SECRET grafana:SELF_HEAL_WEBHOOK_SECRET"
 G self-heal-approve    hex:32 "self-heal:SELF_HEAL_APPROVE_SECRET hermes-nextcloud-bridge:SELF_HEAL_APPROVE_SECRET"

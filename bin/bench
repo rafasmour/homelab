@@ -1,0 +1,423 @@
+#!/usr/bin/env bash
+# bench - interactive front end for the homelab benchmark runner.
+#
+#   bench                          menu: benchmark -> version -> models -> cases -> repeats -> run
+#   bench run BENCH [options]      non-interactive (BENCH: hermes | stt | tts)
+#        --models a,b   --cases x,y   --profiles p,q   --repeat N   --web
+#        --no-optin (hermes: leave the ai-assistant group out)   --bg   --dry-run   --yes
+#   bench results [BENCH] [--version V]   leaderboard from the results DB (read-only)
+#   bench versions [BENCH]                versions with changelog summaries
+#   bench status                          run lock, running process, newest logs
+#
+# Runs always go through scripts/bench.sh (run lock, speech warmer pause, log,
+# summary). Only the version that is checked out can run; older versions are
+# results-only. Uses whiptail on a terminal, numbered prompts otherwise.
+
+set -euo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+BENCH_SH="$ROOT/scripts/bench.sh"
+BDIR="$ROOT/benchmark/benchmarks"
+DB="$ROOT/benchmark/data/benchmark.db"
+LOCK="$ROOT/benchmark/reports/.running.lock"
+CONTAINER="${BENCH_CONTAINER:-benchmark}"
+BENCHES=(hermes stt tts)
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+die() { echo "bench: $*" >&2; exit 1; }
+usage() { sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+# ---------------------------------------------------------------- UI layer
+UI=plain
+if [ "${BENCH_UI:-}" != plain ] && [ -t 0 ] && [ -t 1 ] && command -v whiptail >/dev/null 2>&1; then UI=whiptail; fi
+TITLE="Homelab benchmark"
+
+cancel() { echo "bench: cancelled" >&2; exit 1; }
+
+ui_msg() {  # TEXT
+  if [ "$UI" = whiptail ]; then whiptail --title "$TITLE" --msgbox "$1" 20 78 || true
+  else printf '\n%s\n' "$1"; fi
+}
+
+ui_yesno() {  # TEXT [default: y|n]
+  if [ "$UI" = whiptail ]; then
+    local d=(); [ "${2:-y}" = n ] && d=(--defaultno)
+    whiptail --title "$TITLE" "${d[@]}" --yesno "$1" 20 78
+  else
+    local a; read -r -p "$1 [${2:-y}] " a || return 1
+    a="${a:-${2:-y}}"; [[ "$a" =~ ^[Yy] ]]
+  fi
+}
+
+ui_input() {  # PROMPT DEFAULT -> stdout
+  if [ "$UI" = whiptail ]; then
+    whiptail --title "$TITLE" --inputbox "$1" 10 70 "$2" 3>&1 1>&2 2>&3 || cancel
+  else
+    local a; read -r -p "$1 [$2] " a || cancel; echo "${a:-$2}"
+  fi
+}
+
+ui_menu() {  # PROMPT tag desc [tag desc ...] -> tag
+  local prompt="$1"; shift
+  if [ "$UI" = whiptail ]; then
+    local h=$(( $# / 2 ))
+    [ "$h" -le 12 ] || h=12
+    local lines; lines=$(printf '%s\n' "$prompt" | wc -l)
+    whiptail --title "$TITLE" --menu "$prompt" $((h + lines + 7)) 100 "$h" "$@" 3>&1 1>&2 2>&3 || cancel
+  else
+    local tags=() descs=() i a
+    while [ $# -gt 0 ]; do tags+=("$1"); descs+=("$2"); shift 2; done
+    {
+      printf '\n%s\n' "$prompt"
+      for ((i = 0; i < ${#tags[@]}; i++)); do printf '  %2d) %-26s %s\n' $((i + 1)) "${tags[i]}" "${descs[i]}"; done
+    } >&2
+    while :; do
+      read -r -p "number [1] " a || cancel; a="${a:-1}"
+      if [[ "$a" =~ ^[0-9]+$ ]] && [ "$a" -ge 1 ] && [ "$a" -le "${#tags[@]}" ]; then echo "${tags[a-1]}"; return; fi
+      echo "invalid" >&2
+    done
+  fi
+}
+
+ui_check() {  # PROMPT tag desc state(ON|OFF) [...] -> space separated tags
+  local prompt="$1"; shift
+  if [ "$UI" = whiptail ]; then
+    local h=$(( $# / 3 )); [ "$h" -le 14 ] || h=14
+    local out
+    out="$(whiptail --title "$TITLE" --separate-output --checklist "$prompt (space toggles, enter confirms)" \
+      $((h + 8)) 100 "$h" "$@" 3>&1 1>&2 2>&3)" || cancel
+    echo "${out//$'\n'/ }"
+  else
+    local tags=() descs=() states=() i a sel=()
+    while [ $# -gt 0 ]; do tags+=("$1"); descs+=("$2"); states+=("$3"); shift 3; done
+    {
+      printf '\n%s\n' "$prompt"
+      for ((i = 0; i < ${#tags[@]}; i++)); do
+        printf '  %2d) [%s] %-26s %s\n' $((i + 1)) "$([ "${states[i]}" = ON ] && echo x || echo ' ')" "${tags[i]}" "${descs[i]}"
+      done
+    } >&2
+    read -r -p "numbers separated by spaces, 'a' = all, 'n' = none, empty = keep marked: " a || cancel
+    case "$a" in
+      "") for ((i = 0; i < ${#tags[@]}; i++)); do if [ "${states[i]}" = ON ]; then sel+=("${tags[i]}"); fi; done ;;
+      a) sel=("${tags[@]}") ;;
+      n) ;;
+      *) for i in $a; do
+           if [[ "$i" =~ ^[0-9]+$ ]] && [ "$i" -ge 1 ] && [ "$i" -le "${#tags[@]}" ]; then sel+=("${tags[i-1]}"); fi
+         done ;;
+    esac
+    echo "${sel[*]:-}"
+  fi
+}
+
+# ---------------------------------------------------------------- data helpers
+current_version() {  # BENCH
+  sed -n "s/^const BENCHMARK_VERSION = '\([^']*\)'.*/\1/p" "$BDIR/$1/version.js"
+}
+
+changelog() {  # BENCH -> lines "version<TAB>date<TAB>summary" (oldest first)
+  python3 -I - "$BDIR/$1/version.js" <<'PY'
+import re, sys
+src = open(sys.argv[1]).read()
+for m in re.finditer(r"version:\s*'([^']*)',\s*date:\s*'([^']*)',\s*summary:\s*'((?:[^'\\]|\\.)*)'", src):
+    print(m.group(1), m.group(2), m.group(3).replace("\\'", "'"), sep="\t")
+PY
+}
+
+db_versions() {  # BENCH -> "version<TAB>runs" for versions with stored runs
+  [ -r "$DB" ] || return 0
+  python3 -I - "$DB" "$1" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+for v, n in c.execute("""SELECT rb.version, COUNT(DISTINCT rb.run_id) FROM run_benchmarks rb
+    JOIN benchmarks b ON b.id=rb.benchmark_id WHERE b.name=? GROUP BY rb.version""", (sys.argv[2],)):
+    print(v, n, sep="\t")
+PY
+}
+
+results() {  # BENCH VERSION
+  [ -r "$DB" ] || die "results DB not readable: $DB"
+  python3 -I - "$DB" "$1" "$2" <<'PY'
+import sqlite3, sys, statistics
+db, bench, ver = sys.argv[1:4]
+c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+bid = c.execute("SELECT id FROM benchmarks WHERE name=?", (bench,)).fetchone()
+if not bid:
+    print("no such benchmark in the DB"); sys.exit(0)
+rows = c.execute("""SELECT m.alias, s.run_id, s.name, s.value FROM run_model_stats s
+    JOIN models m ON m.id=s.model_id JOIN run_benchmarks rb ON rb.run_id=s.run_id AND rb.benchmark_id=s.benchmark_id
+    WHERE s.benchmark_id=? AND rb.version=? AND s.name IN ('score','pass_rate','chat_median_s')""", (bid[0], ver)).fetchall()
+data = {}
+for alias, run, name, val in rows:
+    if val is None: continue
+    data.setdefault(alias, {}).setdefault(name, []).append(val)
+    data[alias].setdefault("runs", set()).add(run)
+if not data:
+    print(f"no stored results for {bench} v{ver}"); sys.exit(0)
+def avg(l): return sum(l) / len(l) if l else None
+def f(x): return "-" if x is None else f"{x:.1f}"
+out = []
+for alias, d in data.items():
+    pr = avg(d.get("pass_rate", []))
+    if pr is not None and pr <= 1.0: pr *= 100
+    out.append((avg(d.get("score", [])) or 0, alias, len(d["runs"]), pr,
+                statistics.median(d["chat_median_s"]) if d.get("chat_median_s") else None))
+out.sort(key=lambda r: -r[0])
+print(f"{bench} v{ver}: leaderboard (score and pass rate averaged over the stored runs)")
+print(f"{'#':>2}  {'model':<40} {'runs':>4} {'score':>7} {'pass%':>7} {'chat median s':>14}")
+for i, (sc, alias, n, pr, ch) in enumerate(out, 1):
+    print(f"{i:>2}  {alias:<40} {n:>4} {sc:>7.1f} {f(pr):>7} {f(ch):>14}")
+PY
+}
+
+show_results() {  # BENCH VERSION
+  local f="$TMP/results.txt"
+  results "$1" "$2" >"$f"
+  if [ "$UI" = whiptail ]; then whiptail --title "$TITLE: results $1 v$2" --scrolltext --textbox "$f" 24 100 || true
+  else echo; cat "$f"; fi
+}
+
+list_output() {  # BENCH -> path of cached `--list` output (asks the benchmark container)
+  local f="$TMP/list-$1.txt"
+  if [ ! -s "$f" ]; then
+    docker exec "$CONTAINER" npm run benchmark -- --only "$1" --list >"$f" 2>&1 \
+      || die "could not run '--list' in container $CONTAINER (is it up?)"
+  fi
+  echo "$f"
+}
+
+list_models() {  # BENCH -> "id<TAB>note"
+  awk '/^Models/ {on=1; next} on && /^  [^ ]/ {id=$1; $1=""; sub(/^ +/,""); print id "\t" $0; next} on && !/^  / {on=0}' "$(list_output "$1")"
+}
+
+list_cases() {  # hermes -> "id<TAB>kind<TAB>profile<TAB>optin(0/1)<TAB>web(0/1)"
+  awk '/^  [^ ]+ +(cron|chat) +profile=/ {
+    id=$1; kind=$2; p=$3; sub(/^profile=/,"",p)
+    print id "\t" kind "\t" p "\t" (index($0,"opt-in group")?1:0) "\t" (index($0,"[web:")?1:0) }' "$(list_output hermes)"
+}
+
+# ---------------------------------------------------------------- command assembly
+CMD_ARR=()
+build_cmd() {  # CMD_ARR from B MODELS CASES PROFILES REPEAT WEB OPTIN BG DRY
+  local kind="$B" m=()
+  [ "$B" != hermes ] || kind=llm
+  CMD_ARR=("$BENCH_SH" "$kind")
+  if [ -n "$MODELS" ]; then IFS=, read -ra m <<<"$MODELS"; CMD_ARR+=("${m[@]}"); fi
+  [ -z "$CASES" ] || CMD_ARR+=(--cases "$CASES")
+  [ -z "$PROFILES" ] || CMD_ARR+=(--profiles "$PROFILES")
+  [ "$REPEAT" = 1 ] || CMD_ARR+=(--repeat "$REPEAT")
+  [ "$WEB" = 0 ] || CMD_ARR+=(--web)
+  { [ "$OPTIN" = 1 ] || [ "$B" != hermes ]; } || CMD_ARR+=(--no-optin)
+  [ "$BG" = 0 ] || CMD_ARR+=(--bg)
+  [ "$DRY" = 0 ] || CMD_ARR+=(--dry-run)
+}
+
+shown_cmd() {  # printable command with the repo-relative script path
+  local out="scripts/bench.sh" a i
+  for ((i = 1; i < ${#CMD_ARR[@]}; i++)); do a="${CMD_ARR[i]}"
+    if [[ "$a" =~ ^[A-Za-z0-9_@%+=:,./-]+$ ]]; then out+=" $a"; else out+=" $(printf '%q' "$a")"; fi
+  done
+  echo "$out"
+}
+
+run_cmd() {
+  if [ -e "$LOCK" ] && [ "$DRY" = 0 ]; then
+    echo "bench: a benchmark is already running (benchmark/reports/.running.lock); not starting another." >&2
+    echo "bench: see 'bench status', or add --dry-run to only print the plan." >&2
+    exit 1
+  fi
+  echo "+ $(shown_cmd)"
+  exec "${CMD_ARR[@]}"
+}
+
+# ---------------------------------------------------------------- interactive wizard
+wizard() {
+  local b v cur
+  local items=(
+    hermes "v$(current_version hermes)  Hermes agent profiles on their real jobs (LLMs)"
+    stt "v$(current_version stt)  speech-to-text (WER, latency)"
+    tts "v$(current_version tts)  text-to-speech"
+    results "browse stored results of any version"
+    status "run lock, running process, newest logs")
+  b="$(ui_menu "Benchmark" "${items[@]}")"
+  case "$b" in
+    results) wizard_results; return ;;
+    status) "$BENCH_SH" status; return ;;
+  esac
+  B="$b"
+  [ ! -e "$LOCK" ] || ui_msg "A benchmark is running right now (benchmark/reports/.running.lock). You can choose options and view results, but a real start will be refused; pick 'dry run' at the end to print the plan."
+
+  cur="$(current_version "$B")"
+  local vitems=() ver date sum n
+  declare -A runs=()
+  while IFS=$'\t' read -r v n; do runs["$v"]="$n"; done < <(db_versions "$B")
+  while IFS=$'\t' read -r ver date sum; do
+    vitems+=("$ver" "$([ "$ver" = "$cur" ] && echo 'CURRENT ' || echo 'results only ')$date, ${runs[$ver]:-0} runs: ${sum:0:70}")
+  done < <(changelog "$B" | tac)
+  [ ${#vitems[@]} -gt 0 ] || vitems=("$cur" "CURRENT")
+  v="$(ui_menu "Version of $B. Only the checked-out version ($cur) can run." "${vitems[@]}")"
+  if [ "$v" != "$cur" ]; then show_results "$B" "$v"; return; fi
+  if [ "$(ui_menu "$B v$cur" run "start a new run" results "view stored results of v$cur")" = results ]; then
+    show_results "$B" "$cur"; return
+  fi
+
+  local mitems=() id note
+  while IFS=$'\t' read -r id note; do mitems+=("$id" "${note:0:75}" OFF); done < <(list_models "$B")
+  [ ${#mitems[@]} -gt 0 ] || die "no models reported by --list"
+  MODELS=""
+  while [ -z "$MODELS" ]; do
+    local sel; sel="$(ui_check "Models to benchmark ($B)" "${mitems[@]}")"
+    MODELS="${sel// /,}"
+    [ -n "$MODELS" ] || ui_msg "Select at least one model."
+  done
+
+  CASES="" PROFILES="" WEB=0 OPTIN=1 CASE_DESC="all cases of the benchmark"
+  [ "$B" != hermes ] || wizard_cases
+
+  REPEAT="$(ui_input "Runs per case (--repeat)" 1)"
+  [[ "$REPEAT" =~ ^[1-9][0-9]*$ ]] || die "repeat must be a positive number"
+  if ui_yesno "Run in the background? (detached; follow the log with tail -f)" n; then BG=1; else BG=0; fi
+  DRY=0
+  build_cmd
+  local text="Benchmark: $B v$cur
+Models:    ${MODELS//,/, }
+Cases:     $CASE_DESC
+Repeats:   $REPEAT
+Mode:      $([ "$BG" = 1 ] && echo background || echo foreground)
+
+Equivalent command:
+  $(shown_cmd)"
+  case "$(ui_menu "$text" run "start now" dry "dry run: only print the plan" cancel "cancel")" in
+    run) ;;
+    dry) DRY=1; build_cmd ;;
+    *) cancel ;;
+  esac
+  run_cmd
+}
+
+wizard_cases() {
+  local mode rows; rows="$(list_cases)"
+  mode="$(ui_menu "Which cases?" \
+    all "default set (cron + chat) plus the opt-in ai-assistant group" \
+    default "default set only, without the ai-assistant group" \
+    assistant "only the ai-assistant group (assistant-cal-* calendar cases, ...)" \
+    profile "choose by Hermes profile" \
+    pick "pick individual cases")"
+  local sel
+  case "$mode" in
+    all) CASE_DESC="default set + ai-assistant group" ;;
+    default) OPTIN=0; CASE_DESC="default set (no ai-assistant group)" ;;
+    assistant) PROFILES="ai-assistant"; CASE_DESC="profile ai-assistant" ;;
+    profile)
+      local pitems=() p
+      while read -r p; do
+        pitems+=("$p" "$(awk -F'\t' -v p="$p" '$3==p{printf "%s ", $1}' <<<"$rows" | cut -c1-80)" OFF)
+      done < <(cut -f3 <<<"$rows" | awk '!s[$0]++')
+      sel="$(ui_check "Hermes profiles" "${pitems[@]}")"
+      [ -n "$sel" ] || die "no profile selected"
+      PROFILES="${sel// /,}"; CASE_DESC="profiles $PROFILES" ;;
+    pick)
+      local citems=() id kind prof optin web flag
+      while IFS=$'\t' read -r id kind prof optin web; do
+        flag=""; [ "$optin" = 1 ] && flag=" [opt-in]"; [ "$web" = 1 ] && flag+=" [web]"
+        citems+=("$id" "$kind $prof$flag" OFF)
+      done <<<"$rows"
+      sel="$(ui_check "Cases" "${citems[@]}")"
+      [ -n "$sel" ] || die "no case selected"
+      CASES="${sel// /,}"; CASE_DESC="cases $CASES" ;;
+  esac
+  if [ "$mode" != pick ] && ui_yesno "Include the web cases (they need the web search tools)?" n; then
+    WEB=1; CASE_DESC+=" + web cases"
+  fi
+}
+
+wizard_results() {
+  local b v cur n items=()
+  b="$(ui_menu "Results of which benchmark?" hermes "LLM agent benchmark" stt "speech-to-text" tts "text-to-speech")"
+  declare -A runs=()
+  while IFS=$'\t' read -r v n; do runs["$v"]="$n"; done < <(db_versions "$b")
+  cur="$(current_version "$b")"
+  while IFS=$'\t' read -r v _ _; do
+    items+=("$v" "${runs[$v]:-0} runs$([ "$v" = "$cur" ] && echo ' (current)')")
+  done < <(changelog "$b" | tac)
+  v="$(ui_menu "Version" "${items[@]}")"
+  show_results "$b" "$v"
+}
+
+# ---------------------------------------------------------------- non-interactive commands
+cmd_versions() {
+  local list=("${@:-${BENCHES[@]}}") b ver date sum cur v n
+  for b in "${list[@]}"; do
+    [ -d "$BDIR/$b" ] || die "unknown benchmark $b"
+    cur="$(current_version "$b")"
+    declare -A runs=()
+    while IFS=$'\t' read -r v n; do runs["$v"]="$n"; done < <(db_versions "$b")
+    echo "== $b (current v$cur)"
+    while IFS=$'\t' read -r ver date sum; do
+      printf '  %-7s %s  %3s runs  %s%s\n' "$ver" "$date" "${runs[$ver]:-0}" "$sum" "$([ "$ver" = "$cur" ] && echo '  [current]' || true)"
+    done < <(changelog "$b")
+    unset runs
+  done
+}
+
+cmd_results() {
+  local b="" v=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --version) v="${2:?--version needs a value}"; shift ;;
+      -*) die "unknown option $1" ;;
+      *) b="$1" ;;
+    esac; shift
+  done
+  local list=("${BENCHES[@]}"); [ -z "$b" ] || list=("$b")
+  for b in "${list[@]}"; do
+    [ -d "$BDIR/$b" ] || die "unknown benchmark $b"
+    results "$b" "${v:-$(current_version "$b")}"; echo
+  done
+}
+
+cmd_run() {
+  B="${1:-}"; shift || true
+  case "$B" in hermes|stt|tts) ;; *) die "run needs a benchmark: hermes, stt or tts" ;; esac
+  MODELS="" CASES="" PROFILES="" REPEAT=1 WEB=0 OPTIN=1 BG=0 DRY=0
+  local yes=0 want=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --models) MODELS="${2:?--models needs a value}"; shift ;;
+      --cases) CASES="${2:?--cases needs a value}"; shift ;;
+      --profiles) PROFILES="${2:?--profiles needs a value}"; shift ;;
+      --repeat) REPEAT="${2:?--repeat needs a value}"; shift ;;
+      --version) want="${2:?--version needs a value}"; shift ;;
+      --web) WEB=1 ;;
+      --no-optin) OPTIN=0 ;;
+      --bg) BG=1 ;;
+      --dry-run) DRY=1 ;;
+      --yes|-y) yes=1 ;;
+      *) die "unknown option $1" ;;
+    esac; shift
+  done
+  [[ "$REPEAT" =~ ^[1-9][0-9]*$ ]] || die "--repeat must be a positive number"
+  local cur; cur="$(current_version "$B")"
+  if [ -n "$want" ] && [ "$want" != "$cur" ]; then
+    die "$B v$want cannot run; the checked-out version is v$cur (see: bench results $B --version $want)"
+  fi
+  [ "$B" != hermes ] || [ -n "$MODELS" ] || die "hermes needs --models a,b (router presets: docker exec $CONTAINER npm run benchmark -- --list)"
+  build_cmd
+  if [ "$yes" = 0 ] && [ "$DRY" = 0 ]; then
+    echo "Would run: $(shown_cmd)"
+    if [ -t 0 ]; then ui_yesno "Start now?" n || cancel
+    else echo "bench: not a terminal; add --yes to start, or --dry-run" >&2; exit 2; fi
+  fi
+  run_cmd
+}
+
+# ---------------------------------------------------------------- main
+command -v python3 >/dev/null || die "python3 is required"
+case "${1:-}" in
+  "") [ -t 0 ] || [ "${BENCH_UI:-}" = plain ] || { usage; exit 2; }; wizard ;;
+  -h|--help|help) usage ;;
+  run) shift; cmd_run "$@" ;;
+  results) shift; cmd_results "$@" ;;
+  versions) shift; cmd_versions "$@" ;;
+  status) exec "$BENCH_SH" status ;;
+  *) die "unknown command $1 (see --help)" ;;
+esac
