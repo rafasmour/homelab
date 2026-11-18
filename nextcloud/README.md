@@ -44,7 +44,7 @@ Calendar tools take the CalDAV URI, the `name` returned by `nc_calendar_list_cal
 
 `tasks` accepts only VTODO. `nc_calendar_create_event` on it returns Forbidden. That is the component type; the app password is valid. Put tasks and task reminders on `tasks` with `nc_calendar_create_todo`. Put timed events and event alarms on `personal` with `nc_calendar_create_event`. `personal-1` is a different calendar that shares the display name Personal and accepts only VTODO. Leave `contact_birthdays` for generated birthdays. Deleted collections `tasks-1` and `-` are not in the tool's calendar list.
 
-`hermes/start.sh` rewrites the Hermes SOULs on every start, including this calendar map. Add local changes under the `## Local notes` heading of a live `SOUL.md`; that section is kept. The auto-generated Hermes skill for this profile that mentions calendar names is not loaded, because the `skills` toolset is disabled.
+The Hermes SOULs are versioned files (`hermes/profiles/<name>/SOUL.md`, mounted read-only), including this calendar map: edit them in the repository and recreate `hermes`. The auto-generated Hermes skill for this profile that mentions calendar names is not loaded, because the `skills` toolset is disabled.
 
 ## Backup and important notes
 

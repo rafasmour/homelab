@@ -86,7 +86,7 @@ tags every memory with its profile:
  "recall_types": "observation,world,experience", "memory_mode": "hybrid"}
 ```
 
-plus `memory.provider: hindsight` in the profile's `config.yaml`. Hermes is connected (2026-11-03): `hermes/start.sh` writes both for every profile except `coding`, `devops` and `voice`, with `retain_every_n_turns` 1 and `recall_sync` true (the gateway builds a new agent per message, so a higher N never retains); `HERMES_MEMORY_PROVIDER=` (empty) in `hermes/.env` switches it off. See the Hermes README, section Long-term memory. `DELETE /v1/default/banks/hermes/memories` empties the bank. The built-in
+plus `memory.provider: hindsight` in the profile's `config.yaml`. Hermes is connected (2026-11-03): `hermes/profiles/<name>/hindsight.json` (mounted read-only as the profile's `hindsight/config.json`) and `memory.provider: hindsight` in `hermes/profiles/_base/config.yaml` apply to every served profile, with `retain_every_n_turns` 1 and `recall_sync` false (the gateway builds a new agent per message, so a higher N never retains). See the Hermes README, section Long-term memory. `DELETE /v1/default/banks/hermes/memories` empties the bank. The built-in
 `MEMORY.md`/`USER.md` stays the private per-profile layer.
 
 ## Backups and resources

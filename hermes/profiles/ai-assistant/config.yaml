@@ -1,0 +1,127 @@
+# ai-assistant: The owner's everyday assistant (Hermes-Relay chat and voice): short answers, Nextcloud calendar, to-dos and notes.
+# Layered on _base/config.yaml (shared settings). Only what differs per profile is set here.
+# ${VAR} placeholders are expanded by Hermes from the profile's .env (the stack's hermes/.env).
+
+# Config schema version Hermes expects (the file is mounted read-only, so Hermes cannot migrate it; without the
+# key it logs a migration warning at every start). Raise it together with the image tag after `hermes config check`.
+_config_version: 53
+
+# MCP servers this profile connects to, with per-tool allowlists.
+mcp_servers:
+  nextcloud_assistant:
+    url: http://nextcloud-mcp:8000/mcp
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+      include:
+      - nc_calendar_list_calendars
+      - nc_calendar_get_upcoming_events
+      - nc_calendar_list_events
+      - nc_calendar_create_event
+      - nc_calendar_update_event
+      - nc_calendar_delete_event
+      - nc_calendar_search_todos
+      - nc_calendar_create_todo
+      - nc_calendar_update_todo
+      - nc_calendar_complete_todo
+      - nc_calendar_delete_todo
+      - nc_notes_create_note
+      - nc_notes_search_notes
+      - nc_notes_get_note
+      - nc_notes_append_content
+      - nc_notes_update_note
+      - nc_notes_delete_note
+  web_search:
+    url: http://web-search-mcp:8000/mcp
+    headers:
+      Authorization: Bearer ${WEB_SEARCH_MCP_TOKEN}
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+      include:
+      - web_search
+      - fetch_url
+
+# Toolsets: the allowlist of what each platform may use (naming MCP servers makes it an allowlist).
+toolsets: &chat
+  - nextcloud_assistant
+  - web_search
+  - memory
+platform_toolsets:
+  cli: *chat
+  api_server: *chat
+  cron:
+    - web_search
+    - kanban
+    - memory
+
+# Strict approvals: a single-query run or cron job denies instead of asking.
+approvals:
+  mode: manual
+  single_query_mode: deny
+  cron_mode: deny
+
+agent:
+  max_turns: 12
+  # Built-ins that let a small model finish without touching the real target, or that reach outside the
+  # MCP surface. kanban is never disabled: a dispatcher-spawned worker needs kanban_complete/kanban_block.
+  disabled_toolsets:
+    - todo
+    - session_search
+    - messaging
+    - web
+    - search
+    - browser
+    - forage
+    - vision
+    - video
+    - tts
+    - stt
+    - image_gen
+    - video_gen
+    - computer_use
+    - code_execution
+    - skills
+    - homeassistant
+    - clarify
+    - file
+    - terminal
+    - delegation
+    - cronjob
+
+# llama.cpp slot 0 stays reserved for this profile so its prompt cache is never evicted. Thinking is
+# limited to 1024 tokens (-1 = unlimited; ~16 s at 63 tok/s). Sampling replaces the model preset's values.
+custom_providers:
+- name: llama-cpp-ai-assistant
+  base_url: ${HERMES_INFERENCE_BASE_URL}
+  extra_body:
+    reasoning_budget_tokens: 1024
+    reasoning_budget_message: 'Time is up. Stop thinking: answer now with what you have, and call a tool first if
+      you still need data.'
+    id_slot: 0
+    temperature: 0.6
+    presence_penalty: 0.0
+
+# Hermes-Relay voice output: the relay's streaming openai_tts renderer talks to the speech gateway
+# (PCM streams sentence by sentence).
+voice_output:
+  provider: openai_tts
+  model: assistant
+  voice: assistant
+  codec: pcm
+  sample_rate: 24000
+  fallback_enabled: true
+
+# The multiplexer owns the single HTTP listener; a specialist that enables api_server aborts gateway
+# startup. Its API is served at /p/<profile>/v1 instead.
+platforms:
+  api_server:
+    enabled: false
+gateway:
+  enabled: false

@@ -1,0 +1,212 @@
+# default: The orchestrator: every MCP server (nextcloud_assistant is registered for ai-assistant but never exposed), Kanban, delegation, cron and the gateway itself.
+# Layered on _base/config.yaml (shared settings). Only what differs per profile is set here.
+# ${VAR} placeholders are expanded by Hermes from the profile's .env (the stack's hermes/.env).
+
+# Config schema version Hermes expects (the file is mounted read-only, so Hermes cannot migrate it; without the
+# key it logs a migration warning at every start). Raise it together with the image tag after `hermes config check`.
+_config_version: 53
+
+# MCP servers this profile connects to, with per-tool allowlists.
+mcp_servers:
+  nextcloud:
+    url: http://nextcloud-mcp:8000/mcp
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+      include:
+      - nc_calendar_list_calendars
+      - nc_calendar_list_events
+      - nc_calendar_get_event
+      - nc_calendar_get_upcoming_events
+      - nc_calendar_create_event
+      - nc_calendar_update_event
+      - nc_calendar_delete_event
+      - nc_calendar_create_todo
+      - nc_calendar_update_todo
+      - nc_calendar_complete_todo
+      - nc_calendar_delete_todo
+      - nc_calendar_search_todos
+      - nc_notes_create_note
+      - nc_notes_search_notes
+      - nc_notes_append_content
+  wger:
+    url: http://wger-mcp:8765/mcp
+    headers:
+      Authorization: Bearer ${MCP_STATIC_TOKEN}
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+      include:
+      - search_ingredients
+      - get_ingredient
+      - list_ingredient_units
+      - list_nutrition_plans
+      - get_nutrition_plan
+      - create_meal
+      - log_ingredient
+      - list_log_items
+      - update_log_item
+      - nutrition_summary
+      - search_exercises
+  web_search:
+    url: http://web-search-mcp:8000/mcp
+    headers:
+      Authorization: Bearer ${WEB_SEARCH_MCP_TOKEN}
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+  huggingface:
+    url: https://huggingface.co/mcp
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+      include:
+      - hub_repo_search
+      - hub_repo_details
+  n8n:
+    url: http://n8n-mcp:3000/mcp
+    headers:
+      Authorization: Bearer ${N8N_MCP_AUTH_TOKEN}
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+      include:
+      - search_nodes
+      - get_node
+      - validate_node
+      - validate_workflow
+      - n8n_list_workflows
+      - n8n_get_workflow
+      - n8n_create_workflow
+      - n8n_validate_workflow
+      - n8n_test_workflow
+      - n8n_executions
+      - n8n_health_check
+  nextcloud_assistant:
+    url: http://nextcloud-mcp:8000/mcp
+    connect_timeout: 60
+    timeout: 3600
+    enabled: true
+    tools:
+      resources: false
+      prompts: false
+      include:
+      - nc_calendar_list_calendars
+      - nc_calendar_get_upcoming_events
+      - nc_calendar_list_events
+      - nc_calendar_create_event
+      - nc_calendar_update_event
+      - nc_calendar_delete_event
+      - nc_calendar_search_todos
+      - nc_calendar_create_todo
+      - nc_calendar_update_todo
+      - nc_calendar_complete_todo
+      - nc_calendar_delete_todo
+      - nc_notes_create_note
+      - nc_notes_search_notes
+      - nc_notes_get_note
+      - nc_notes_append_content
+      - nc_notes_update_note
+      - nc_notes_delete_note
+
+# Toolsets: the allowlist of what each platform may use (naming MCP servers makes it an allowlist).
+toolsets: &chat
+  - nextcloud
+  - wger
+  - web_search
+  - huggingface
+  - n8n
+  - kanban
+  - delegation
+  - cronjob
+  - memory
+platform_toolsets:
+  cli: *chat
+  api_server: *chat
+  cron:
+    - web_search
+    - kanban
+    - memory
+
+agent:
+  # Built-ins that let a small model finish without touching the real target, or that reach outside the
+  # MCP surface. kanban is never disabled: a dispatcher-spawned worker needs kanban_complete/kanban_block.
+  disabled_toolsets:
+    - todo
+    - session_search
+    - messaging
+    - web
+    - search
+    - browser
+    - forage
+    - vision
+    - video
+    - tts
+    - stt
+    - image_gen
+    - video_gen
+    - computer_use
+    - code_execution
+    - skills
+    - homeassistant
+    - clarify
+    - file
+    - terminal
+    - nextcloud_assistant
+
+# llama.cpp slot 2 (HERMES_SLOT_OTHERS was 2). Hermes merges the entry whose base_url matches the model's
+# base_url into every request body. default sends no sampling override.
+custom_providers:
+- name: llama-cpp-default
+  base_url: ${HERMES_INFERENCE_BASE_URL}
+  extra_body:
+    id_slot: 2
+
+# Kanban: default plans cards, assigns them to specialists and dispatches them as
+# `hermes -p <profile> chat -q` workers. At most 2 run at once (one llama.cpp slot stays free for chat).
+kanban:
+  dispatch_in_gateway: true
+  dispatch_interval_seconds: 15
+  max_in_progress: 2
+  max_spawn: 2
+  max_in_progress_per_profile: 1
+  review_dispatch: false
+  auto_decompose: false
+  dispatch_stale_timeout_seconds: 3600
+
+# One gateway serves /p/<profile>/v1 and ticks the cron stores of every profile that is not parked
+# (a gateway.parked marker file in the profile folder keeps a profile out).
+gateway:
+  multiplex_profiles: true
+
+# Hermes-Relay plugin (installed in the image). The login for the dashboard and the Desktop Webapp comes
+# from HERMES_DASHBOARD_BASIC_AUTH_* in the compose environment.
+plugins:
+  enabled:
+    - hermes-relay
+
+# Desktop Webapp on the gateway's own listener (Traefik routes hermes.<DOMAIN> to it).
+webapp:
+  enabled: true
+  host: 0.0.0.0
+  port: 9120
+  public_url: ${HERMES_WEBAPP_PUBLIC_URL}
+dashboard:
+  # Traefik's webgateway subnet, a bounded CIDR (unbounded fails closed).
+  trusted_proxies:
+    - ${HERMES_TRUSTED_PROXIES}
