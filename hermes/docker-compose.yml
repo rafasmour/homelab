@@ -32,10 +32,7 @@ services:
       HERMES_SESSION_CONTEXT_LENGTH: "${HERMES_SESSION_CONTEXT_LENGTH:-65536}"
       # Fraction of that context at which Hermes compacts (0.8 = ~52k of 64k tokens).
       HERMES_COMPRESSION_THRESHOLD: "${HERMES_COMPRESSION_THRESHOLD:-0.8}"
-      # Profile whose prompt prefix (system prompt + tools) the prompt_prime
-      # plugin keeps in a llama.cpp slot while the router is idle.
-      HERMES_PRIME_PROFILE: "${HERMES_PRIME_PROFILE:-ai-assistant}"
-      # llama.cpp slot reservation: the primed profile (ai-assistant) always
+      # llama.cpp slot reservation: the ai-assistant profile always
       # uses HERMES_SLOT_PRIMED; every other profile gets a fixed slot from
       # HERMES_SLOT_OTHERS (a slot, a range spread round-robin, or -1 = no pin).
       # Hindsight uses slot 1 (hindsight/.env HINDSIGHT_LLM_SLOT).

@@ -21,6 +21,3 @@
 !plugins/local_only/
 !plugins/local_only/plugin.yaml
 !plugins/local_only/__init__.py
-!plugins/prompt_prime/
-!plugins/prompt_prime/plugin.yaml
-!plugins/prompt_prime/__init__.py

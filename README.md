@@ -126,9 +126,8 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
     recreate `speech-gateway`.
   - `lab llm [status|loaded|presets|vram|reload|load M|unload M|production ...]`:
     `scripts/llama-router.sh` and `scripts/production-model.sh`.
-  - `lab hermes profiles|prime|doctor|pair` and `lab hermes PROFILE ARGS...`
-    (`hermes -p PROFILE ...` as user hermes); `prime` shows the prompt_prime
-    slot, token count and templates.
+  - `lab hermes profiles|doctor|pair` and `lab hermes PROFILE ARGS...`
+    (`hermes -p PROFILE ...` as user hermes).
   - `lab n8n digests|drift|run ID|password`, `lab nextcloud occ ARGS...`,
     `lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]` (mode 600, never overwrites),
     `lab wger sync-ingredients`, `lab logs C [opts]`,

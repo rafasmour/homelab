@@ -206,8 +206,6 @@ ensure_profile ai-assistant \
 
 # Install the Hermes plugins into every profile home (served and CLI-only):
 # - clock: clock_now / clock_to_utc.
-# - prompt_prime: keeps the default profile's prompt in a llama.cpp slot cache
-#   (captures every profile, primes HERMES_PRIME_PROFILE).
 # - agents: ask_agent, a consult of another profile (plugins/agents); enabled
 #   on ai-assistant and the 11 specialists below (AGENT_PROFILES).
 # - local_only: keeps auxiliary LLM calls on the local llama.cpp router.
@@ -225,15 +223,15 @@ home = Path(os.environ["HERMES_HOME"])
 sources = {
     "clock": share / "clock",
     "local_only": share / "local_only",
-    "prompt_prime": share / "prompt_prime",
     "agents": share / "agents",
 }
 
 # Retired plugins: remove their copies (spoken_reply: removed 2026-11-09, its
 # reply cleaning broke sentences; sandbox_terminal: removed with the
 # hermes-sandboxes stack; talk_send, kanban_notify and nextcloud_talk: removed
-# with the Nextcloud Talk bridge).
-retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk")
+# with the Nextcloud Talk bridge; prompt_prime: removed with the custom
+# plugins).
+retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk", "prompt_prime")
 for profile in profiles:
     phome = home if profile == "default" else home / "profiles" / profile
     for name in retired:
@@ -761,7 +759,7 @@ if profile == "ai-assistant":
         "base_url": env["HERMES_SELECTED_BASE_URL"],
         "extra_body": extra,
     }]
-# llama.cpp slot reservation: the primed profile (HERMES_PRIME_PROFILE) always
+# llama.cpp slot reservation: the ai-assistant profile always
 # sends id_slot HERMES_SLOT_PRIMED (0), so its warm prompt is never evicted.
 # HERMES_SLOT_OTHERS is a slot ("2"), a range ("2-4") or -1 (no id_slot):
 # with a range every other profile gets a fixed slot of it, round-robin over
@@ -775,11 +773,11 @@ def _other_slot(spec):
         lo, hi = (int(x) for x in spec.split("-", 1))
         order = ["default"] + " ".join(env.get(k, "") for k in
                  ("SPECIALISTS", "CLI_PROFILES")).split()
-        order = [p for p in dict.fromkeys(order) if p != env.get("HERMES_PRIME_PROFILE", "ai-assistant")]
+        order = [p for p in dict.fromkeys(order) if p != "ai-assistant"]
         idx = order.index(profile) if profile in order else sum(map(ord, profile))
         return lo + idx % (hi - lo + 1)
     return int(spec)
-slot = (int(env.get("HERMES_SLOT_PRIMED", "0")) if profile == env.get("HERMES_PRIME_PROFILE", "ai-assistant")
+slot = (int(env.get("HERMES_SLOT_PRIMED", "0")) if profile == "ai-assistant"
         else _other_slot(env.get("HERMES_SLOT_OTHERS")))
 if slot >= 0:
     entries = data.get("custom_providers")
@@ -863,7 +861,7 @@ if memory_provider == "hindsight" and profile not in os.environ.get("HERMES_MEMO
         # (retain_extraction_mode custom, set on the bank "hermes" through the
         # Hindsight API, see README). Other profiles (digests) do
         # not auto-retain; they save only through hindsight_retain.
-        "auto_retain": profile == os.environ.get("HERMES_PRIME_PROFILE", "ai-assistant"),
+        "auto_retain": profile == "ai-assistant",
         "retain_async": True,
         "retain_every_n_turns": int(os.environ.get("HERMES_HINDSIGHT_RETAIN_EVERY", "1")),
         # Tools only (2026-11-04 factory reset): no automatic recall injected
@@ -1018,15 +1016,11 @@ for key in ("search_backend", "extract_backend"):
 plugins = section("plugins")
 # User plugins are keyed by their manifest name.
 wanted_plugins = ("clock", "local_only")
-retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify")
+retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify", "prompt_prime")
 enabled = [n for n in (plugins.get("enabled") or []) if n not in retired_plugins]
 for name in wanted_plugins:
     if name not in enabled:
         enabled.append(name)
-# prompt_prime: every profile captures its first call; HERMES_PRIME_PROFILE
-# (hermes environment) selects the one that is replayed.
-if "prompt_prime" not in enabled:
-    enabled.append("prompt_prime")
 # Hermes-Relay: default profile only (the dashboard and relay read that home).
 relay_plugin = profile == "default" and os.environ.get("HERMES_RELAY_PLUGIN") == "1"
 if relay_plugin and "hermes-relay" not in enabled:
