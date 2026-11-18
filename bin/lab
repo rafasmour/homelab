@@ -28,7 +28,6 @@
 #   lab n8n password [EMAIL]                            reset an n8n password (scripts/reset-n8n-password.sh)
 #
 #   lab nextcloud occ ARGS...        php occ as www-data
-#   lab nextcloud scan-scans         rescan pi.hole/files/Scans (paperless consume folder)
 #
 #   lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]   dump to FILE (default ./<name>-<date>.sql; never overwrites)
 #   lab wger sync-ingredients        start the ingredient bulk sync (background)
@@ -196,10 +195,7 @@ nextcloud() {
     occ)
       # shellcheck disable=SC2046
       exec docker exec $(tty_flags) -u www-data nextcloud php occ "$@" ;;
-    scan-scans)
-      docker exec -u www-data nextcloud mkdir -p /var/www/html/data/pi.hole/files/Scans
-      exec docker exec -u www-data nextcloud php occ files:scan --path="pi.hole/files/Scans" ;;
-    *) die "nextcloud: occ ARGS... | scan-scans" ;;
+    *) die "nextcloud: occ ARGS..." ;;
   esac
 }
 

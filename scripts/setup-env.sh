@@ -83,9 +83,7 @@ C MYSQL_ROOT_PASSWORD   gen hex:32 ""
 C MYSQL_PASSWORD        gen hex:32 ""
 C POSTGRES_PASSWORD     gen hex:24 ""     # embedded in database URLs: hex only
 C POWERSYNC_STORAGE_PASSWORD gen hex:24 ""
-C PAPERLESS_DB_PASSWORD gen hex:24 ""
 C HINDSIGHT_DB_PASSWORD gen hex:24 ""      # embedded in a database URL: hex only
-C PAPERLESS_SECRET_KEY  gen hex:32 ""
 C N8N_ENCRYPTION_KEY    gen hex:32 ""
 C WEBUI_SECRET_KEY      gen hex:32 ""
 C AUTH_SECRET           gen hex:32 ""
@@ -105,13 +103,9 @@ C BENCHMARK_UI_USERNAME user "" ""
 C BENCHMARK_UI_PASSWORD pass b64:24 ""
 C UPTIME_KUMA_USERNAME  user "" ""
 C UPTIME_KUMA_PASSWORD  pass b64:32 ""    # >= 6 characters, letters and numbers
-C PAPERLESS_ADMIN_USER  user "" ""
-C PAPERLESS_ADMIN_PASSWORD pass b64:24 ""
-C PAPERLESS_ADMIN_MAIL  user "" ""
 C ADMIN_EMAIL           user "" ""        # mealie
 C HERMES_DASHBOARD_USERNAME user "" ""    # hermes: Hermes web dashboard login (Hermes-Relay app)
 C HERMES_DASHBOARD_PASSWORD pass b64:24 "" # hermes: dashboard password
-C NEXTCLOUD_USER        user "" ""        # paperless: Nextcloud user that owns the consume folder
 C NEXTCLOUD_MCP_USERNAME user "" ""       # dedicated Nextcloud account for the MCP
 C SELF_HEAL_OWNER_ACTOR user "" ""        # users/<Nextcloud user id>
 C WEBPASSWORD           passhash "" ""    # pi-hole stores sha256(sha256(password))
@@ -119,7 +113,6 @@ C WEBPASSWORD           passhash "" ""    # pi-hole stores sha256(sha256(passwor
 # Values only an application UI or an external party can provide.
 C N8N_API_KEY           token "" "n8n: Settings > n8n API > Create an API key (full access, for the n8n-mcp container)"
 C N8N_DRIFT_API_KEY     token "" "n8n: Settings > n8n API > new API key with ONLY workflow:list and workflow:read scopes"
-C PAPERLESS_GPT_API_TOKEN token "" "Paperless: profile menu > My Profile > API Auth Token (after first start)"
 C NEXTCLOUD_MCP_APP_PASSWORD token "" "Nextcloud, signed in as the MCP user: Settings > Security > Devices & sessions > Create new app password"
 C UPTIME_KUMA_API_KEY   token "" "Uptime Kuma: Settings > Security > API Keys"
 C SELF_HEAL_GRAFANA_TOKEN token "" "Grafana: Administration > Users and access > Service accounts (Viewer role) > Add token"
@@ -133,7 +126,6 @@ C JWT_PRIVATE_KEY       manual "" "wger: docker compose exec web ./manage.py gen
 
 # Optional or deliberately empty: leave alone.
 C BENCHMARK_TALK_ROOM   skip "" ""
-C PAPERLESS_GPT_OPENAI_BASE_URL skip "" ""
 C HERMES_TRUSTED_PROXIES skip "" ""  # hermes: webgateway subnet for the Webapp, checked at compose time
 
 # --------------------------------------------------------------------------
@@ -146,7 +138,7 @@ GROUP_NAMES=()
 declare -A GFMT GMEM
 G() { GROUP_NAMES+=("$1"); GFMT[$1]=$2; GMEM[$1]=$3; }
 
-G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hermes-sandboxes:LLAMA_API_KEY paperless:LLAMA_API_KEY hindsight:LLAMA_API_KEY benchmark:LLAMA_API_KEY speech:LLAMA_API_KEY"
+G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hermes-sandboxes:LLAMA_API_KEY hindsight:LLAMA_API_KEY benchmark:LLAMA_API_KEY speech:LLAMA_API_KEY"
 G hermes-api-key       hex:32 "hermes:API_SERVER_KEY"
 G web-search-mcp       hex:32 "web-search:WEB_SEARCH_MCP_TOKEN hermes:WEB_SEARCH_MCP_TOKEN"
 G wger-mcp             hex:32 "wger:MCP_STATIC_TOKEN hermes:MCP_STATIC_TOKEN benchmark:MCP_STATIC_TOKEN"

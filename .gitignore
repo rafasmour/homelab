@@ -51,7 +51,6 @@
 !mealie/
 !n8n/
 !nextcloud/
-!paperless/
 !nextcloud/php/
 !nextcloud/php/timezone.ini
 !node-exporter/
@@ -115,12 +114,6 @@ nextcloud/database/
 nextcloud/html/
 nextcloud/mcp-data/
 nextcloud/redis/
-paperless/data/
-paperless/media/
-paperless/export/
-paperless/postgres/
-paperless/redis/
-paperless/gpt/
 open-telemetry/data/
 openwebui/data/
 pi-hole/etc-pihole/

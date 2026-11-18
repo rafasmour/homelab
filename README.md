@@ -29,7 +29,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [n8n](n8n/README.md) | Workflow automation; runs the scheduled Hermes Talk digests | `n8n.${DOMAIN}` | Automation |
 | [n8n drift runner](n8n-drift-runner/README.md) | Webhook runner that Grafana triggers to check n8n workflows against git (no cron, no Docker socket) | Private only (internal `n8n-drift` network) | Not listed |
 | [Nextcloud](nextcloud/README.md) | File sync and collaboration | `nextcloud.${DOMAIN}` | Cloud |
-| [Paperless-ngx](paperless/README.md) | Document management (Greek+English OCR, tags, full-text search) fed from Nextcloud `Scans/`, with paperless-gpt LLM suggestions (no login; VPN only) | `paperless.${DOMAIN}`, `paperless-gpt.${DOMAIN}` | Cloud |
 | [Node Exporter](node-exporter/README.md) | Host metrics for Prometheus | Private only | Not listed |
 | [OpenTelemetry Collector](open-telemetry/README.md) | Docker log collection and OTLP ingestion | Private only | Not listed |
 | [Pi-hole](pi-hole/README.md) | Network-wide DNS filtering | `pihole.${DOMAIN}` | Management |
@@ -142,8 +141,8 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   - `lab hermes profiles|prime|doctor|pair` and `lab hermes PROFILE ARGS...`
     (`hermes -p PROFILE ...` as user hermes); `prime` shows the prompt_prime
     slot, token count and templates.
-  - `lab n8n digests|drift|run ID|password`, `lab nextcloud occ ARGS...|scan-scans`,
-    `lab db dump hindsight|paperless [FILE]` (mode 600, never overwrites),
+  - `lab n8n digests|drift|run ID|password`, `lab nextcloud occ ARGS...`,
+    `lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]` (mode 600, never overwrites),
     `lab wger sync-ingredients`, `lab testbed ps|reset`, `lab logs C [opts]`,
     `lab sh C [USER]`.
   Secrets are never printed; values stay in the containers or the scripts it calls.
