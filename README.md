@@ -8,42 +8,28 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 
 | Service | Description | Public route | Homepage group |
 | --- | --- | --- | --- |
-| [Benchmark](benchmark/README.md) | Compares llama.cpp models as the brain of the Hermes profiles (runner with Docker socket and job API; MCP server for the Hermes `models` profile; SQLite results browser behind a login page) | `benchmark.${DOMAIN}` | AI |
-| [ChartDB](chartdb/README.md) | Browser-based database diagramming | `chartdb.${DOMAIN}` | Development |
 | [Databases](databases/README.md) | Shared Postgres 17 (immich, wger, n8n, hindsight) and MariaDB (Nextcloud); start before the apps | Private only | Not listed |
 | [Docker state exporter](docker-state-exporter/README.md) | Prometheus metrics for container state, health and restarts | Private only | Not listed |
-| [draw.io](drawio/README.md) | Browser-based diagram and flowchart editor with Hermes MCP tools | `drawio.${DOMAIN}` | Knowledge |
 | [Excalidraw](excalidraw/README.md) | Local-first whiteboarding | `excalidraw.${DOMAIN}` | Knowledge |
 | [Web search MCP](web-search/README.md) | SearXNG-backed crawl-to-markdown MCP for Hermes | Private only | Not listed |
-| [GitLab CE](gitlab/README.md) | Git hosting and CI/CD | `gitlab.${DOMAIN}` | Development |
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
 | [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles (`hermes.${DOMAIN}/v1`), the browser-hosted Hermes Desktop at the hostname root, the web dashboard, and the relay for the Hermes-Relay Android app | `hermes.${DOMAIN}`, `hermes-api.${DOMAIN}`, `hermes-dash.${DOMAIN}`, `hermes-relay.${DOMAIN}` | AI |
-| [Hermes Nextcloud Talk bridge](hermes-nextcloud-bridge/README.md) | Nextcloud Talk bot and delivery endpoint for Hermes | Private only | Not listed |
-| [Hermes sandboxes](hermes-sandboxes/README.md) | Per-profile SSH sandboxes for the API profiles' terminal/file tools, a restart-only Docker proxy and a Docker-in-Docker agent testbed | Private only | Not listed |
 | [Hindsight](hindsight/README.md) | Shared long-term agent memory for the Hermes profiles (internal API only, no internet; embeddings on llama-classifier, retain/reflect on llama-server) | Private only | Not listed |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
-| [Image Generation](image-generation/README.md) | Vulkan Stable Diffusion WebUI and API | `stable-diffusion.${DOMAIN}` | Not configured |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
 | [llama.cpp](llama-cpp/README.md) | ROCm model router with an OpenAI-compatible API, plus a Hugging Face GGUF download UI | `ai.${DOMAIN}`, `models.${DOMAIN}` | AI |
-| [llama.cpp classifiers](llama-cpp-classifier/README.md) | CPU router for decision models | `classify.${DOMAIN}` | AI |
 | [Loki](loki/README.md) | Log aggregation | `loki.${DOMAIN}` | Monitoring |
 | [Maps](maps/README.md) | Greece-only Valhalla routing and lean Pelias search, no web page (backend for Cardinal / Murena Maps search and directions) | `maps.${DOMAIN}` | Home |
 | [Mealie](mealie/README.md) | Recipe and meal planning | `mealie.${DOMAIN}` | Food |
-| [Memos](memos/README.md) | Lightweight notes and knowledge capture | `memos.${DOMAIN}` | Knowledge |
-| [n8n](n8n/README.md) | Workflow automation; runs the scheduled Hermes Talk digests | `n8n.${DOMAIN}` | Automation |
+| [n8n](n8n/README.md) | Workflow automation; runs the scheduled Hermes digest workflows | `n8n.${DOMAIN}` | Automation |
 | [n8n drift runner](n8n-drift-runner/README.md) | Webhook runner that Grafana triggers to check n8n workflows against git (no cron, no Docker socket) | Private only (internal `n8n-drift` network) | Not listed |
 | [Nextcloud](nextcloud/README.md) | File sync and collaboration | `nextcloud.${DOMAIN}` | Cloud |
-| [Paperless-ngx](paperless/README.md) | Document management (Greek+English OCR, tags, full-text search) fed from Nextcloud `Scans/`, with paperless-gpt LLM suggestions (no login; VPN only) | `paperless.${DOMAIN}`, `paperless-gpt.${DOMAIN}` | Cloud |
 | [Node Exporter](node-exporter/README.md) | Host metrics for Prometheus | Private only | Not listed |
 | [OpenTelemetry Collector](open-telemetry/README.md) | Docker log collection and OTLP ingestion | Private only | Not listed |
 | [Pi-hole](pi-hole/README.md) | Network-wide DNS filtering | `pihole.${DOMAIN}` | Management |
 | [Prometheus](prometheus/README.md) | Metrics collection and querying | `prometheus.${DOMAIN}` | Monitoring |
-| [Reactive Resume](reactive-resume/README.md) | Resume builder | `resume.${DOMAIN}` | Productivity |
 | [SearXNG](searxng/README.md) | Privacy-respecting metasearch | `searxng.${DOMAIN}` | Search |
-| [Self-heal](self-heal/README.md) | Grafana alerts diagnosed by the read-only Hermes `devops-diagnose` profile (host, container, metric and log tools); container restarts only after approval in Talk (`fix`, optional TOTP) | Private only | Not listed |
 | [Speech](speech/README.md) | CPU speech-to-text (Parakeet, Greek Parakeet, automatic English/Greek) and GPU text-to-speech (audio.cpp: Supertonic, OmniVoice, Kokoro, Phonon) through an OpenAI-compatible gateway, plus a voice tester | `speech.${DOMAIN}` | AI |
-| [Tandoor Recipes](tandoor-recipes/README.md) | Recipe management | `tandoor.${DOMAIN}` | Food |
-| [Unsloth Studio](unsloth-studio/README.md) | AMD ROCm model fine-tuning workspace (Unsloth Studio) | `unsloth.${DOMAIN}` | AI |
 | [Uptime Kuma](uptime-kuma/README.md) | Uptime monitoring with AutoKuma discovery | `uptime-kuma.${DOMAIN}` | Monitoring |
 | [Vaultwarden](vaultwarden/README.md) | Bitwarden-compatible password management | `vaultwarden.${DOMAIN}` | Security |
 | [wger](wger/README.md) | Workout and nutrition tracking | `wger.${DOMAIN}` | Food |
@@ -74,9 +60,9 @@ For an end-to-end fresh-install sequence, work through [TODO.md](TODO.md).
 From the repository root, copy the service's environment template, replace all required placeholders, validate the rendered configuration, and start it. For example:
 
 ```sh
-cp memos/.env.example memos/.env
-docker compose --env-file memos/.env -f memos/docker-compose.yml config --quiet
-docker compose --env-file memos/.env -f memos/docker-compose.yml up -d
+cp excalidraw/.env.example excalidraw/.env
+docker compose --env-file excalidraw/.env -f excalidraw/docker-compose.yml config --quiet
+docker compose --env-file excalidraw/.env -f excalidraw/docker-compose.yml up -d
 ```
 
 Read the linked service README before starting a stack. It documents first-run account creation, dependencies, security limitations, and backup paths.
@@ -92,8 +78,8 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   completes each stack's `.env` from its `.env.example` (mode 600). It
   generates API tokens, secret keys and internal passwords in the format the
   example documents (default `openssl rand -hex 32`), keeps secrets that must
-  match across stacks identical (for example `LLAMA_API_KEY`, the `SELF_HEAL_*`
-  secrets, `TALK_DELIVER_SECRET`, `N8N_MCP_AUTH_TOKEN`), and asks for
+  match across stacks identical (for example `LLAMA_API_KEY`,
+  `N8N_MCP_AUTH_TOKEN`), and asks for
   usernames, e-mail addresses, login passwords (empty answer generates one) and
   the tokens only an application UI can issue (Enter skips; a hint says where
   to create each). It never changes a value that is already set (anything but
@@ -116,21 +102,17 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   new random hex values in every stack `.env` that holds them, without printing
   any value, then prints (or with `--restart` runs) the stack recreates and the
   n8n credential re-import. Keys issued by other services (`HF_TOKEN`,
-  `N8N_API_KEY`, the wger token, the Nextcloud app password, the Talk
-  bot secret) and stateful secrets (database passwords, encryption keys) are
+  `N8N_API_KEY`, the wger token, the Nextcloud app password) and stateful secrets (database passwords, encryption keys) are
   rotated by hand.
 - `scripts/llama-router.sh status|reload|load M|unload M|loaded|presets|vram`
   talks to the llama.cpp router through `docker exec llama-server curl` with
   the container's own key.
 - `scripts/production-model.sh [status|switch MODEL] [--dry-run]` moves the
   production model (router preset flags, the model variables in the hermes,
-  hindsight, benchmark and speech `.env` files) and recreates the affected
+  hindsight and speech `.env` files) and recreates the affected
   containers.
-- `scripts/bench.sh llm|stt|tts|all|summary|status [--bg]` runs the benchmark
-  suites with the speech warmer paused, refuses while a run holds the lock,
-  logs to `benchmark/reports/` and prints scores from the database.
 - `scripts/install-cli.sh [--uninstall] [--dry-run]` symlinks every `bin/*`
-  command (`lab`, `bench`, `sandbox`) and agent-sandbox's own commands
+  command (`lab`, `sandbox`) and agent-sandbox's own commands
   (`agent-sandbox`, `pi-sandbox`, `hermes-sandbox`, from `AGENT_SANDBOX_DIR`,
   default `../agent-sandbox`) into `~/.local/bin`. Idempotent; never overwrites
   a regular file or a foreign link; `--uninstall` removes only links into these
@@ -141,29 +123,17 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   (`lab --help` lists them all):
   - `lab warmer [status|pause|resume|disable|enable]`: the speech warmer;
     `disable`/`enable` set `WARM_ENABLED` in `speech/.env` (backup first) and
-    recreate `speech-gateway`; benchmark runs pause it by themselves.
+    recreate `speech-gateway`.
   - `lab llm [status|loaded|presets|vram|reload|load M|unload M|production ...]`:
     `scripts/llama-router.sh` and `scripts/production-model.sh`.
-  - `lab bench ...`: `bin/bench`, plus `stop` (SIGTERM, clean abort), `plan`
-    (dry run), `list`, `rescore`, `import`.
   - `lab hermes profiles|prime|doctor|pair` and `lab hermes PROFILE ARGS...`
     (`hermes -p PROFILE ...` as user hermes); `prime` shows the prompt_prime
     slot, token count and templates.
-  - `lab n8n digests|drift|run ID|password`, `lab nextcloud occ ARGS...|scan-scans`,
-    `lab db dump hindsight|paperless [FILE]` (mode 600, never overwrites),
-    `lab wger sync-ingredients`, `lab testbed ps|reset`, `lab logs C [opts]`,
+  - `lab n8n digests|drift|run ID|password`, `lab nextcloud occ ARGS...`,
+    `lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]` (mode 600, never overwrites),
+    `lab wger sync-ingredients`, `lab logs C [opts]`,
     `lab sh C [USER]`.
   Secrets are never printed; values stay in the containers or the scripts it calls.
-- `bin/bench` is a whiptail menu over `scripts/bench.sh`: benchmark (hermes,
-  stt, tts), then version (only the checked-out version can run; older ones
-  open a results leaderboard), models, cases (hermes: all, by profile, single
-  cases, the opt-in `ai-assistant` group), repeats, foreground or background,
-  then the exact equivalent command before it starts. Non-interactive:
-  `bench run hermes --models a,b [--cases x,y|--profiles p] [--repeat N] [--bg]
-  [--dry-run] [--yes]`, `bench results [BENCH] [--version V]`,
-  `bench versions [BENCH]`, `bench status`. `scripts/bench.sh` also accepts
-  `--cases`, `--profiles`, `--repeat` and `--web`, and `--dry-run` works while
-  a run holds the lock.
 - `bin/sandbox` is a menu over agent-sandbox: start a session (harness,
   profile, folder, modules read from `agent-sandbox <harness> -h`, detach,
   prompt) or manage sessions (list, attach, logs, stop, build); it shows the
@@ -178,7 +148,7 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
 - `scripts/post-note.sh TITLE [--category C] [--file F]` posts a Markdown
   report to Nextcloud Notes via the hermes integration.
 - `scripts/resources.sh [--short]` shows VRAM, RAM/swap, loaded models, top
-  containers, stopped containers and benchmark leftovers.
+  containers and stopped containers.
 - `scripts/stack.sh check|up|rebuild STACK [SERVICE ...]` validates a stack's
   Compose file, rebuilds a local image and recreates single services.
 

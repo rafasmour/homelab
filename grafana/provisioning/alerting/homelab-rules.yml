@@ -1,11 +1,10 @@
-# Homelab alert rules (Grafana-managed), routed to Nextcloud Talk by
-# talk-contact-point.yml. Thresholds follow the Ryzen 1800X Tdie limit
+# Homelab alert rules (Grafana-managed). No notification channel is
+# provisioned (see n8n-drift-contact-point.yml); the alerts show in the Grafana
+# UI. Thresholds follow the Ryzen 1800X Tdie limit
 # (Tjmax 95 °C; Tctl reads 20 °C high, so temp2/Tdie is used), the hardware's
 # own node_hwmon_temp_crit_celsius for GPU and NVMe, and common node_exporter
 # alert practice (disk < 10/5 %, memory < 10/5 %, swap > 80 %, OOM kills), plus container
 # state from docker-state-exporter (stopped, failed, restart loops, unhealthy).
-# Rules labelled self_heal: "true" are also sent to the self-heal controller,
-# which diagnoses them and may propose a container restart for the owner to approve.
 apiVersion: 1
 groups:
 - orgId: 1
@@ -473,7 +472,6 @@ groups:
     for: 5m
     labels:
       severity: warning
-      self_heal: "true"
     annotations:
       summary: Only {{ humanize $values.A.Value }}% of RAM is available.
   - uid: memory-critical
@@ -515,7 +513,6 @@ groups:
     for: 2m
     labels:
       severity: critical
-      self_heal: "true"
     annotations:
       summary: Only {{ humanize $values.A.Value }}% of RAM is available; the OOM killer is next (it hung the GPU driver on 2026-10-23).
   - uid: swap-high
@@ -557,7 +554,6 @@ groups:
     for: 10m
     labels:
       severity: warning
-      self_heal: "true"
     annotations:
       summary: Swap is {{ humanize $values.A.Value }}% used.
   - uid: oom-kill
@@ -602,7 +598,6 @@ groups:
     for: 0s
     labels:
       severity: critical
-      self_heal: "true"
     annotations:
       summary: The kernel OOM killer ran {{ humanize $values.A.Value }} time(s) in the last hour. Check llama-server and VRAM/RAM.
   - uid: memory-pressure
@@ -644,7 +639,6 @@ groups:
     for: 10m
     labels:
       severity: warning
-      self_heal: "true"
     annotations:
       summary: All tasks were stalled on memory {{ humanize $values.A.Value }}% of the time over 5 minutes (heavy swapping).
   - uid: load-high
@@ -732,7 +726,6 @@ groups:
     for: 2m
     labels:
       severity: critical
-      self_heal: "true"
     annotations:
       summary: '{{ $labels.name }} is not running although its restart policy is {{ $labels.policy }}. Check: docker logs {{ $labels.name }}'
   - uid: container-failed
@@ -815,7 +808,6 @@ groups:
     for: 0s
     labels:
       severity: critical
-      self_heal: "true"
     annotations:
       summary: '{{ $labels.name }} restarted {{ humanize $values.A.Value }} times in 15 minutes. Check: docker logs {{ $labels.name }}'
   - uid: container-unhealthy
@@ -857,7 +849,6 @@ groups:
     for: 3m
     labels:
       severity: critical
-      self_heal: "true"
     annotations:
       summary: '{{ $labels.name }} is running but its health check fails.'
   - uid: container-oom
@@ -903,7 +894,6 @@ groups:
     for: 0s
     labels:
       severity: warning
-      self_heal: "true"
     annotations:
       summary: '{{ $labels.name }} was stopped by the OOM killer and is not running; raise its memory limit or find the leak.'
 - orgId: 1
@@ -1073,57 +1063,8 @@ groups:
     for: 5m
     labels:
       severity: critical
-      self_heal: "true"
     annotations:
       summary: Uptime Kuma reports {{ $labels.monitor_name }} as down.
-- orgId: 1
-  name: Self-heal
-  folder: Homelab alerts
-  interval: 1m
-  rules:
-  # Audit lines of the self-heal controller (container logs reach Loki through
-  # open-telemetry/, label container_name). No self_heal label: this alert
-  # only informs the owner and never starts a diagnosis.
-  - uid: self-heal-action
-    title: Self-heal action executed
-    condition: C
-    data:
-    - refId: A
-      relativeTimeRange:
-        from: 300
-        to: 0
-      datasourceUid: loki
-      model:
-        refId: A
-        expr: 'sum by (container_name) (count_over_time({container_name="self-heal"} |~ `\baction_(executed|failed)\b` [5m]))'
-        queryType: instant
-        datasource:
-          type: loki
-          uid: loki
-    - refId: C
-      relativeTimeRange:
-        from: 0
-        to: 0
-      datasourceUid: __expr__
-      model:
-        refId: C
-        type: threshold
-        expression: A
-        datasource:
-          type: __expr__
-          uid: __expr__
-        conditions:
-        - evaluator:
-            type: gt
-            params:
-            - 0
-    noDataState: OK
-    execErrState: Error
-    for: 0s
-    labels:
-      severity: warning
-    annotations:
-      summary: The self-heal controller executed (or failed) a restart in the last 5 minutes; see the self-heal Talk room and `docker logs self-heal`.
 - orgId: 1
   name: AI services
   folder: Homelab alerts
@@ -1133,7 +1074,7 @@ groups:
   # accepting connections (2026-10-31 22:58 → 2026-11-01 08:00: every Hermes
   # cron run and chat failed with "HTTP 500: proxy error"). The line never
   # appeared in the week before outside that outage. A restart of llama-server
-  # clears it, so the rule goes to the self-heal controller.
+  # clears it.
   - uid: llama-router-backend-unreachable
     title: llama.cpp model backend unreachable
     condition: C
@@ -1172,7 +1113,6 @@ groups:
     for: 5m
     labels:
       severity: critical
-      self_heal: "true"
     annotations:
       summary: 'llama-server could not reach a loaded model instance {{ humanize $values.A.Value }} times in 10 min ("proxy error: Could not establish connection"); Hermes chats and cron jobs are failing. Restarting llama-server reloads the model.'
   # Failed Hermes cron jobs (any profile). The scheduler logs each failure as

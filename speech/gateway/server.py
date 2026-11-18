@@ -118,16 +118,10 @@ WARM_STT = os.environ.get("WARM_STT", "")
 WARM_TTS_IDLE = float(os.environ.get("WARM_TTS_IDLE", "600"))
 WARM_INTERVAL = float(os.environ.get("WARM_INTERVAL", "15"))
 # Switches. WARM_ENABLED=false turns the warmer off for good (survives
-# restarts). While WARM_PAUSE_FILE exists it pauses (benchmark runs need the
-# router and audio.cpp to themselves): the benchmark runner creates it for
-# every run, however started, and removes it at the end; by hand:
-# docker exec speech-gateway touch /tmp/warmer.pause (rm to resume). A pause
-# file the runner wrote ("benchmark pid ...") counts as stale after
-# WARM_PAUSE_MAX_AGE seconds (default 24 h) in case a run died without cleanup;
-# a hand-made (empty) one never expires.
+# restarts). While WARM_PAUSE_FILE exists it pauses; by hand:
+# docker exec speech-gateway touch /tmp/warmer.pause (rm to resume).
 WARM_ENABLED = os.environ.get("WARM_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
 WARM_PAUSE_FILE = os.environ.get("WARM_PAUSE_FILE", "/tmp/warmer.pause")
-WARM_PAUSE_MAX_AGE = float(os.environ.get("WARM_PAUSE_MAX_AGE", "86400"))
 # audio.cpp models parked (replaced by PARK_TTS, the smallest) while another
 # llama.cpp model than WARM_LLM needs the card.
 HEAVY_TTS = set((os.environ.get("HEAVY_TTS") or "jarvis,voxcpm2,omnivoice").split(","))
@@ -1214,7 +1208,7 @@ def _warm_paused() -> str:
     if not WARM_ENABLED:
         return "WARM_ENABLED=false"
     try:
-        st = os.stat(WARM_PAUSE_FILE)
+        os.stat(WARM_PAUSE_FILE)
     except OSError:
         return ""
     try:
@@ -1222,8 +1216,6 @@ def _warm_paused() -> str:
             owner = handle.read(200).strip()
     except OSError:
         owner = ""
-    if owner.startswith("benchmark") and time.time() - st.st_mtime > WARM_PAUSE_MAX_AGE:
-        return ""  # left behind by a runner that died; ignore it
     return f"{WARM_PAUSE_FILE} ({owner or 'set by hand'})"
 
 

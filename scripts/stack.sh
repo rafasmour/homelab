@@ -8,9 +8,7 @@
 #   scripts/stack.sh rebuild STACK SERVICE... check, build the local image, recreate the service
 #   options: --dry-run (print the commands only)
 #
-# Refuses while benchmark/reports/.running.lock exists, because recreating the
-# benchmark, hermes or speech containers would kill a run. Falls back to
-# .env.example for the check when the stack has no .env (never for up/rebuild).
+# Falls back to .env.example for the check when the stack has no .env (never for up/rebuild).
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,7 +32,6 @@ run() { echo "+ $*"; [ "$DRY" = 1 ] || "$@"; }
 case "$CMD" in
   check) run docker compose --env-file "$ENVF" -f "$DIR/docker-compose.yml" config --quiet && echo "$STACK: compose config ok" ;;
   up|rebuild)
-    [ ! -e "$ROOT/benchmark/reports/.running.lock" ] || die "a benchmark is running (benchmark/reports/.running.lock)"
     [ "$CMD" = up ] || [ $# -gt 0 ] || die "rebuild needs at least one SERVICE"
     run docker compose --env-file "$ENVF" -f "$DIR/docker-compose.yml" config --quiet
     if [ "$CMD" = rebuild ]; then run docker compose --env-file "$ENVF" -f "$DIR/docker-compose.yml" build "$@"; fi

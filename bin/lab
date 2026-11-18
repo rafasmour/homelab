@@ -9,13 +9,6 @@
 #   lab llm loaded|presets|vram|reload|load MODEL|unload MODEL
 #   lab llm production [status|switch MODEL] [--dry-run]   (scripts/production-model.sh)
 #
-#   lab bench ...                    benchmark menu and runs (bin/bench: run, results, versions, status)
-#   lab bench stop                   stop the running benchmark cleanly (SIGTERM; it restores production)
-#   lab bench plan ARGS...           dry run of the runner (npm run benchmark -- ARGS --dry-run)
-#   lab bench list                   benchmarks, cases and models known to the runner
-#   lab bench rescore [RUN ...]      re-score stored runs
-#   lab bench import REPORT_DIR [--models a,b]
-#
 #   lab hermes profiles              profile names
 #   lab hermes prime                 prompt_prime state (slot, tokens, time) and template summary
 #   lab hermes doctor                relay doctor
@@ -28,11 +21,9 @@
 #   lab n8n password [EMAIL]                            reset an n8n password (scripts/reset-n8n-password.sh)
 #
 #   lab nextcloud occ ARGS...        php occ as www-data
-#   lab nextcloud scan-scans         rescan pi.hole/files/Scans (paperless consume folder)
 #
 #   lab db dump hindsight|immich|n8n|wger|nextcloud [FILE]   dump to FILE (default ./<name>-<date>.sql; never overwrites)
 #   lab wger sync-ingredients        start the ingredient bulk sync (background)
-#   lab testbed ps|reset             agent-testbed containers / reset the testbed
 #
 #   lab logs CONTAINER [docker logs options]   e.g. lab logs speech-gateway --since 10m
 #   lab sh CONTAINER [USER]          interactive shell in a container (escape hatch)
@@ -75,7 +66,6 @@ warmer() {
       echo "WARM_ENABLED (container): $enabled"
       echo "WARM_ENABLED (speech/.env): $(env_get "$ROOT/speech/.env" WARM_ENABLED || true)"
       echo "pause file $WARM_PAUSE_FILE: $pause"
-      [ -e "$ROOT/benchmark/reports/.running.lock" ] && echo "benchmark: a run holds the lock (the runner pauses the warmer)" || echo "benchmark: no run"
       echo "last warmer log lines:"
       docker logs --since 24h speech-gateway 2>&1 | grep 'warmer:' | tail -5 | sed 's/^/  /' || true
       ;;
@@ -85,9 +75,6 @@ warmer() {
       echo "warmer paused (until 'lab warmer resume' or a speech-gateway restart)" ;;
     resume)
       need_running speech-gateway
-      if [ -e "$ROOT/benchmark/reports/.running.lock" ]; then
-        die "a benchmark run holds the lock; the runner resumes the warmer when it ends (stop it with: lab bench stop)"
-      fi
       docker exec speech-gateway rm -f "$WARM_PAUSE_FILE"
       echo "warmer resumed (it acts within ~15 s)" ;;
     disable|enable)
@@ -106,24 +93,6 @@ llm() {
     status|loaded|presets|vram|reload|load|unload) exec "$SCRIPTS/llama-router.sh" "$cmd" "$@" ;;
     production|prod) exec "$SCRIPTS/production-model.sh" "${@:-status}" ;;
     *) die "llm: unknown command $cmd" ;;
-  esac
-}
-
-# ---------------------------------------------------------------- bench
-bench() {
-  local cmd="${1:-}"
-  case "$cmd" in
-    stop)
-      need_running benchmark
-      docker exec benchmark pgrep -f '^node .*main[.]js' >/dev/null || die "no benchmark is running"
-      docker exec benchmark pkill -TERM -f '^node .*main[.]js'
-      echo "sent SIGTERM: the run aborts, cleans up, restores the production model and writes a partial report" ;;
-    plan) shift; need_running benchmark; exec docker exec benchmark npm run --silent benchmark -- "$@" --dry-run ;;
-    list) need_running benchmark; exec docker exec benchmark npm run --silent benchmark -- --list ;;
-    rescore) shift; need_running benchmark; exec docker exec benchmark node main.js rescore "$@" ;;
-    import) shift; [ $# -ge 1 ] || die "bench import REPORT_DIR [--models a,b]"
-      need_running benchmark; exec docker exec benchmark npm run --silent import -- "$@" ;;
-    *) exec "$ROOT/bin/bench" "$@" ;;
   esac
 }
 
@@ -196,10 +165,7 @@ nextcloud() {
     occ)
       # shellcheck disable=SC2046
       exec docker exec $(tty_flags) -u www-data nextcloud php occ "$@" ;;
-    scan-scans)
-      docker exec -u www-data nextcloud mkdir -p /var/www/html/data/pi.hole/files/Scans
-      exec docker exec -u www-data nextcloud php occ files:scan --path="pi.hole/files/Scans" ;;
-    *) die "nextcloud: occ ARGS... | scan-scans" ;;
+    *) die "nextcloud: occ ARGS..." ;;
   esac
 }
 
@@ -231,15 +197,6 @@ wger() {
   echo "ingredient sync started in the background (lab logs wger-web -f)"
 }
 
-testbed() {
-  need_running agent-testbed
-  case "${1:-ps}" in
-    ps) exec docker exec agent-testbed docker ps --format '{{.Names}} {{.Status}}' ;;
-    reset) exec docker exec agent-testbed /homelab/hermes-sandboxes/testbed/reset.sh ;;
-    *) die "testbed ps|reset" ;;
-  esac
-}
-
 # ---------------------------------------------------------------- dispatch
 [ $# -gt 0 ] || { usage; exit 0; }
 group="$1"; shift
@@ -247,13 +204,11 @@ case "$group" in
   -h|--help|help) usage ;;
   warmer) warmer "$@" ;;
   llm|llama|router) llm "$@" ;;
-  bench) bench "$@" ;;
   hermes) hermes "$@" ;;
   n8n) n8n "$@" ;;
   nextcloud|nc) nextcloud "$@" ;;
   db) db "$@" ;;
   wger) wger "$@" ;;
-  testbed) testbed "$@" ;;
   logs) [ $# -ge 1 ] || die "logs CONTAINER [options]"; c="$1"; shift; exec docker logs "$@" "$c" ;;
   sh|shell) [ $# -ge 1 ] || die "sh CONTAINER [USER]"; need_running "$1"
     exec docker exec -it ${2:+-u "$2"} "$1" sh -c 'command -v bash >/dev/null && exec bash || exec sh' ;;

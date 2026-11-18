@@ -23,7 +23,7 @@ prompt + ~28k of tool schemas) and takes ~30 s to evaluate after the model was
    replays the configured profile's payload with ``max_tokens`` 1,
    without streaming, straight to llama.cpp whenever the primed slot is idle and
    the cache looks cold (model just loaded, or the last priming is older than
-   HERMES_PRIME_STALE seconds). No Hermes session, Talk message or memory write
+   HERMES_PRIME_STALE seconds). No Hermes session, message or memory write
    is involved.
 
 Settings (environment): HERMES_PRIME_PROFILE (profile to prime), HERMES_PRIME_INTERVAL seconds between checks (default

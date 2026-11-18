@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Hermes digest – ai-news\n08:02 Europe/Athens → Talk room of profile ai-news.\n\nTop r/LocalLLaMA posts of the last 24 h from the Reddit Atom feed (descriptive User-Agent). One LLM call without tools (Hermes' production model, PRODUCTION_MODEL) writes a \"why it matters\" line per post; if it fails, the post's first sentence is used. Nothing new = no message.\n\nManual run = dry run: the result is returned, nothing is posted. Another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. The workflow is its own error workflow: a failed scheduled run posts one line to the room. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
+        "content": "## Hermes digest – ai-news\n08:02 Europe/Athens.\n\nTop r/LocalLLaMA posts of the last 24 h from the Reddit Atom feed (descriptive User-Agent). One LLM call without tools (Hermes' production model, PRODUCTION_MODEL) writes a \"why it matters\" line per post; if it fails, the post's first sentence is used. Nothing new = no message.\n\nNothing is delivered anywhere (the Nextcloud Talk delivery was removed): every run returns the composed message in its execution result, and another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
         "height": 300,
         "width": 520
       },
@@ -210,74 +210,9 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "83b5512a-58a2-5fbf-b2ca-cf6b1b0cbbc7",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "5fba33b2-da18-5141-9673-16773325b1d2",
-      "name": "Deliver?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1680,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "d1cb6b54-0c7c-5340-ace4-55682deb3fbc",
-      "name": "Deliver to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1920,
-        200
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkAiNews0001",
-          "name": "Hermes digest – Talk room ai-news"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Not delivered: a dry run, or nothing to report. Returned to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'dry run' : 'nothing to report' } }];\n"
+        "jsCode": "// Nothing is delivered (the Talk delivery was removed): the composed message is\n// only returned, to the execution log or to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'not delivered (no delivery configured)' : 'nothing to report' } }];\n"
       },
       "id": "b2b08351-477b-5ac0-9aac-f9f6afd64b8a",
       "name": "Result",
@@ -287,97 +222,6 @@
         1920,
         420
       ]
-    },
-    {
-      "parameters": {},
-      "id": "36d4d489-49d8-5948-8a95-de973f4d0b69",
-      "name": "On failure",
-      "type": "n8n-nodes-base.errorTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "// This workflow is its own error workflow. Only failures of scheduled runs\n// are posted; manual runs and dry runs show the error in n8n instead.\nconst e = $input.first().json;\nconst execution = e.execution || {};\nconst mode = String(execution.mode || '');\nconst node = execution.lastNodeExecuted || execution.error?.node?.name || 'unknown node';\nconst reason = String(execution.error?.message || execution.error?.description || 'unknown error').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst message = `**${\"ai-news\"} digest failed** (n8n, node \"${node}\"): ${reason}`;\nreturn [{ json: { message, deliver: mode === 'trigger' || mode === 'webhook', mode } }];\n"
-      },
-      "id": "a3a9823a-0403-5d1a-9ed2-366a47b41c02",
-      "name": "Failure notice",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        240,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "d9a6ab5e-d224-5055-8d27-91d5f79676c8",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "b77ead35-b924-5cb2-a0b7-e8b0fe7b8241",
-      "name": "Scheduled run?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        480,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "283bb181-c285-5c4c-b5bc-0078d87ab283",
-      "name": "Post failure to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        720,
-        900
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkAiNews0001",
-          "name": "Hermes digest – Talk room ai-news"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -480,58 +324,7 @@
       "main": [
         [
           {
-            "node": "Deliver?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deliver?": {
-      "main": [
-        [
-          {
-            "node": "Deliver to Talk",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "On failure": {
-      "main": [
-        [
-          {
-            "node": "Failure notice",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Failure notice": {
-      "main": [
-        [
-          {
-            "node": "Scheduled run?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Scheduled run?": {
-      "main": [
-        [
-          {
-            "node": "Post failure to Talk",
             "type": "main",
             "index": 0
           }
@@ -542,7 +335,6 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "errorWorkflow": "hermes-digest-ai-news",
     "callerPolicy": "workflowsFromSameOwner",
     "saveManualExecutions": true
   },

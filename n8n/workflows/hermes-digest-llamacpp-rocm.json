@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Hermes digest – llamacpp-rocm\n08:18 Europe/Athens → Talk room of profile llamacpp-rocm.\n\nGitHub search: PRs/issues updated and commits since yesterday that mention ROCm, HIP, hipBLAS, rocWMMA, gfx or AMD GPUs. RDNA3 / gfx1100 / flash-attention items first, then merged PRs; merged PRs are marked. One LLM call without tools writes the one-line summaries. Nothing new = no message.\n\nManual run = dry run: the result is returned, nothing is posted. Another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. The workflow is its own error workflow: a failed scheduled run posts one line to the room. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
+        "content": "## Hermes digest – llamacpp-rocm\n08:18 Europe/Athens.\n\nGitHub search: PRs/issues updated and commits since yesterday that mention ROCm, HIP, hipBLAS, rocWMMA, gfx or AMD GPUs. RDNA3 / gfx1100 / flash-attention items first, then merged PRs; merged PRs are marked. One LLM call without tools writes the one-line summaries. Nothing new = no message.\n\nNothing is delivered anywhere (the Nextcloud Talk delivery was removed): every run returns the composed message in its execution result, and another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
         "height": 300,
         "width": 520
       },
@@ -290,74 +290,9 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "a802bfb6-307d-5c31-8e61-d3bc3054f552",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "b765bd4d-586d-50f2-a8a5-7b7a753405b6",
-      "name": "Deliver?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1920,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "b28b35f8-fe38-5448-a931-71dfd2f4e0de",
-      "name": "Deliver to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2160,
-        200
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkRocm000001",
-          "name": "Hermes digest – Talk room llamacpp-rocm"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Not delivered: a dry run, or nothing to report. Returned to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'dry run' : 'nothing to report' } }];\n"
+        "jsCode": "// Nothing is delivered (the Talk delivery was removed): the composed message is\n// only returned, to the execution log or to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'not delivered (no delivery configured)' : 'nothing to report' } }];\n"
       },
       "id": "93c9817a-1135-5cb0-9b5a-7b53547e5a9c",
       "name": "Result",
@@ -367,97 +302,6 @@
         2160,
         420
       ]
-    },
-    {
-      "parameters": {},
-      "id": "acae0b03-d380-5264-aaaa-d64844d7056a",
-      "name": "On failure",
-      "type": "n8n-nodes-base.errorTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "// This workflow is its own error workflow. Only failures of scheduled runs\n// are posted; manual runs and dry runs show the error in n8n instead.\nconst e = $input.first().json;\nconst execution = e.execution || {};\nconst mode = String(execution.mode || '');\nconst node = execution.lastNodeExecuted || execution.error?.node?.name || 'unknown node';\nconst reason = String(execution.error?.message || execution.error?.description || 'unknown error').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst message = `**${\"llamacpp-rocm\"} digest failed** (n8n, node \"${node}\"): ${reason}`;\nreturn [{ json: { message, deliver: mode === 'trigger' || mode === 'webhook', mode } }];\n"
-      },
-      "id": "80e0c8c5-4265-51c5-909d-36d360927bb0",
-      "name": "Failure notice",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        240,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "8c0e8206-e0bc-56cf-ac79-0e5e307eda10",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "708a733e-6a8f-5055-a2c4-bdbc61121d46",
-      "name": "Scheduled run?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        480,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "2daf10aa-1e6c-54a2-8dd0-49fddc45de27",
-      "name": "Post failure to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        720,
-        900
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkRocm000001",
-          "name": "Hermes digest – Talk room llamacpp-rocm"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -571,58 +415,7 @@
       "main": [
         [
           {
-            "node": "Deliver?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deliver?": {
-      "main": [
-        [
-          {
-            "node": "Deliver to Talk",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "On failure": {
-      "main": [
-        [
-          {
-            "node": "Failure notice",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Failure notice": {
-      "main": [
-        [
-          {
-            "node": "Scheduled run?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Scheduled run?": {
-      "main": [
-        [
-          {
-            "node": "Post failure to Talk",
             "type": "main",
             "index": 0
           }
@@ -633,7 +426,6 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "errorWorkflow": "hermes-digest-llamacpp-rocm",
     "callerPolicy": "workflowsFromSameOwner",
     "saveManualExecutions": true
   },

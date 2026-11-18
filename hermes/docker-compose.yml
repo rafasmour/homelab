@@ -9,8 +9,8 @@ services:
     restart: unless-stopped
     command: ["sh", "/usr/local/bin/start.sh"]
     volumes:
-      # Profiles, SOULs, sessions and sandbox client keys (shared with
-      # hermes-nextcloud-bridge and the hermes-sandbox CLI). Runtime data,
+      # Profiles, SOULs and sessions (shared with
+      # the hermes-sandbox CLI). Runtime data,
       # never commit.
       - ./data:/home/hermes/.hermes
       - ./start.sh:/usr/local/bin/start.sh:ro
@@ -43,8 +43,8 @@ services:
       HERMES_SLOT_OTHERS: "${HERMES_SLOT_OTHERS:-2}"
       # ai-assistant only: thinking budget in tokens (-1 = unlimited); every other profile is unlimited.
       HERMES_AI_ASSISTANT_THINK_BUDGET: "${HERMES_AI_ASSISTANT_THINK_BUDGET:-1024}"
-      # ask_agent (plugins/agents): seconds a consult is awaited before its answer
-      # goes to Talk, the hard time limit of one consult, and the answer length
+      # ask_agent (plugins/agents): seconds a consult is awaited before it is
+      # stopped, the hard time limit of one consult, and the answer length
       # handed back to the asking profile.
       HERMES_ASK_AGENT_WAIT: "${HERMES_ASK_AGENT_WAIT:-120}"
       HERMES_ASK_AGENT_HARD_CAP: "${HERMES_ASK_AGENT_HARD_CAP:-1800}"
@@ -58,7 +58,7 @@ services:
       # the external "hindsight" network). Unset = hindsight; set it empty to use
       # only the built-in MEMORY.md/USER.md. Excluded profiles never use it.
       HERMES_MEMORY_PROVIDER: "${HERMES_MEMORY_PROVIDER-hindsight}"
-      HERMES_MEMORY_EXCLUDE: "${HERMES_MEMORY_EXCLUDE-devops-diagnose coding devops}"
+      HERMES_MEMORY_EXCLUDE: "${HERMES_MEMORY_EXCLUDE-coding devops}"
       HERMES_HINDSIGHT_RETAIN_EVERY: "${HERMES_HINDSIGHT_RETAIN_EVERY:-1}"
       HERMES_TIMEZONE: "${HERMES_TIMEZONE:-Europe/Athens}"
       # Speech-to-text and text-to-speech of every profile (start.sh): the
@@ -74,11 +74,10 @@ services:
       # The gateway has no authentication, the key is a placeholder.
       HERMES_RELAY_OPENAI_TTS_URL: "${HERMES_SPEECH_URL:-http://speech-gateway:8000/v1}"
       HERMES_RELAY_OPENAI_TTS_KEY: speech-gateway
-      # write_file/patch path allowlist. Profiles with an SSH sandbox write
-      # these paths inside their sandbox (hermes-sandboxes), never in here.
+      # write_file/patch path allowlist.
       # cache/audio: where text_to_speech writes its clips (outside every other
       # root, so spoken replies were refused).
-      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier:/home/hermes/.hermes/cache/audio
+      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/home/hermes/.hermes/cache/audio
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_PORT: "8642"
@@ -87,21 +86,6 @@ services:
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
-      # Self-heal: the devops-diagnose profile's own API key (start.sh writes
-      # it into that profile's .env; the shared API_SERVER_KEY cannot reach
-      # it) and the bearer token of the self-heal diagnose MCP. Optional: without
-      # a usable key start.sh does not serve the profile.
-      SELF_HEAL_HERMES_KEY: "${SELF_HEAL_HERMES_KEY:-}"
-      DIAGNOSE_MCP_TOKEN: "${DIAGNOSE_MCP_TOKEN:-}"
-      # Optional: bearer token of benchmark-mcp (models profile). Empty: no benchmark tools.
-      BENCHMARK_MCP_TOKEN: "${BENCHMARK_MCP_TOKEN:-}"
-      # Cron delivery (--deliver nextcloud_talk) and the talk_send tool post
-      # through hermes-nextcloud-bridge.
-      NEXTCLOUD_TALK_DELIVER_URL: "${NEXTCLOUD_TALK_DELIVER_URL:-http://hermes-nextcloud-bridge:8788/deliver}"
-      NEXTCLOUD_TALK_DELIVER_SECRET: "${NEXTCLOUD_TALK_DELIVER_SECRET:?Set NEXTCLOUD_TALK_DELIVER_SECRET in .env}"
-      NEXTCLOUD_TALK_HOME_ROOM: "${NEXTCLOUD_TALK_HOME_ROOM:?Set NEXTCLOUD_TALK_HOME_ROOM in .env}"
-      # "<profile>=<room-token>|...": each profile's cron output and talk_send go to its own room.
-      NEXTCLOUD_TALK_PROFILE_ROOMS: "${NEXTCLOUD_TALK_PROFILE_ROOMS:-}"
       # Hermes-Relay (Android app): web dashboard on 9119 and relay on 8767,
       # both started by start.sh next to the gateway. The dashboard is served
       # only when HERMES_DASHBOARD_PASSWORD is set and not CHANGE_ME; the relay terminal stays off unless explicitly enabled.
@@ -179,9 +163,6 @@ services:
         aliases: [hermes-api]
       hermes-mcp:
         aliases: [hermes-api]
-      # SSH to the per-profile sandboxes (hermes-sandboxes stack, start it first).
-      hermes-sandbox:
-        aliases: [hermes-api]
       # Hindsight memory API (internal network, no internet).
       hindsight:
         aliases: [hermes-api]
@@ -193,9 +174,6 @@ networks:
     internal: true
   hermes-mcp:
     name: hermes-mcp
-  hermes-sandbox:
-    external: true
-    name: hermes-sandbox
   hindsight:
     external: true
     name: hindsight

@@ -1,8 +1,7 @@
 # Open WebUI
 
 Open WebUI provides a browser interface for the OpenAI-compatible APIs exposed
-by [`llama-cpp`](../llama-cpp/README.md),
-[`llama-cpp-classifier`](../llama-cpp-classifier/README.md), and every
+by [`llama-cpp`](../llama-cpp/README.md) and every
 [Hermes](../hermes/README.md) profile. It also connects to the MCP tool servers
 on the `hermes-mcp` network and uses the web-search service for its built-in
 web search. Traefik publishes it at `https://webui.<DOMAIN>`.
@@ -11,10 +10,10 @@ web search. Traefik publishes it at `https://webui.<DOMAIN>`.
 
 - Docker Engine with Docker Compose
 - The external Docker networks `webgateway` and `hermes-mcp`
-- `llama-server:8080` and `llama-classifier:8080` on `webgateway`
+- `llama-server:8080` on `webgateway`
 - The Hermes API at `hermes:8642` on `webgateway`
 - The MCP servers on `hermes-mcp`: `web-search-mcp`, `nextcloud-mcp`,
-  `wger-mcp`, `n8n-mcp`, and `drawio-mcp`
+  `wger-mcp`, and `n8n-mcp`
 - Traefik configured to route `webui.<DOMAIN>`
 
 ## Configuration
@@ -29,7 +28,7 @@ cp .env.example .env
 | --- | --- |
 | `DOMAIN` | Creates the Traefik host rule `webui.<DOMAIN>` |
 | `OPEN_WEBUI_IMAGE_TAG` | Open WebUI image tag; pin a release such as `v0.11.4` |
-| `OPENAI_API_KEY` | Sent to the llama.cpp and classifier backends; any non-empty value |
+| `OPENAI_API_KEY` | Sent to the llama.cpp backend; any non-empty value |
 | `HERMES_API_KEY` | Must match `hermes/.env` `API_SERVER_KEY`; used for every Hermes profile |
 | `ENABLE_SIGNUP` | `false`; set `true` only while creating the first admin |
 | `ENABLE_PERSISTENT_CONFIG` | `false` makes `docker-compose.yml` authoritative (see below) |
@@ -68,9 +67,8 @@ Open WebUI registers these OpenAI-compatible connections:
 | Index | URL | Models shown as |
 | --- | --- | --- |
 | 0 | `http://llama-server:8080/v1` | the router's model ids (no prefix) |
-| 1 | `http://llama-classifier:8080/v1` | the classifier's model ids (no prefix) |
-| 2 | `http://hermes:8642/v1` | `hermes.hermes-agent` |
-| 3-10 | `http://hermes:8642/p/<profile>/v1` | `hermes.<profile>` |
+| 1 | `http://hermes:8642/v1` | `hermes.hermes-agent` |
+| 2-16 | `http://hermes:8642/p/<profile>/v1` | `hermes.<profile>` |
 
 The Hermes specialist models are `hermes.nextcloud`, `hermes.finance`,
 `hermes.calories`, `hermes.ai-news`, `hermes.hf-models`,
@@ -81,8 +79,7 @@ add a Hermes profile, add its URL to `OPENAI_API_BASE_URLS`, add
 `HERMES_API_KEY` to `OPENAI_API_KEYS` at the same position, and add a matching
 index entry to `OPENAI_API_CONFIGS`.
 
-The chat UI uses `/v1/models` and `/v1/chat/completions`. The classifier's
-native `POST /v1/systemone` endpoint is not used.
+The chat UI uses `/v1/models` and `/v1/chat/completions`.
 
 ## MCP tool servers
 
@@ -95,7 +92,6 @@ native `POST /v1/systemone` endpoint is not used.
 | `nextcloud` | `http://nextcloud-mcp:8000/mcp` | none |
 | `wger` | `http://wger-mcp:8765/mcp` | Bearer `WGER_MCP_TOKEN` |
 | `n8n` | `http://n8n-mcp:3000/mcp` | Bearer `N8N_MCP_TOKEN` |
-| `drawio` | `http://drawio-mcp:8000/mcp` | none |
 
 Direct llama.cpp chats can call these tools. The Hermes models use their own
 tools inside Hermes.

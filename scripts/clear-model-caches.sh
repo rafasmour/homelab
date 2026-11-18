@@ -9,7 +9,7 @@
 # * ~/.cache/huggingface (the `hf` CLI cache of this user).
 # * Every Hugging Face hub cache under the repository: a folder holding
 #   CACHEDIR.TAG (hub/), plus the xet/ chunk cache next to it. Examples:
-#   unsloth-studio/huggingface/hub, speech/*/hub. Services download again on
+#   speech/*/hub. Services download again on
 #   their next use (services without internet need a manual download).
 # * The `.cache/huggingface` metadata that `hf download --local-dir` leaves
 #   inside model folders (llama-cpp/models/*/*, speech/parakeet*, ...). The

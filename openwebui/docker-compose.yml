@@ -11,12 +11,11 @@ services:
       # Privacy: no community sharing (update checks and model downloads stay on).
       ENABLE_COMMUNITY_SHARING: "false"
 
-      # Connections by index: 0 llama-server, 1 llama-classifier,
-      # 2 Hermes default profile, 3-17 Hermes specialist profiles (append new
+      # Connections by index: 0 llama-server, 1 Hermes default profile,
+      # 2-16 Hermes specialist profiles (append new
       # profiles at the end so existing indexes keep their settings).
       OPENAI_API_BASE_URLS: >-
         http://llama-server:8080/v1;
-        http://llama-classifier:8080/v1;
         http://hermes:8642/v1;
         http://hermes:8642/p/nextcloud/v1;
         http://hermes:8642/p/finance/v1;
@@ -33,7 +32,6 @@ services:
         http://hermes:8642/p/n8n/v1;
         http://hermes:8642/p/web-search/v1
       OPENAI_API_KEYS: >-
-        ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};
         ${OPENAI_API_KEY:?Set OPENAI_API_KEY in .env};
         ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
         ${HERMES_API_KEY:?Set HERMES_API_KEY in .env};
@@ -59,6 +57,7 @@ services:
       # Open WebUI ignores, so only the final answer appeared (2026-11-04).
       OPENAI_API_CONFIGS: >-
         {
+        "1": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
         "2": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
         "3": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
         "4": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
@@ -73,8 +72,7 @@ services:
         "13": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
         "14": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
         "15": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
-        "16": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"},
-        "17": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"}
+        "16": {"enable": true, "prefix_id": "hermes", "tags": [{"name": "hermes"}], "api_type": "responses"}
         }
       ENABLE_OPENAI_API: "true"
       ENABLE_OLLAMA_API: "false"
@@ -99,9 +97,7 @@ services:
         "config": {"enable": true}, "info": {"id": "wger", "name": "wger"}},
         {"type": "mcp", "url": "http://n8n-mcp:3000/mcp", "auth_type": "bearer",
         "key": "${N8N_MCP_TOKEN:?Set N8N_MCP_TOKEN in .env}",
-        "config": {"enable": true}, "info": {"id": "n8n", "name": "n8n"}},
-        {"type": "mcp", "url": "http://drawio-mcp:8000/mcp", "auth_type": "none", "key": "",
-        "config": {"enable": true}, "info": {"id": "drawio", "name": "draw.io"}}
+        "config": {"enable": true}, "info": {"id": "n8n", "name": "n8n"}}
         ]
 
       # Built-in web search through the web-search service REST endpoints.

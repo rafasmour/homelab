@@ -10,7 +10,7 @@
 # Not rotated (stateful, or issued by another service and needing your input):
 #   HF_TOKEN, N8N_API_KEY, WGER_API_KEY,
 #   NEXTCLOUD_MCP_APP_PASSWORD, UPTIME_KUMA_API_KEY, API_TOKEN_FOR_HOMEPAGE,
-#   TALK_BOT_SECRET (registered in Nextcloud Talk), vaultwarden ADMIN_TOKEN,
+#   vaultwarden ADMIN_TOKEN,
 #   Cloudflare tokens, and every database password, APP_KEY, encryption key,
 #   session secret and JWT key (rotating those breaks stored data).
 #
@@ -45,7 +45,6 @@ API_SERVER_KEY       hermes                   32
 WEB_SEARCH_MCP_TOKEN web-search               32
 MCP_STATIC_TOKEN     wger                     32
 N8N_MCP_AUTH_TOKEN   n8n                      32
-TALK_DELIVER_SECRET  hermes-nextcloud-bridge  32
 '
 
 if (( list )); then
@@ -128,9 +127,9 @@ for stack in $changed; do
   [[ -f $root/$stack/docker-compose.yml ]] || continue
   commands+=("docker compose --env-file $stack/.env -f $stack/docker-compose.yml up -d")
 done
-# n8n keeps LLAMA_API_KEY and TALK_DELIVER_SECRET in its own credential store.
+# n8n keeps LLAMA_API_KEY in its own credential store.
 case " $changed " in
-  *" llama-cpp "*|*" hermes-nextcloud-bridge "*)
+  *" llama-cpp "*)
     commands+=("n8n/scripts/hermes-digests-setup.sh --credentials-only") ;;
 esac
 

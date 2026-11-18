@@ -1,9 +1,10 @@
-# Integrity alerts (Grafana-managed). "n8n workflow changed outside git" goes to
-# Nextcloud Talk (talk-contact-point.yml). n8n/scripts/check-workflow-drift.sh
+# Integrity alerts (Grafana-managed). "n8n workflow changed outside git" has no
+# notification channel (see n8n-drift-contact-point.yml); it is visible in the
+# Grafana UI. n8n/scripts/check-workflow-drift.sh
 # compares the live n8n workflows with n8n/workflows/*.json and writes
 # node-exporter/textfile/n8n_drift.prom (textfile collector). There is no cron:
 # "n8n drift check not running" is the scheduler. Labelled n8n_drift_run="true",
-# it goes only to the "n8n drift runner" contact point (never Talk), whose
+# it goes only to the "n8n drift runner" contact point, whose
 # webhook makes the n8n-drift-runner container run the script.
 apiVersion: 1
 groups:

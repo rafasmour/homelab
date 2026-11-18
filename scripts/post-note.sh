@@ -8,7 +8,7 @@
 #   options: --dry-run (show title, category and size, post nothing)
 #
 # Default category: Reports. Example:
-#   scripts/bench.sh summary | scripts/post-note.sh "Benchmark 2026-11-04" --category Benchmarks
+#   some-report-command | scripts/post-note.sh "Report 2026-11-04" --category Reports
 
 set -euo pipefail
 die() { echo "post-note: $*" >&2; exit 1; }

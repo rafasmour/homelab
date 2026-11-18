@@ -26,9 +26,9 @@ The MCP server can create, update, execute, and delete workflows. Back up produc
 
 ## Hermes digests
 
-Seven workflows replace the former Hermes cron jobs. They are deterministic: HTTP Request nodes fetch, Code nodes filter, compute dates and format, and at most one LLM call (no tools) writes one-line summaries. Each posts Markdown to the Talk room of its Hermes profile through `POST http://hermes-nextcloud-bridge:8788/deliver`, and posts nothing when there is nothing to report. The files `workflows/hermes-digest-<job>.json` are the source of truth; the workflow id equals the file name.
+Seven workflows replace the former Hermes cron jobs. They are deterministic: HTTP Request nodes fetch, Code nodes filter, compute dates and format, and at most one LLM call (no tools) writes one-line summaries. Each composes a Markdown message and returns it in its execution result; nothing is delivered anywhere (the Nextcloud Talk delivery was removed), and the message is empty when there is nothing to report. The files `workflows/hermes-digest-<job>.json` are the source of truth; the workflow id equals the file name.
 
-| Workflow | Athens time | Talk room (profile) | Source | LLM |
+| Workflow | Athens time | Profile | Source | LLM |
 | --- | --- | --- | --- | --- |
 | Hermes digest – morning-digest | 08:00 | nextcloud | Nextcloud MCP `http://nextcloud-mcp:8000/mcp`: `nc_calendar_list_events` (`personal`, today) and `nc_calendar_search_todos` (all live task lists) | no |
 | Hermes digest – ai-news | 08:02 | ai-news | Reddit Atom feed `r/LocalLLaMA/top/.rss?t=day`, last 24 h, up to 10 posts | one call: "why it matters" per post |
@@ -42,7 +42,7 @@ Reddit, GitHub, and Hugging Face get a descriptive User-Agent.
 
 The LLM jobs are staggered so only one model call runs at a time. The call goes to `http://llama-server:8080/v1/chat/completions` with Hermes' production model (a thinking model), temperature 0.2, bounded `max_tokens`, and no tools. Only `choices[0].message.content` is used; the reply is reduced to `<n>. <text>` lines for known item numbers (links, Markdown, and reasoning-looking lines are dropped). If the call fails or fewer than half of the items get a usable line, the message is built from the template alone (Reddit falls back to the post's first sentence).
 
-The workflows name no model. Their `LLM request` node uses the Custom Auth credential `Hermes digest – llama.cpp production model`, which adds the bearer header and merges `model` and `id_slot` into the JSON body (credential values win over the node's body). `model` is `PRODUCTION_MODEL` from `benchmark/.env`; `id_slot` is the first slot of `HERMES_SLOT_OTHERS` from `hermes/.env` (default 2), the slot every Hermes profile other than ai-assistant (0) and Hindsight (1) uses, so the digests neither load a second model nor evict the assistant's warm prompt. `scripts/production-model.sh` re-runs `hermes-digests-setup.sh --credentials-only` after a switch. Until 2026-11-11 the four LLM digests asked for `qwen-3.6-35b-a3b`, so every morning at 08:02-08:18 the router unloaded the production model to load Qwen 3.6.
+The workflows name no model. Their `LLM request` node uses the Custom Auth credential `Hermes digest – llama.cpp production model`, which adds the bearer header and merges `model` and `id_slot` into the JSON body (credential values win over the node's body). `model` is `HERMES_MODEL` from `hermes/.env`; `id_slot` is the first slot of `HERMES_SLOT_OTHERS` from `hermes/.env` (default 2), the slot every Hermes profile other than ai-assistant (0) and Hindsight (1) uses, so the digests neither load a second model nor evict the assistant's warm prompt. `scripts/production-model.sh` re-runs `hermes-digests-setup.sh --credentials-only` after a switch. Until 2026-11-11 the four LLM digests asked for `qwen-3.6-35b-a3b`, so every morning at 08:02-08:18 the router unloaded the production model to load Qwen 3.6.
 
 
 Entry points of every digest:
@@ -59,9 +59,8 @@ No secret is stored in the workflow files or passed to n8n as an environment var
 
 | Credential | Type | Source |
 | --- | --- | --- |
-| Hermes digest – Talk room `<profile>` (7) | Custom Auth: `Authorization: Bearer <TALK_DELIVER_SECRET>` plus `room_token` merged into the JSON body | `hermes-nextcloud-bridge/.env` (`TALK_DELIVER_SECRET`, `NEXTCLOUD_TALK_PROFILE_ROOMS`) |
 | Hermes digest – llama.cpp API key | Header Auth | `llama-cpp/.env` `LLAMA_API_KEY` (no longer used by the digests; kept for hand-built workflows) |
-| Hermes digest – llama.cpp production model | Custom Auth: `Authorization: Bearer <LLAMA_API_KEY>` plus `model` and `id_slot` merged into the JSON body | `llama-cpp/.env` `LLAMA_API_KEY`, `benchmark/.env` `PRODUCTION_MODEL`, `hermes/.env` `HERMES_SLOT_OTHERS` |
+| Hermes digest – llama.cpp production model | Custom Auth: `Authorization: Bearer <LLAMA_API_KEY>` plus `model` and `id_slot` merged into the JSON body | `llama-cpp/.env` `LLAMA_API_KEY`, `hermes/.env` `HERMES_MODEL` and `HERMES_SLOT_OTHERS` |
 | llama.cpp (local, OpenAI-compatible) | OpenAI | `llama-cpp/.env` `LLAMA_API_KEY`, base URL `http://llama-server:8080/v1`; use it in the OpenAI Chat Model and AI Agent nodes with any router model name (for example `qwen-3.6-35b-a3b`) |
 | Hermes digest – wger MCP token | Header Auth | `wger/.env` `MCP_STATIC_TOKEN` |
 
@@ -72,19 +71,19 @@ sh n8n/scripts/hermes-digests-setup.sh               # credentials + workflows +
 sh n8n/scripts/hermes-digests-setup.sh --credentials-only
 ```
 
-The script uses the n8n CLI (`import:credentials`, `import:workflow`, `publish:workflow`), not the public API. Changing a room in `NEXTCLOUD_TALK_PROFILE_ROOMS` only needs `--credentials-only`.
+The script uses the n8n CLI (`import:credentials`, `import:workflow`, `publish:workflow`), not the public API.
 
-The n8n container joins `hermes-mcp` to reach `nextcloud-mcp` and `wger-mcp`; the bridge and llama-server are reached on `webgateway`.
+The n8n container joins `hermes-mcp` to reach `nextcloud-mcp` and `wger-mcp`; llama-server is reached on `webgateway`.
 
 ## Workflow drift check
 
-`scripts/check-workflow-drift.sh` alerts when a live workflow no longer matches git. Anyone with access to the n8n UI or API can edit workflows, and so can the n8n MCP server, which a prompt-injected Hermes `n8n` profile could drive. A changed digest could send data elsewhere or post something else to Talk. The script reads every workflow through the n8n public REST API (`GET /api/v1/workflows`, header `X-N8N-API-KEY`) with a key that has only the `workflow:list` and `workflow:read` scopes. The list returns the saved draft (top-level nodes, connections, settings) and, for active workflows, the published version that runs (`activeVersion`). It normalises both with `jq` and compares them with `workflows/*.json` in the working tree. The comparison covers the name, the nodes (type, version, parameters, credential ids, retry and error settings), the connections and the settings. Node positions, node ids, notes, sticky notes, pinData, staticData, tags and version ids are ignored. It also reports live workflows that have no file in git (archived ones are skipped) and Hermes digests that are not active, since `hermes-digests-setup.sh` publishes them. The expected state of the other workflows is unknown, so it is not checked.
+`scripts/check-workflow-drift.sh` alerts when a live workflow no longer matches git. Anyone with access to the n8n UI or API can edit workflows, and so can the n8n MCP server, which a prompt-injected Hermes `n8n` profile could drive. A changed digest could send data elsewhere. The script reads every workflow through the n8n public REST API (`GET /api/v1/workflows`, header `X-N8N-API-KEY`) with a key that has only the `workflow:list` and `workflow:read` scopes. The list returns the saved draft (top-level nodes, connections, settings) and, for active workflows, the published version that runs (`activeVersion`). It normalises both with `jq` and compares them with `workflows/*.json` in the working tree. The comparison covers the name, the nodes (type, version, parameters, credential ids, retry and error settings), the connections and the settings. Node positions, node ids, notes, sticky notes, pinData, staticData, tags and version ids are ignored. It also reports live workflows that have no file in git (archived ones are skipped) and Hermes digests that are not active, since `hermes-digests-setup.sh` publishes them. The expected state of the other workflows is unknown, so it is not checked.
 
 API limitation: `activeVersion` has nodes and connections but no settings, so the published version's settings cannot be compared on their own. The draft settings are used for both comparisons, and a settings change still shows as "draft differs".
 
-It writes `node-exporter/textfile/n8n_drift.prom`, which the node-exporter textfile collector serves. The metrics are `n8n_workflow_drift{workflow}`, `n8n_workflow_untracked`, `n8n_workflow_untracked_info{workflow,name}`, `n8n_workflow_active_mismatch{workflow}`, `n8n_workflow_drift_check_success` and `n8n_workflow_drift_check_timestamp_seconds`. The Grafana rules in `grafana/provisioning/alerting/n8n-drift-rules.yml` (group "Integrity") alert in Talk when a workflow drifts, is untracked or is inactive. The runner sets `N8N_DRIFT_AUTO_EXPORT=1`: a drifted draft is exported over its file (metric `n8n_workflow_exported`), and the Talk alert says so; review with `git diff n8n/workflows` before committing, because an unwanted edit (for example from the n8n MCP server) would land in the file the same way.
+It writes `node-exporter/textfile/n8n_drift.prom`, which the node-exporter textfile collector serves. The metrics are `n8n_workflow_drift{workflow}`, `n8n_workflow_untracked`, `n8n_workflow_untracked_info{workflow,name}`, `n8n_workflow_active_mismatch{workflow}`, `n8n_workflow_drift_check_success` and `n8n_workflow_drift_check_timestamp_seconds`. The Grafana rules in `grafana/provisioning/alerting/n8n-drift-rules.yml` (group "Integrity") alert (visible in the Grafana UI; no notification channel is provisioned) when a workflow drifts, is untracked or is inactive. The runner sets `N8N_DRIFT_AUTO_EXPORT=1`: a drifted draft is exported over its file (metric `n8n_workflow_exported`), and the alert says so; review with `git diff n8n/workflows` before committing, because an unwanted edit (for example from the n8n MCP server) would land in the file the same way.
 
-There is no cron. The rule "n8n drift check not running" is the scheduler: when the metrics are older than 30 minutes, report a failed read or are missing, Grafana posts to the `n8n-drift-runner` stack (see `../n8n-drift-runner/`), which runs the script. The alert routes only to that webhook (never Talk) and repeats every 30 minutes while it stays firing, so a check runs roughly every 30 to 40 minutes. Setup:
+There is no cron. The rule "n8n drift check not running" is the scheduler: when the metrics are older than 30 minutes, report a failed read or are missing, Grafana posts to the `n8n-drift-runner` stack (see `../n8n-drift-runner/`), which runs the script. The alert routes only to that webhook and repeats every 30 minutes while it stays firing, so a check runs roughly every 30 to 40 minutes. Setup:
 
 1. In n8n: Settings > n8n API > Create an API key, with only the scopes `workflow:list` and `workflow:read`. Put it in `n8n-drift-runner/.env` as `N8N_DRIFT_API_KEY` (not the full-access `N8N_API_KEY` of the MCP server).
 2. Put the same random secret in `n8n-drift-runner/.env` and `grafana/.env` as `N8N_DRIFT_WEBHOOK_SECRET` (`openssl rand -hex 32`).
@@ -93,7 +92,7 @@ There is no cron. The rule "n8n drift check not running" is the scheduler: when 
 ```bash
 docker compose --env-file n8n-drift-runner/.env -f n8n-drift-runner/docker-compose.yml up -d --build
 docker compose --env-file n8n/.env -f n8n/docker-compose.yml -f n8n/docker-compose.n8n-drift.yml up -d
-docker compose --env-file grafana/.env -f grafana/docker-compose.yml -f grafana/docker-compose.self-heal.yml -f grafana/docker-compose.n8n-drift.yml up -d
+docker compose --env-file grafana/.env -f grafana/docker-compose.yml -f grafana/docker-compose.n8n-drift.yml up -d
 ```
 
 Run it by hand for a summary, and use `--diff <id>` for the normalised diff from git to live (the id or file name, for example `hermes-digest-ai-news`). The runner container has the key and the mounts:

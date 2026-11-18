@@ -22,13 +22,6 @@ def _unavailable(*_args, **_kwargs):
 
 
 def register(ctx) -> None:
-    # Benchmark runs (HERMES_BENCHMARK=1) must not write to real systems; see benchmark_sandbox.py.
-    try:
-        from . import benchmark_sandbox
-
-        benchmark_sandbox.install()
-    except Exception:
-        logger.exception("local_only: benchmark sandbox unavailable")
     from agent import auxiliary_client as aux
 
     if getattr(aux, "_homelab_local_only", False):

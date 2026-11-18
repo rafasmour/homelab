@@ -24,10 +24,6 @@ Hermes connects to `http://nextcloud-mcp:8000/mcp` from the default profile and 
 
 In this deployment the MCP account is the administrator account `pi.hole`, so Hermes creates events and to-dos directly in that user's calendars. The model sees the tools as `mcp__nextcloud__<tool>`, for example `mcp__nextcloud__nc_calendar_create_event` and `mcp__nextcloud__nc_calendar_create_todo`.
 
-## Nextcloud Talk bot
-
-The `nextcloud` container also joins `hermes-mcp` so Talk can deliver bot webhooks to `http://hermes-nextcloud-bridge:8788/hook` and the bridge can post replies to `http://nextcloud`. `allow_local_remote_servers` is set to `true` because the webhook target is a private address. The bot is named Hermes and posts into the `Hermes` conversation owned by `pi.hole`. Setup and secrets are in [hermes-nextcloud-bridge/README.md](../hermes-nextcloud-bridge/README.md). Talk messages from the bot notify the user; messages sent through `mcp__nextcloud__talk_send_message` are posted as `pi.hole` and do not.
-
 `NEXTCLOUD_MCP_VERSION` is pinned to `0.198.5`. That release percent-encodes calendar names in CalDAV URLs. Image `0.184.2` concatenated the name raw, so a name containing a space failed in the client with `URL must not contain spaces` and never reached Nextcloud.
 
 ## Calendars and tasks
@@ -49,25 +45,6 @@ Calendar tools take the CalDAV URI, the `name` returned by `nc_calendar_list_cal
 `tasks` accepts only VTODO. `nc_calendar_create_event` on it returns Forbidden. That is the component type; the app password is valid. Put tasks and task reminders on `tasks` with `nc_calendar_create_todo`. Put timed events and event alarms on `personal` with `nc_calendar_create_event`. `personal-1` is a different calendar that shares the display name Personal and accepts only VTODO. Leave `contact_birthdays` for generated birthdays. Deleted collections `tasks-1` and `-` are not in the tool's calendar list.
 
 `hermes/start.sh` rewrites the Hermes SOULs on every start, including this calendar map. Add local changes under the `## Local notes` heading of a live `SOUL.md`; that section is kept. The auto-generated Hermes skill for this profile that mentions calendar names is not loaded, because the `skills` toolset is disabled.
-
-## Paperless consume folder
-
-`Scans/` of user `pi.hole` is the Paperless-ngx consume folder. The paperless stack bind-mounts `html/data/pi.hole/files/Scans` directly (no external-storage app, no change to this stack) and runs as `www-data` (33:33). Paperless imports every file dropped or scanned into `Scans/` within about 30 seconds and then deletes it; the document lives on in Paperless.
-
-Create the folder once, before starting Paperless:
-
-```bash
-docker exec -u www-data nextcloud mkdir -p /var/www/html/data/pi.hole/files/Scans
-docker exec -u www-data nextcloud php occ files:scan --path="pi.hole/files/Scans"
-```
-
-Nextcloud does not notice the deletions by itself, so a crontab entry of the repository owner rescans only that folder every 5 minutes:
-
-```cron
-*/5 * * * * docker exec -u www-data nextcloud php occ files:scan --path="pi.hole/files/Scans" --quiet
-```
-
-Keep server-side encryption disabled, or Paperless would read encrypted files. Details are in [paperless/README.md](../paperless/README.md).
 
 ## Backup and important notes
 
