@@ -43,7 +43,6 @@
 !hindsight/
 !hindsight/nginx.conf
 !homepage/
-!image-generation/
 !immich/
 !llama-cpp/
 !llama-cpp-classifier/
@@ -201,10 +200,6 @@ wger/static/
 !hermes-nextcloud-bridge/patches/room_profiles.py
 !hermes-nextcloud-bridge/patches/error_reason.py
 !hermes-nextcloud-bridge/patches/heal_forward.py
-!image-generation/.dockerignore
-!image-generation/.gitignore
-!image-generation/Dockerfile
-!image-generation/docker-entrypoint.sh
 !llama-cpp/.gitignore
 !llama-cpp/AGENTS.md
 !llama-cpp/Dockerfile

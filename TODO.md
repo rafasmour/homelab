@@ -47,7 +47,6 @@ Use this checklist for a fresh installation. Complete the shared prerequisites b
 
 - [ ] [llama.cpp](llama-cpp/README.md): verify Vulkan and `/dev/dri`, add GGUF models and router presets, build the image, and test `/v1/models`.
 - [ ] [Hermes](hermes/README.md): configure the llama.cpp endpoint and provider credentials, then test the API routes.
-- [ ] [Image Generation](image-generation/README.md): verify Vulkan access, download the required model files, build the image, and generate a test image.
 
 ## Final verification
 

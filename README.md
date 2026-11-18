@@ -20,7 +20,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Hermes sandboxes](hermes-sandboxes/README.md) | Per-profile SSH sandboxes for the API profiles' terminal/file tools, a restart-only Docker proxy and a Docker-in-Docker agent testbed | Private only | Not listed |
 | [Hindsight](hindsight/README.md) | Shared long-term agent memory for the Hermes profiles (internal API only, no internet; embeddings on llama-classifier, retain/reflect on llama-server) | Private only | Not listed |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
-| [Image Generation](image-generation/README.md) | Vulkan Stable Diffusion WebUI and API | `stable-diffusion.${DOMAIN}` | Not configured |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
 | [llama.cpp](llama-cpp/README.md) | ROCm model router with an OpenAI-compatible API, plus a Hugging Face GGUF download UI | `ai.${DOMAIN}`, `models.${DOMAIN}` | AI |
 | [llama.cpp classifiers](llama-cpp-classifier/README.md) | CPU router for decision models | `classify.${DOMAIN}` | AI |
