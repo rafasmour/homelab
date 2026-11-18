@@ -10,7 +10,7 @@ services:
     command: ["sh", "/usr/local/bin/start.sh"]
     volumes:
       # Profiles, SOULs and sessions (shared with
-      # hermes-nextcloud-bridge and the hermes-sandbox CLI). Runtime data,
+      # the hermes-sandbox CLI). Runtime data,
       # never commit.
       - ./data:/home/hermes/.hermes
       - ./start.sh:/usr/local/bin/start.sh:ro
@@ -43,8 +43,8 @@ services:
       HERMES_SLOT_OTHERS: "${HERMES_SLOT_OTHERS:-2}"
       # ai-assistant only: thinking budget in tokens (-1 = unlimited); every other profile is unlimited.
       HERMES_AI_ASSISTANT_THINK_BUDGET: "${HERMES_AI_ASSISTANT_THINK_BUDGET:-1024}"
-      # ask_agent (plugins/agents): seconds a consult is awaited before its answer
-      # goes to Talk, the hard time limit of one consult, and the answer length
+      # ask_agent (plugins/agents): seconds a consult is awaited before it is
+      # stopped, the hard time limit of one consult, and the answer length
       # handed back to the asking profile.
       HERMES_ASK_AGENT_WAIT: "${HERMES_ASK_AGENT_WAIT:-120}"
       HERMES_ASK_AGENT_HARD_CAP: "${HERMES_ASK_AGENT_HARD_CAP:-1800}"
@@ -86,13 +86,6 @@ services:
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
-      # Cron delivery (--deliver nextcloud_talk) and the talk_send tool post
-      # through hermes-nextcloud-bridge.
-      NEXTCLOUD_TALK_DELIVER_URL: "${NEXTCLOUD_TALK_DELIVER_URL:-http://hermes-nextcloud-bridge:8788/deliver}"
-      NEXTCLOUD_TALK_DELIVER_SECRET: "${NEXTCLOUD_TALK_DELIVER_SECRET:?Set NEXTCLOUD_TALK_DELIVER_SECRET in .env}"
-      NEXTCLOUD_TALK_HOME_ROOM: "${NEXTCLOUD_TALK_HOME_ROOM:?Set NEXTCLOUD_TALK_HOME_ROOM in .env}"
-      # "<profile>=<room-token>|...": each profile's cron output and talk_send go to its own room.
-      NEXTCLOUD_TALK_PROFILE_ROOMS: "${NEXTCLOUD_TALK_PROFILE_ROOMS:-}"
       # Hermes-Relay (Android app): web dashboard on 9119 and relay on 8767,
       # both started by start.sh next to the gateway. The dashboard is served
       # only when HERMES_DASHBOARD_PASSWORD is set and not CHANGE_ME; the relay terminal stays off unless explicitly enabled.

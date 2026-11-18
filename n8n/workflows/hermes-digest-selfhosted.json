@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Hermes digest – selfhosted\n08:06 Europe/Athens → Talk room of profile selfhosted.\n\nTop r/selfhosted and r/homelab posts of the last 24 h (one Reddit Atom feed, up to 5 per subreddit). One LLM call without tools writes a one-line description per post; fallback is the post's first sentence. Nothing new = no message.\n\nManual run = dry run: the result is returned, nothing is posted. Another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. The workflow is its own error workflow: a failed scheduled run posts one line to the room. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
+        "content": "## Hermes digest – selfhosted\n08:06 Europe/Athens.\n\nTop r/selfhosted and r/homelab posts of the last 24 h (one Reddit Atom feed, up to 5 per subreddit). One LLM call without tools writes a one-line description per post; fallback is the post's first sentence. Nothing new = no message.\n\nNothing is delivered anywhere (the Nextcloud Talk delivery was removed): every run returns the composed message in its execution result, and another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
         "height": 300,
         "width": 520
       },
@@ -210,74 +210,9 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "1439f97a-a612-59c0-8bec-9f51a4289249",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "372c07ec-f0d2-5b30-86d6-4817aa583533",
-      "name": "Deliver?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1680,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "f096a85c-7bcd-5e6c-926d-24ad715c897d",
-      "name": "Deliver to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1920,
-        200
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkSelfhost01",
-          "name": "Hermes digest – Talk room selfhosted"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Not delivered: a dry run, or nothing to report. Returned to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'dry run' : 'nothing to report' } }];\n"
+        "jsCode": "// Nothing is delivered (the Talk delivery was removed): the composed message is\n// only returned, to the execution log or to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'not delivered (no delivery configured)' : 'nothing to report' } }];\n"
       },
       "id": "ceca6934-b23d-5123-b86a-3e1f873b0afb",
       "name": "Result",
@@ -287,97 +222,6 @@
         1920,
         420
       ]
-    },
-    {
-      "parameters": {},
-      "id": "f9daee64-65e9-5aca-b214-30aec0d729be",
-      "name": "On failure",
-      "type": "n8n-nodes-base.errorTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "// This workflow is its own error workflow. Only failures of scheduled runs\n// are posted; manual runs and dry runs show the error in n8n instead.\nconst e = $input.first().json;\nconst execution = e.execution || {};\nconst mode = String(execution.mode || '');\nconst node = execution.lastNodeExecuted || execution.error?.node?.name || 'unknown node';\nconst reason = String(execution.error?.message || execution.error?.description || 'unknown error').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst message = `**${\"selfhosted\"} digest failed** (n8n, node \"${node}\"): ${reason}`;\nreturn [{ json: { message, deliver: mode === 'trigger' || mode === 'webhook', mode } }];\n"
-      },
-      "id": "efd51672-08bf-5878-be86-4594e487d459",
-      "name": "Failure notice",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        240,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "5404e547-f286-5a0a-b54e-be24dc437857",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "c00bcf6b-faba-5c53-bdab-139a1edce78b",
-      "name": "Scheduled run?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        480,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "aa5edcff-7df9-5205-b3b6-a101b593998a",
-      "name": "Post failure to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        720,
-        900
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkSelfhost01",
-          "name": "Hermes digest – Talk room selfhosted"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -480,58 +324,7 @@
       "main": [
         [
           {
-            "node": "Deliver?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deliver?": {
-      "main": [
-        [
-          {
-            "node": "Deliver to Talk",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "On failure": {
-      "main": [
-        [
-          {
-            "node": "Failure notice",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Failure notice": {
-      "main": [
-        [
-          {
-            "node": "Scheduled run?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Scheduled run?": {
-      "main": [
-        [
-          {
-            "node": "Post failure to Talk",
             "type": "main",
             "index": 0
           }
@@ -542,7 +335,6 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "errorWorkflow": "hermes-digest-selfhosted",
     "callerPolicy": "workflowsFromSameOwner",
     "saveManualExecutions": true
   },

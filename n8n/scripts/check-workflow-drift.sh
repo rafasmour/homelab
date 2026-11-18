@@ -21,7 +21,7 @@
 # connections and settings come from n8n, the file's other keys (id, active,
 # pinData) and its key order stay. The working tree changes; nothing is
 # committed. The run still reports the workflow (n8n_workflow_drift 1 plus
-# n8n_workflow_exported 1), so Grafana posts once to Talk and the change gets
+# n8n_workflow_exported 1), so Grafana alerts once and the change gets
 # reviewed before it is committed. A published version that differs while the
 # draft matches cannot be exported (the API has no published settings) and stays
 # plain drift; missing and untracked workflows are never written.

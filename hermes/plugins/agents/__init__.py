@@ -3,23 +3,22 @@
 The consult runs as a separate `hermes chat` process of the target profile
 (plugins/agents/runner.py starts it), so the target uses its own toolsets, MCP
 filters, SOUL and memory. The tool waits up to HERMES_ASK_AGENT_WAIT seconds
-(default 120). When the answer is not ready by then, the job is marked
-detached and the runner posts the answer to the Talk home room when it
-finishes (bridge POST /deliver, same env as talk_send).
+(default 120). When the answer is not ready by then, the consult is stopped and
+the tool reports a timeout.
 
 delegate and task_status give ai-assistant a slim way to queue work and read its result without Hermes' 14-tool
 `kanban` toolset: delegate creates one ready card (the dispatcher runs it as the assignee), task_status reads cards.
 
-Profile list, keep in sync with start.sh (the 12 specialists that enable this
-plugin or kanban_notify). Secrets come only from the process environment.
+Profile list, keep in sync with start.sh (the specialists that enable this
+plugin). Secrets come only from the process environment.
 """
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -45,14 +44,13 @@ JOBS = (
     ("llamacpp-rocm", "llama.cpp changes and code questions"),
 )
 MAX_CHAIN = 3
-MAX_DETACHED = 3
 MAX_REQUEST = 20000
 
 ASK_AGENT_SCHEMA = {
     "name": "ask_agent",
     "description": (
         "Ask another Hermes profile to do something with its own tools and wait for its answer "
-        "(up to 2 minutes; if it takes longer, the answer is posted to Talk later). Profiles:\n"
+        "(up to 2 minutes; after that the consult is stopped and you get a timeout). Profiles:\n"
         + "\n".join(f"- {name}: {job}" for name, job in JOBS)
     ),
     "parameters": {
@@ -72,8 +70,8 @@ DELEGATE_SCHEMA = {
     "name": "delegate",
     "description": (
         "Queue work for another Hermes profile as a task card, for work the owner wants done later, by a deadline, "
-        "or that clearly takes long. The card body is all the assignee sees, so write the request in full. The "
-        "result is posted to Talk when it finishes."
+        "or that clearly takes long. The card body is all the assignee sees, so write the request in full. Read "
+        "the result later with task_status."
     ),
     "parameters": {
         "type": "object",
@@ -183,26 +181,12 @@ def _log(root: Path, **fields) -> None:
         pass
 
 
-def _live_detached(base: Path) -> int:
-    """Detached consults whose runner is still working (no result.json yet)."""
-    count = 0
-    now = time.time()
-    for job in base.glob("*/"):
-        try:
-            if (job / "detached").exists() and not (job / "result.json").exists():
-                if now - (job / "job.json").stat().st_mtime < _int_env("HERMES_ASK_AGENT_HARD_CAP", 1800) + 300:
-                    count += 1
-        except OSError:
-            continue
-    return count
-
-
 def _cleanup_old(base: Path) -> None:
     """Drop job folders nobody collected (runner crash, lost waiter)."""
     cutoff = time.time() - (_int_env("HERMES_ASK_AGENT_HARD_CAP", 1800) + 3600)
     for job in base.glob("*/"):
         try:
-            if job.name != "undelivered" and job.stat().st_mtime < cutoff:
+            if job.stat().st_mtime < cutoff:
                 shutil.rmtree(job, ignore_errors=True)
         except OSError:
             continue
@@ -273,8 +257,6 @@ def _ask(args: dict) -> str:
     base = root / "cache" / "ask_agent"
     base.mkdir(parents=True, exist_ok=True)
     _cleanup_old(base)
-    if _live_detached(base) >= MAX_DETACHED:
-        return _fail(f"{MAX_DETACHED} consults are still running in the background; wait for their answers first.")
 
     suffix = (
         f"You were consulted by the {caller} profile on the owner's behalf. State exactly what you created, "
@@ -313,22 +295,16 @@ def _ask(args: dict) -> str:
             return _finish(job, root, caller, profile, request, started)
         time.sleep(0.5)
 
-    lock = open(job / "lock", "a")
+    if result.exists():
+        return _finish(job, root, caller, profile, request, started)
+    seconds = round(time.time() - started, 1)
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if result.exists():
-            return _finish(job, root, caller, profile, request, started)
-        seconds = round(time.time() - started, 1)
-        (job / "detached").write_text("1")
-        _log(root, caller=caller, profile=profile, status="running", seconds=seconds, exit=None, request=request[:200])
-    finally:
-        lock.close()
-    return json.dumps({
-        "ok": True,
-        "status": "running",
-        "profile": profile,
-        "message": "Still working after 2 minutes; the answer will be posted to Talk.",
-    }, ensure_ascii=False)
+        os.killpg(proc.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    _log(root, caller=caller, profile=profile, status="timeout", seconds=seconds, exit=None, request=request[:200])
+    threading.Timer(5.0, shutil.rmtree, args=(job,), kwargs={"ignore_errors": True}).start()
+    return _fail(f"{profile} did not answer within {seconds:.0f} s", profile=profile, status="timeout")
 
 
 def _kanban_connect(kb):
@@ -374,7 +350,7 @@ def _delegate(args: dict) -> str:
         conn.close()
     return json.dumps({
         "ok": True, "card_id": card_id, "assignee": assignee, "title": title,
-        "message": f"Queued for {assignee}; the result will be posted to Talk when it finishes.",
+        "message": f"Queued for {assignee}; ask task_status for the result.",
     }, ensure_ascii=False)
 
 

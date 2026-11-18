@@ -38,19 +38,14 @@ require() {
   fi
 }
 
-TALK_DELIVER_SECRET=$(env_value "$ROOT/hermes-nextcloud-bridge/.env" TALK_DELIVER_SECRET)
-NEXTCLOUD_TALK_PROFILE_ROOMS=$(env_value "$ROOT/hermes-nextcloud-bridge/.env" NEXTCLOUD_TALK_PROFILE_ROOMS)
 LLAMA_API_KEY=$(env_value "$ROOT/llama-cpp/.env" LLAMA_API_KEY)
 MCP_STATIC_TOKEN=$(env_value "$ROOT/wger/.env" MCP_STATIC_TOKEN)
 PRODUCTION_MODEL=$(env_value "$ROOT/hermes/.env" HERMES_MODEL)
 HERMES_SLOT_OTHERS=$(env_value "$ROOT/hermes/.env" HERMES_SLOT_OTHERS)
-require "hermes-nextcloud-bridge/.env TALK_DELIVER_SECRET" "$TALK_DELIVER_SECRET"
-require "hermes-nextcloud-bridge/.env NEXTCLOUD_TALK_PROFILE_ROOMS" "$NEXTCLOUD_TALK_PROFILE_ROOMS"
 require "llama-cpp/.env LLAMA_API_KEY" "$LLAMA_API_KEY"
 require "wger/.env MCP_STATIC_TOKEN" "$MCP_STATIC_TOKEN"
 require "hermes/.env HERMES_MODEL" "$PRODUCTION_MODEL"
-export TALK_DELIVER_SECRET NEXTCLOUD_TALK_PROFILE_ROOMS LLAMA_API_KEY \
-  MCP_STATIC_TOKEN PRODUCTION_MODEL HERMES_SLOT_OTHERS
+export LLAMA_API_KEY MCP_STATIC_TOKEN PRODUCTION_MODEL HERMES_SLOT_OTHERS
 echo "digest LLM model: $PRODUCTION_MODEL (hermes/.env HERMES_MODEL)"
 
 umask 077
@@ -64,26 +59,6 @@ import os
 import sys
 
 env = os.environ
-rooms = {}
-for entry in env["NEXTCLOUD_TALK_PROFILE_ROOMS"].split("|"):
-    profile, sep, token = entry.partition("=")
-    if sep and profile.strip() and token.strip():
-        rooms[profile.strip()] = token.strip()
-
-room_ids = {
-    "ai-news": "hdTalkAiNews0001",
-    "hf-models": "hdTalkHfModels01",
-    "llamacpp-vulkan": "hdTalkVulkan0001",
-    "llamacpp-rocm": "hdTalkRocm000001",
-    "selfhosted": "hdTalkSelfhost01",
-    "nextcloud": "hdTalkNextcloud1",
-    "calories": "hdTalkCalories01",
-}
-missing = sorted(set(room_ids) - set(rooms))
-if missing:
-    sys.exit(f"NEXTCLOUD_TALK_PROFILE_ROOMS has no room for: {', '.join(missing)}")
-
-
 # The digests share the slot of the other Hermes profiles (hermes/.env
 # HERMES_SLOT_OTHERS, default 2; 0 = primed ai-assistant, 1 = Hindsight), so
 # they never evict the assistant's warm prompt. For a range ("2-4") the first
@@ -115,17 +90,6 @@ creds = [
     {"id": "llamaCppOpenAi01", "name": "llama.cpp (local, OpenAI-compatible)", "type": "openAiApi",
      "data": {"apiKey": env["LLAMA_API_KEY"], "url": "http://llama-server:8080/v1", "header": False}},
 ]
-# Custom Auth adds the bearer header and merges room_token into the JSON body.
-for profile, cid in room_ids.items():
-    creds.append({
-        "id": cid,
-        "name": f"Hermes digest – Talk room {profile}",
-        "type": "httpCustomAuth",
-        "data": {"json": json.dumps({
-            "headers": {"Authorization": f"Bearer {env['TALK_DELIVER_SECRET']}"},
-            "body": {"room_token": rooms[profile]},
-        })},
-    })
 with open(sys.argv[1], "w") as handle:
     json.dump(creds, handle)
 PY

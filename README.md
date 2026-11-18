@@ -14,7 +14,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Web search MCP](web-search/README.md) | SearXNG-backed crawl-to-markdown MCP for Hermes | Private only | Not listed |
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
 | [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles (`hermes.${DOMAIN}/v1`), the browser-hosted Hermes Desktop at the hostname root, the web dashboard, and the relay for the Hermes-Relay Android app | `hermes.${DOMAIN}`, `hermes-api.${DOMAIN}`, `hermes-dash.${DOMAIN}`, `hermes-relay.${DOMAIN}` | AI |
-| [Hermes Nextcloud Talk bridge](hermes-nextcloud-bridge/README.md) | Nextcloud Talk bot and delivery endpoint for Hermes | Private only | Not listed |
 | [Hindsight](hindsight/README.md) | Shared long-term agent memory for the Hermes profiles (internal API only, no internet; embeddings on llama-classifier, retain/reflect on llama-server) | Private only | Not listed |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
@@ -22,7 +21,7 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Loki](loki/README.md) | Log aggregation | `loki.${DOMAIN}` | Monitoring |
 | [Maps](maps/README.md) | Greece-only Valhalla routing and lean Pelias search, no web page (backend for Cardinal / Murena Maps search and directions) | `maps.${DOMAIN}` | Home |
 | [Mealie](mealie/README.md) | Recipe and meal planning | `mealie.${DOMAIN}` | Food |
-| [n8n](n8n/README.md) | Workflow automation; runs the scheduled Hermes Talk digests | `n8n.${DOMAIN}` | Automation |
+| [n8n](n8n/README.md) | Workflow automation; runs the scheduled Hermes digest workflows | `n8n.${DOMAIN}` | Automation |
 | [n8n drift runner](n8n-drift-runner/README.md) | Webhook runner that Grafana triggers to check n8n workflows against git (no cron, no Docker socket) | Private only (internal `n8n-drift` network) | Not listed |
 | [Nextcloud](nextcloud/README.md) | File sync and collaboration | `nextcloud.${DOMAIN}` | Cloud |
 | [Node Exporter](node-exporter/README.md) | Host metrics for Prometheus | Private only | Not listed |
@@ -80,7 +79,7 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   generates API tokens, secret keys and internal passwords in the format the
   example documents (default `openssl rand -hex 32`), keeps secrets that must
   match across stacks identical (for example `LLAMA_API_KEY`,
-  `TALK_DELIVER_SECRET`, `N8N_MCP_AUTH_TOKEN`), and asks for
+  `N8N_MCP_AUTH_TOKEN`), and asks for
   usernames, e-mail addresses, login passwords (empty answer generates one) and
   the tokens only an application UI can issue (Enter skips; a hint says where
   to create each). It never changes a value that is already set (anything but
@@ -103,8 +102,7 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   new random hex values in every stack `.env` that holds them, without printing
   any value, then prints (or with `--restart` runs) the stack recreates and the
   n8n credential re-import. Keys issued by other services (`HF_TOKEN`,
-  `N8N_API_KEY`, the wger token, the Nextcloud app password, the Talk
-  bot secret) and stateful secrets (database passwords, encryption keys) are
+  `N8N_API_KEY`, the wger token, the Nextcloud app password) and stateful secrets (database passwords, encryption keys) are
   rotated by hand.
 - `scripts/llama-router.sh status|reload|load M|unload M|loaded|presets|vram`
   talks to the llama.cpp router through `docker exec llama-server curl` with

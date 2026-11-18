@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Hermes digest – calories-report\n22:00 Europe/Athens → Talk room of profile calories.\n\nOne stateless JSON-RPC call to the wger MCP server (tools/call nutrition_summary for today). Totals plus the logged items. Template only, no LLM. Nothing logged today = no message.\n\nManual run = dry run: the result is returned, nothing is posted. Another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. The workflow is its own error workflow: a failed scheduled run posts one line to the room. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
+        "content": "## Hermes digest – calories-report\n22:00 Europe/Athens.\n\nOne stateless JSON-RPC call to the wger MCP server (tools/call nutrition_summary for today). Totals plus the logged items. Template only, no LLM. Nothing logged today = no message.\n\nNothing is delivered anywhere (the Nextcloud Talk delivery was removed): every run returns the composed message in its execution result, and another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
         "height": 300,
         "width": 520
       },
@@ -139,74 +139,9 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "83a51566-6dcb-57a6-9aac-079d323155a2",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "60d3f411-6189-5df6-a359-6f031740d3a2",
-      "name": "Deliver?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        960,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "58c632d7-e19b-58ea-9b44-5784bc967305",
-      "name": "Deliver to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1200,
-        200
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkCalories01",
-          "name": "Hermes digest – Talk room calories"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Not delivered: a dry run, or nothing to report. Returned to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'dry run' : 'nothing to report' } }];\n"
+        "jsCode": "// Nothing is delivered (the Talk delivery was removed): the composed message is\n// only returned, to the execution log or to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'not delivered (no delivery configured)' : 'nothing to report' } }];\n"
       },
       "id": "684260aa-6946-545f-8a8e-b9c38c060df4",
       "name": "Result",
@@ -216,97 +151,6 @@
         1200,
         420
       ]
-    },
-    {
-      "parameters": {},
-      "id": "5f81be5e-36d8-513e-8144-57c04ba91433",
-      "name": "On failure",
-      "type": "n8n-nodes-base.errorTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "// This workflow is its own error workflow. Only failures of scheduled runs\n// are posted; manual runs and dry runs show the error in n8n instead.\nconst e = $input.first().json;\nconst execution = e.execution || {};\nconst mode = String(execution.mode || '');\nconst node = execution.lastNodeExecuted || execution.error?.node?.name || 'unknown node';\nconst reason = String(execution.error?.message || execution.error?.description || 'unknown error').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst message = `**${\"calories-report\"} digest failed** (n8n, node \"${node}\"): ${reason}`;\nreturn [{ json: { message, deliver: mode === 'trigger' || mode === 'webhook', mode } }];\n"
-      },
-      "id": "357a61dc-3fad-5f67-82c9-c6781e66f46c",
-      "name": "Failure notice",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        240,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "0725c5cb-144d-5f23-abcf-571144df803e",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "1f602dc7-d779-5be7-a6a6-5aeb1e07b2a1",
-      "name": "Scheduled run?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        480,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "a9def535-8efc-5b17-96e7-79ca66f75716",
-      "name": "Post failure to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        720,
-        900
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkCalories01",
-          "name": "Hermes digest – Talk room calories"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -369,58 +213,7 @@
       "main": [
         [
           {
-            "node": "Deliver?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deliver?": {
-      "main": [
-        [
-          {
-            "node": "Deliver to Talk",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "On failure": {
-      "main": [
-        [
-          {
-            "node": "Failure notice",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Failure notice": {
-      "main": [
-        [
-          {
-            "node": "Scheduled run?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Scheduled run?": {
-      "main": [
-        [
-          {
-            "node": "Post failure to Talk",
             "type": "main",
             "index": 0
           }
@@ -431,7 +224,6 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "errorWorkflow": "hermes-digest-calories-report",
     "callerPolicy": "workflowsFromSameOwner",
     "saveManualExecutions": true
   },

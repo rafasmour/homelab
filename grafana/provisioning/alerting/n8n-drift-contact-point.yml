@@ -1,0 +1,45 @@
+apiVersion: 1
+
+# The only provisioned contact point: the "n8n drift runner" webhook (bearer
+# N8N_DRIFT_WEBHOOK_SECRET from grafana/.env). Rules labelled
+# n8n_drift_run="true" go only there.
+#
+# There is no other notification channel: every other alert goes to the root
+# policy's receiver, Grafana's built-in "grafana-default-email" contact point,
+# which has no address configured, so those alerts are evaluated and visible in
+# the Grafana UI but notify nobody. Add a contact point and point the root
+# policy at it to be notified.
+
+contactPoints:
+  # n8n-drift-runner (n8n-drift-runner stack, network n8n-drift). Starts one
+  # n8n/scripts/check-workflow-drift.sh run; the runner ignores the body.
+  - orgId: 1
+    name: n8n drift runner
+    receivers:
+      - uid: n8n-drift-runner
+        type: webhook
+        disableResolveMessage: true
+        settings:
+          url: http://n8n-drift-runner:8791/run
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $N8N_DRIFT_WEBHOOK_SECRET
+
+policies:
+  - orgId: 1
+    receiver: grafana-default-email
+    group_by: ["grafana_folder", "alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h
+    routes:
+      # Rules labelled n8n_drift_run="true" only trigger the n8n drift runner.
+      # repeat_interval makes the alert re-trigger a run every 30m while it
+      # stays firing.
+      - receiver: n8n drift runner
+        object_matchers:
+          - ["n8n_drift_run", "=", "true"]
+        group_by: ["..."]
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 30m

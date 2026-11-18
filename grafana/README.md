@@ -10,11 +10,11 @@ Ensure `webgateway` exists, copy `.env.example` to `.env`, set the admin passwor
 
 The provisioned **Homelab / Container Health** dashboard shows every Uptime Kuma Docker monitor and maps its current `monitor_status` value to a color-coded health state.
 
-## Alerting to Nextcloud Talk
+## Alerting
 
-Alerts are provisioned from `provisioning/alerting/` and posted by the Hermes bot into the **Grafana alerts** Talk room (🚨, red) through `http://hermes-nextcloud-bridge:8788/deliver`. Grafana and the bridge share the `webgateway` network.
+Alerts are provisioned from `provisioning/alerting/`. **No notification channel is provisioned:** the Nextcloud Talk contact point was removed together with the Talk bridge, so alerts are evaluated and shown in the Grafana UI but notify nobody. The root notification policy uses Grafana's built-in `grafana-default-email` contact point (no address set). Add a contact point of your choice in `provisioning/alerting/` and point the root policy at it to be notified.
 
-- `talk-contact-point.yml`: the `Nextcloud Talk` webhook contact point (Bearer `TALK_DELIVER_SECRET`, custom JSON payload with `room_token` = `TALK_ALERTS_ROOM`), the message template, and the notification policy. Warnings repeat every 12 hours, critical alerts (stopped, restarting or unhealthy containers included) every hour as reminders, until resolved.
+- `n8n-drift-contact-point.yml`: the `n8n drift runner` webhook contact point (Bearer `N8N_DRIFT_WEBHOOK_SECRET`) and the notification policy: rules labelled `n8n_drift_run="true"` go only there, everything else goes to the root receiver. The previously provisioned `Nextcloud Talk` and `Self-heal` contact points stay in Grafana's database until you delete them in the UI or API; nothing routes to them any more.
 - `homelab-rules.yml`: 28 Grafana-managed rules in the **Homelab alerts** folder.
 
 | Group | Rules |
@@ -28,7 +28,7 @@ Alerts are provisioned from `provisioning/alerting/` and posted by the Hermes bo
 
 Not covered: EDAC memory errors and RAID (no such devices), and host network links (node-exporter runs in its own network namespace, so its `eth0` is the container's).
 
-Rules and the contact point are file-provisioned, so they are read-only in the UI; edit the YAML and restart Grafana. Copy `TALK_DELIVER_SECRET` from `hermes-nextcloud-bridge/.env` and the room token into `.env`. To create the room on a new install, see `hermes-nextcloud-bridge/README.md` (one room per profile).
+Rules and the contact point are file-provisioned, so they are read-only in the UI; edit the YAML and restart Grafana.
 
 ## Backup and important notes
 

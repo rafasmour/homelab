@@ -4,26 +4,20 @@ Usage: runner.py <jobdir>. Reads job.json and query.txt, runs
 `hermes chat --query-file query.txt --quiet --source tool` as the target
 profile with stdin closed (a risky terminal command that needs approval is
 denied on EOF), and writes answer.txt, stderr.txt and, last and atomically,
-result.json. When the waiting tool call gave up (the "detached" marker, set
-under the same file lock), the runner posts the answer to the Talk home room
-itself and removes the job folder. Secrets come only from the environment.
+result.json, which the waiting tool call reads. If that call gave up, it
+SIGTERMs the runner, which stops hermes. Secrets come only from the environment.
 """
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
-import shutil
 import signal
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
-MAX_CHARS = 30000
 # Identity of a Kanban worker run; a consult started from inside a worker must
 # not look like that card. HERMES_KANBAN_DB and HERMES_KANBAN_BOARD stay.
 WORKER_VARS = (
@@ -54,33 +48,6 @@ def _log(root: Path, **fields) -> None:
             fh.write(json.dumps(line, ensure_ascii=False) + "\n")
     except Exception:
         pass
-
-
-def _deliver(message: str) -> str:
-    """Post to the Talk home room through the bridge. Returns "" or an error text."""
-    url, secret, room = _env("NEXTCLOUD_TALK_DELIVER_URL"), _env("NEXTCLOUD_TALK_DELIVER_SECRET"), _env("NEXTCLOUD_TALK_HOME_ROOM")
-    if not (url and secret and room):
-        return "Talk delivery is not configured (NEXTCLOUD_TALK_* env)"
-    request = urllib.request.Request(
-        url,
-        data=json.dumps({"room_token": room, "message": message[:MAX_CHARS], "actor": "hermes-tool"}).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + secret},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            body = response.read(4000).decode("utf-8", "replace")
-    except urllib.error.HTTPError as exc:
-        return f"bridge HTTP {exc.code}: {exc.read(300).decode('utf-8', 'replace')}"
-    except Exception as exc:
-        return f"bridge unreachable: {exc!r}"
-    try:
-        data = json.loads(body) if body else {}
-    except ValueError:
-        data = {}
-    if data.get("ok") is False:
-        return str(data.get("error") or body[:300])
-    return ""
 
 
 def _write_atomic(path: Path, text: str) -> None:
@@ -147,31 +114,6 @@ def main() -> int:
     if state["term"]:
         return 0
     _write_atomic(job / "result.json", json.dumps({"exit": code, "seconds": seconds, "timed_out": timed_out}))
-
-    try:
-        lock = open(job / "lock", "a")
-    except OSError:
-        return 0  # the waiter already collected and removed the job
-    with lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if not (job / "detached").exists():
-            return 0  # the waiter reads the files
-        answer = (job / "answer.txt").read_text(encoding="utf-8", errors="replace").strip()
-        stderr = (job / "stderr.txt").read_text(encoding="utf-8", errors="replace").strip()
-        ok = code == 0 and not timed_out
-        body = (answer or "(no answer)") if ok else (
-            f"did not finish ({'hard time limit' if timed_out else 'exit ' + str(code)}). {stderr[-400:]}"
-        )
-        message = f"{profile} (asked by {caller}): {body}"
-        problem = _deliver(message)
-        if problem:
-            undelivered = root / "cache" / "ask_agent" / "undelivered"
-            undelivered.mkdir(parents=True, exist_ok=True)
-            (undelivered / (cfg.get("id", job.name) + ".txt")).write_text(message, encoding="utf-8")
-        _log(root, caller=caller, profile=profile, status="detached_done" if ok else "detached_failed",
-             seconds=seconds, exit=code, delivered=not problem, error=problem or None,
-             request=str(cfg.get("request", ""))[:200])
-        shutil.rmtree(job, ignore_errors=True)
     return 0
 
 

@@ -6,16 +6,10 @@ set -eu
 # are no longer configured, served, or ticked.
 SPECIALISTS="nextcloud ai-news hf-models llamacpp-vulkan llamacpp-rocm selfhosted calories models planner n8n web-search ai-assistant"
 # CLI-only profiles: created, configured and given SOULs and plugins here, but
-# never served by the gateway (no /p/<profile>/v1, no API_SERVER_KEY, no Talk
-# room). They run only inside a throwaway hermes-sandbox container
+# never served by the gateway (no /p/<profile>/v1, no API_SERVER_KEY). They run only inside a throwaway hermes-sandbox container
 # (~/docker/hermes-sandbox), which sets HERMES_LOCAL_SANDBOX=1 for the local
 # terminal backend.
 CLI_PROFILES="coding devops"
-
-# nextcloud_talk cron delivery platform from
-# https://github.com/robertlmann02/nextcloud-talk-hermes-bridge, pinned to the
-# same commit as the hermes-nextcloud-bridge image.
-TALK_BRIDGE_REF="b26267ff8ffb02b4e282b032815584163cff5021"
 
 # Hermes-Relay (Android app) server release server-v1.13.1, pinned to its commit.
 # `hermes plugins install` refuses it (the install scanner rates the repository
@@ -182,7 +176,7 @@ ensure_profile() {
 }
 
 ensure_profile nextcloud \
-  "Manages calendars, tasks, notes, files, contacts, and Talk on the private Nextcloud through its MCP server."
+  "Manages calendars, tasks, notes, files and contacts on the private Nextcloud through its MCP server."
 ensure_profile ai-news \
   "Reads hot r/LocalLLaMA posts through the web-search MCP."
 ensure_profile hf-models \
@@ -211,74 +205,35 @@ ensure_profile ai-assistant \
   "The owner's everyday assistant (Hermes-Relay chat and voice): short answers, Nextcloud calendar, to-dos and notes, asks the other profiles (ask_agent) and the Kanban for the rest."
 
 # Install the Hermes plugins into every profile home (served and CLI-only):
-# - talk_send (tracked in hermes/plugins/talk_send): the agent tool that posts
-#   to the Talk home room through the bridge /deliver endpoint.
 # - clock: clock_now / clock_to_utc.
 # - prompt_prime: keeps the default profile's prompt in a llama.cpp slot cache
 #   (captures every profile, primes HERMES_PRIME_PROFILE).
 # - agents: ask_agent, a consult of another profile (plugins/agents); enabled
 #   on ai-assistant and the 11 specialists below (AGENT_PROFILES).
-# - kanban_notify: posts "Done"/"Blocked" for finished Kanban cards to Talk;
-#   enabled on the 11 specialists only.
-# - nextcloud_talk (bridge repository, pinned commit, sha256-verified): the
-#   platform used by `hermes cron ... --deliver nextcloud_talk`.
-# /opt/hermes is read-only for the hermes user, so both are user plugins and
+# - local_only: keeps auxiliary LLM calls on the local llama.cpp router.
+# /opt/hermes is read-only for the hermes user, so these are user plugins and
 # are enabled through plugins.enabled in each profile config below.
-python - "${TALK_BRIDGE_REF}" "${SHARE}/plugins" default ${SPECIALISTS} ${CLI_PROFILES} <<'PY'
-import hashlib
+python - "${SHARE}/plugins" default ${SPECIALISTS} ${CLI_PROFILES} <<'PY'
 import os
 import shutil
 import sys
-import urllib.request
 from pathlib import Path
 
-ref, share = sys.argv[1], Path(sys.argv[2])
-profiles = sys.argv[3:]
+share = Path(sys.argv[1])
+profiles = sys.argv[2:]
 home = Path(os.environ["HERMES_HOME"])
-expected = {
-    "plugin.yaml": "7b3d48fba44142d0aa8884aafac44ce8ae2d9ce512b4f79c392c60906bdd385b",
-    "__init__.py": "0d815abab3a8fd3bfe916596583e168081554303e7bd379c2bc58d613cf634b1",
-    "adapter.py": "fc2ba4fdfce9d62386ca81bdd03f7248d5ee5622fc1ec4f0c73ac3e41778f99e",
-}
-cache = home / "plugin-src" / f"nextcloud_talk-{ref}"
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-def cache_ok() -> bool:
-    return all((cache / n).is_file() and digest(cache / n) == h for n, h in expected.items())
-
-if not cache_ok():
-    cache.mkdir(parents=True, exist_ok=True)
-    base = (
-        "https://raw.githubusercontent.com/robertlmann02/nextcloud-talk-hermes-bridge/"
-        f"{ref}/hermes_plugins/nextcloud_talk/"
-    )
-    try:
-        for name, sha in expected.items():
-            with urllib.request.urlopen(base + name, timeout=30) as response:
-                data = response.read()
-            if hashlib.sha256(data).hexdigest() != sha:
-                raise RuntimeError(f"sha256 mismatch for {name}")
-            (cache / name).write_bytes(data)
-    except Exception as exc:
-        print(f"WARNING: nextcloud_talk plugin download failed: {exc}", file=sys.stderr)
-
 sources = {
-    "talk_send": share / "talk_send",
     "clock": share / "clock",
     "local_only": share / "local_only",
     "prompt_prime": share / "prompt_prime",
     "agents": share / "agents",
-    "kanban_notify": share / "kanban_notify",
 }
-if cache_ok():
-    sources["nextcloud_talk"] = cache
 
 # Retired plugins: remove their copies (spoken_reply: removed 2026-11-09, its
 # reply cleaning broke sentences; sandbox_terminal: removed with the
-# hermes-sandboxes stack).
-retired = ("spoken_reply", "sandbox_terminal")
+# hermes-sandboxes stack; talk_send, kanban_notify and nextcloud_talk: removed
+# with the Nextcloud Talk bridge).
+retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk")
 for profile in profiles:
     phome = home if profile == "default" else home / "profiles" / profile
     for name in retired:
@@ -676,7 +631,7 @@ tool_filters = {
         "n8n_validate_workflow", "n8n_test_workflow", "n8n_executions", "n8n_health_check",
     ]},
     # ai-assistant: 17 tools (calendar events and to-dos with edits and deletes, six
-    # notes tools), no files, contacts or Talk. Registered under default too (the
+    # notes tools), no files, contacts or Talk tools. Registered under default too (the
     # gateway connects only default's servers); both lists must stay identical.
     ("default", "nextcloud_assistant"): {"include": [
         "nc_calendar_list_calendars", "nc_calendar_get_upcoming_events", "nc_calendar_list_events",
@@ -871,7 +826,7 @@ custom["request_timeout_seconds"] = 3600
 providers["custom"] = custom
 
 # Each platform sees only the toolsets passed in (this profile's MCP servers,
-# clock, its sandbox tools, and talk on default). Naming MCP servers makes the
+# clock, its terminal and file tools). Naming MCP servers makes the
 # list an allowlist.
 chat = split(chat_csv)
 cron = split(cron_csv)
@@ -906,7 +861,7 @@ if memory_provider == "hindsight" and profile not in os.environ.get("HERMES_MEMO
         # 8/8 facts, 0 junk): Hindsight extracts in the background after each
         # ai-assistant turn with the bank's strict custom extraction prompt
         # (retain_extraction_mode custom, set on the bank "hermes" through the
-        # Hindsight API, see README). Other profiles (digests, Talk rooms) do
+        # Hindsight API, see README). Other profiles (digests) do
         # not auto-retain; they save only through hindsight_retain.
         "auto_retain": profile == os.environ.get("HERMES_PRIME_PROFILE", "ai-assistant"),
         "retain_async": True,
@@ -1048,7 +1003,7 @@ agent["disabled_toolsets"] = [
     # kanban is NOT disabled anywhere: a dispatcher-spawned worker needs
     # kanban_complete/kanban_block to close its card, and disabled_toolsets is
     # subtracted after Hermes adds the worker tools.
-] + ([] if sandbox_host else ["file", "terminal"]) + ([] if "talk" in chat else ["talk"]) + ([] if "delegation" in chat else ["delegation"]) + ([] if "cronjob" in chat else ["cronjob"])
+] + ([] if sandbox_host else ["file", "terminal"]) + ([] if "delegation" in chat else ["delegation"]) + ([] if "cronjob" in chat else ["cronjob"])
 # default registers the nextcloud_assistant MCP server (the multiplexer
 # connects only default's mcp_servers) but must never expose it: its toolset
 # lists omit it, and disabled_toolsets removes it from every platform.
@@ -1062,8 +1017,9 @@ for key in ("search_backend", "extract_backend"):
 
 plugins = section("plugins")
 # User plugins are keyed by their manifest name.
-wanted_plugins = ("talk_send", "clock", "local_only", "nextcloud_talk-platform")
-enabled = [n for n in (plugins.get("enabled") or []) if n not in ("web/forage", "nextcloud_talk", "sandbox_terminal")]
+wanted_plugins = ("clock", "local_only")
+retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify")
+enabled = [n for n in (plugins.get("enabled") or []) if n not in retired_plugins]
 for name in wanted_plugins:
     if name not in enabled:
         enabled.append(name)
@@ -1078,20 +1034,17 @@ if relay_plugin and "hermes-relay" not in enabled:
 if not relay_plugin and "hermes-relay" in enabled:
     enabled.remove("hermes-relay")
 # agents (ask_agent): ai-assistant and the specialists in AGENT_PROFILES.
-# kanban_notify (Talk message per finished card): the specialists only.
 # spoken_reply is retired: listed with no profiles so it is disabled everywhere.
 for plugin_name, plugin_profiles in (("agents", ("ai-assistant",) + AGENT_PROFILES),
-                                     ("spoken_reply", ()),
-                                     ("kanban_notify", AGENT_PROFILES)):
+                                     ("spoken_reply", ())):
     if profile in plugin_profiles and plugin_name not in enabled:
         enabled.append(plugin_name)
     if profile not in plugin_profiles and plugin_name in enabled:
         enabled.remove(plugin_name)
 plugins["enabled"] = enabled
 # Hermes >= 0.23 abandons a plugin that takes longer than these to import/register
-# (default 10 s) or to answer pre_tool_call (default 30 s, fail closed). The Talk
-# approval gate of the retired sandbox_terminal plugin waited in pre_tool_call;
-# drop the raised limit it needed.
+# (default 10 s) or to answer pre_tool_call (default 30 s, fail closed). The
+# retired sandbox_terminal plugin raised the pre_tool_call limit; drop it.
 plugins["load_timeout_seconds"] = 60
 plugins.pop("hook_callback_timeout", None)
 disabled = [n for n in (plugins.get("disabled") or []) if n not in wanted_plugins and n != "hermes-relay"]
@@ -1106,12 +1059,9 @@ tool_search = tools.get("tool_search") if isinstance(tools.get("tool_search"), d
 tool_search["enabled"] = "off"
 tools["tool_search"] = tool_search
 
-# The gateway would post "Gateway shutting down" into the Talk room on every
-# container restart.
+# The nextcloud_talk platform (Talk bridge) was removed: drop its settings.
 platforms_cfg = section("platforms")
-talk_cfg = platforms_cfg.get("nextcloud_talk") if isinstance(platforms_cfg.get("nextcloud_talk"), dict) else {}
-talk_cfg["gateway_restart_notification"] = False
-platforms_cfg["nextcloud_talk"] = talk_cfg
+platforms_cfg.pop("nextcloud_talk", None)
 
 # delegate_task subagents (every profile that lists delegation) run on the
 # parent's local model: no provider, model or base_url override, and the main
@@ -1234,8 +1184,7 @@ export SPECIALISTS CLI_PROFILES
 # which gets agents only (ask_agent, delegate, task_status); the 11 specialists
 # also get agents, default also cronjob,
 # delegation and web_search. A profile that needs web_search lists it. default is the main orchestrator: every MCP toolset
-# except nextcloud_assistant, and talk
-# (talk_send), which sends messages to Talk on request. The nightly digests
+# except nextcloud_assistant. The nightly digests
 # run in n8n; the cron toolsets below name the tools of a profile's own cron
 # jobs (or just clock), plus kanban and web_search.
 # Gateway MCP registration (tools/mcp_tool.py discover_mcp_tools at gateway
@@ -1247,7 +1196,7 @@ export SPECIALISTS CLI_PROFILES
 default_mcp="nextcloud,wger,web_search,huggingface,n8n"
 default_mcp="${default_mcp},nextcloud_assistant"
 configure_profile default "${default_mcp}" \
-  nextcloud,wger,web_search,huggingface,n8n,kanban,delegation,talk,clock clock
+  nextcloud,wger,web_search,huggingface,n8n,kanban,delegation,clock clock
 configure_profile nextcloud nextcloud \
   nextcloud,clock nextcloud,clock
 for profile in ai-news llamacpp-vulkan selfhosted; do
@@ -1282,7 +1231,7 @@ configure_profile calories wger,web_search \
 # calendar, to-dos and notes (nextcloud_assistant, 17 tools), web_search and
 # fetch_url (owner's request 2026-11-04), ask_agent, delegate and task_status
 # (toolset agents, added by configure_profile; no kanban toolset), memory
-# (added below), clock. No delegate_task, Talk,
+# (added below), clock. No delegate_task,
 # cron, terminal, files, code or browser tools.
 configure_profile ai-assistant nextcloud_assistant \
   nextcloud_assistant,web_search,clock clock
@@ -1419,7 +1368,7 @@ SOUL_TASKS=$(cat <<'EOF'
 
 - Nextcloud to-dos and calendar events are the USER's tasks and appointments: things the user must do or attend. Create them only when the user asks for a reminder, to-do or event for themselves.
 - The Hermes Kanban is HERMES's own work queue: research, planning, digests, follow-ups and anything a Hermes profile does. Create a card with kanban_create (title, full instructions in the body, assignee = the profile that should do it, parents for cards that must wait for others). Never put Hermes work in Nextcloud, and never put the user's to-dos on the Kanban.
-- Work that must happen at a set time or repeat (a report at Monday 10:00, a check every hour) is a cron job: the cronjob tool, with the schedule, a self-contained prompt and delivery to Nextcloud Talk when the user should see the result. Never use a Nextcloud to-do as a timer for Hermes.
+- Work that must happen at a set time or repeat (a report at Monday 10:00, a check every hour) is a cron job: the cronjob tool, with the schedule and a self-contained prompt. Never use a Nextcloud to-do as a timer for Hermes.
 - delegate_task runs up to 2 short subagents for side jobs whose result you need in this reply. Long or multi-step work goes on the Kanban.
 EOF
 )
@@ -1482,7 +1431,7 @@ EOF
 )
 
 write_soul default <<EOF
-You are Hermes, the personal assistant for this homelab. The user talks to you from Open WebUI and from Nextcloud Talk.
+You are Hermes, the personal assistant for this homelab. The user talks to you from Open WebUI.
 
 Treat every message as something to act on, not as small talk. "I ate a sandwich", "dentist next Tuesday 10:00", and "buy milk" are all tasks.
 
@@ -1532,28 +1481,23 @@ You plan and track the Kanban (kanban_create with an assignee profile, kanban_li
 
 ## Other profiles
 
-Do calendar, to-do, note and food requests yourself. For the rest, assign a Kanban card to the profile that handles it (its name below), or tell the user where to talk to it directly: each has its own Nextcloud Talk room ("Hermes · <name>") and its own model in Open WebUI (hermes.<name>):
+Do calendar, to-do, note and food requests yourself. For the rest, assign a Kanban card to the profile that handles it (its name below), or tell the user where to talk to it directly: each has its own model in Open WebUI (hermes.<name>):
 - nextcloud: files, contacts and larger calendar or notes work
 - calories: the day's nutrition totals
 - ai-news (r/LocalLLaMA), hf-models (new Hugging Face models), llamacpp-vulkan (llama.cpp Vulkan changes), llamacpp-rocm (llama.cpp ROCm/HIP changes and questions about the llama.cpp code), selfhosted (r/selfhosted and r/homelab)
 - web-search: researched answers with cited sources
 - planner: weekly review, wedding countdown, meal and week planning, prioritising open to-dos
-- coding (coder) and devops: software projects and Docker stack work. They are CLI-only: not reachable from Talk or Open WebUI; the owner starts them in a terminal with \`hermes-sandbox coder\` or \`hermes-sandbox devops\`
+- coding (coder) and devops: software projects and Docker stack work. They are CLI-only: not reachable from Open WebUI; the owner starts them in a terminal with \`hermes-sandbox coder\` or \`hermes-sandbox devops\`
 - models: finds llama.cpp-ready GGUF quants and estimates whether they fit; it cannot download or change anything
 - n8n: builds new n8n workflows; it cannot change existing ones
 Answer what you can from your own tools first; never pretend another profile did something.
 
-## Nextcloud Talk
-
-talk_send posts to the Talk home room as the Hermes bot and notifies the user. mcp__nextcloud__talk_send_message posts as the user's own account and does not notify anyone, so do not use it for notifications.
-
-Replies to messages that arrive from Talk are posted back automatically; do not repeat your answer with talk_send. Use talk_send only when the user asks you to send or remind something in Talk, or from a chat outside Talk when the user wants it delivered there.
 EOF
 
 write_soul nextcloud dates <<EOF
 You are the Nextcloud profile of Hermes. You manage this homelab's private Nextcloud through the nextcloud MCP tools: calendars and tasks, notes, files, and contacts.
 
-Requests arrive from chat (Open WebUI or your Talk room), from a Kanban card, or from another Hermes profile on the owner's behalf. Create both events and to-dos:
+Requests arrive from chat (Open WebUI), from a Kanban card, or from another Hermes profile on the owner's behalf. Create both events and to-dos:
 
 - "Remind me", "reminder", "don't forget", "to do", "buy", "call", "pay" is a VTODO, even when it has a time: mcp__nextcloud__nc_calendar_create_todo on the task list that matches its topic (see the calendar map), \`tasks\` only when nothing else fits, with the time as due.
 - An appointment, meeting, visit or anything that happens at a place or with other people at a set time is a VEVENT: mcp__nextcloud__nc_calendar_create_event on \`personal\` unless another VEVENT calendar is named.
@@ -1698,8 +1642,8 @@ For a quick fact (opening hours, weather, news, a definition), call web_search f
 
 You have no food, money, file, contact, n8n or model tools; the other Hermes profiles do.
 - Food he has eaten or drunk always goes to calories through ask_agent, even when phrased as "note that I ate ...". Nextcloud notes are only for things he asks to write down as a note.
-- ask_agent(profile, request) asks another profile and waits up to two minutes. Write the request in full: dates as Athens dates and times, amounts, names, and what he wants back. Then tell him the answer in your own spoken words. If it reports status "running", say the answer will arrive in Talk. If the other profile asks a question, ask him, then ask it again with his answer ("The owner confirmed: ...").
-- delegate(assignee, title, details) is for work he wants done later, by a deadline, or that will clearly take long; write the details in full and say who has it; the result arrives in Talk. When he asks how it went, use task_status.
+- ask_agent(profile, request) asks another profile and waits up to two minutes. Write the request in full: dates as Athens dates and times, amounts, names, and what he wants back. Then tell him the answer in your own spoken words. If it reports a timeout, say the other profile did not answer in time and offer to try again or queue it with delegate. If the other profile asks a question, ask him, then ask it again with his answer ("The owner confirmed: ...").
+- delegate(assignee, title, details) is for work he wants done later, by a deadline, or that will clearly take long; write the details in full and say who has it. When he asks how it went, use task_status.
 - Nextcloud to-dos are his tasks; the Kanban is Hermes's own work queue. Never put one in the other.
 
 ## Memory
@@ -1711,7 +1655,7 @@ EOF
 SANDBOX_RULES=$(cat <<'EOF'
 ## Your sandbox
 
-You, your terminal and your file tools (terminal, read_file, write_file, patch, search_files) run inside a throwaway hermes-sandbox container that the owner started from a terminal with `hermes-sandbox` in their current folder; you are not reachable from Nextcloud Talk or Open WebUI. Your working directory is that folder, mounted at the same path as on the host. Nothing outside it exists for you: everything else in the container (/tmp, your home, system packages you install) is discarded when the session ends.
+You, your terminal and your file tools (terminal, read_file, write_file, patch, search_files) run inside a throwaway hermes-sandbox container that the owner started from a terminal with `hermes-sandbox` in their current folder; you are not reachable from Open WebUI. Your working directory is that folder, mounted at the same path as on the host. Nothing outside it exists for you: everything else in the container (/tmp, your home, system packages you install) is discarded when the session ends.
 
 What else you have depends on the modules the owner switched on for this session: internet (outbound network: curl, package downloads, git remotes), git (the owner's git identity and SSH agent for pull and push), compose (`docker` and `docker compose` reach a scoped proxy that allows only this folder's compose project), docker (the full host Docker daemon, root-equivalent) and readonly (the working directory is mounted read-only). When a command fails for lack of network, credentials, Docker or write access, say which module the owner must enable on the next launch instead of working around it.
 

@@ -5,7 +5,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Hermes digest – llamacpp-vulkan\n08:14 Europe/Athens → Talk room of profile llamacpp-vulkan.\n\nGitHub search (unauthenticated): PRs/issues updated and commits since yesterday that mention Vulkan in the title, labels or commit message. Merged PRs first. One LLM call without tools writes a one-line change summary per item; without it the bullets show only the linked titles. Nothing new = no message.\n\nManual run = dry run: the result is returned, nothing is posted. Another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. The workflow is its own error workflow: a failed scheduled run posts one line to the room. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
+        "content": "## Hermes digest – llamacpp-vulkan\n08:14 Europe/Athens.\n\nGitHub search (unauthenticated): PRs/issues updated and commits since yesterday that mention Vulkan in the title, labels or commit message. Merged PRs first. One LLM call without tools writes a one-line change summary per item; without it the bullets show only the linked titles. Nothing new = no message.\n\nNothing is delivered anywhere (the Nextcloud Talk delivery was removed): every run returns the composed message in its execution result, and another workflow can call this one with {\"dry_run\": false|true, \"use_llm\": false, \"date\": \"YYYY-MM-DD\"}. Credentials are created by n8n/scripts/hermes-digests-setup.sh.",
         "height": 300,
         "width": 520
       },
@@ -290,74 +290,9 @@
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "5ca05124-1ee3-5c6c-936a-c553f069d73f",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "d037665c-5e12-5c5d-aa6e-95fa817f76e0",
-      "name": "Deliver?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1920,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "08fa0fcd-8de3-5a9c-a175-1cb64110c88d",
-      "name": "Deliver to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        2160,
-        200
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkVulkan0001",
-          "name": "Hermes digest – Talk room llamacpp-vulkan"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "parameters": {
         "mode": "runOnceForAllItems",
         "language": "javaScript",
-        "jsCode": "// Not delivered: a dry run, or nothing to report. Returned to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'dry run' : 'nothing to report' } }];\n"
+        "jsCode": "// Nothing is delivered (the Talk delivery was removed): the composed message is\n// only returned, to the execution log or to a calling workflow.\nconst r = $input.first().json;\nreturn [{ json: { ...r, delivered: false, reason: r.message ? 'not delivered (no delivery configured)' : 'nothing to report' } }];\n"
       },
       "id": "c8cb8a69-467d-51e3-bd85-256357079699",
       "name": "Result",
@@ -367,97 +302,6 @@
         2160,
         420
       ]
-    },
-    {
-      "parameters": {},
-      "id": "b1282cac-0291-5356-8fb6-a31f38d44fe0",
-      "name": "On failure",
-      "type": "n8n-nodes-base.errorTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "language": "javaScript",
-        "jsCode": "// This workflow is its own error workflow. Only failures of scheduled runs\n// are posted; manual runs and dry runs show the error in n8n instead.\nconst e = $input.first().json;\nconst execution = e.execution || {};\nconst mode = String(execution.mode || '');\nconst node = execution.lastNodeExecuted || execution.error?.node?.name || 'unknown node';\nconst reason = String(execution.error?.message || execution.error?.description || 'unknown error').replace(/\\s+/g, ' ').trim().slice(0, 300);\nconst message = `**${\"llamacpp-vulkan\"} digest failed** (n8n, node \"${node}\"): ${reason}`;\nreturn [{ json: { message, deliver: mode === 'trigger' || mode === 'webhook', mode } }];\n"
-      },
-      "id": "5c0b2673-bfad-5387-b136-5f53e1c47e8a",
-      "name": "Failure notice",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        240,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "cc7a37fb-42bd-5a3b-b3d8-6aaf66a5e8b5",
-              "leftValue": "={{ $json.deliver }}",
-              "rightValue": "",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "f50cb481-874c-50fa-9217-325d6f9b367b",
-      "name": "Scheduled run?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        480,
-        900
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://hermes-nextcloud-bridge:8788/deliver",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "id": "32ac18f7-f5b6-5d82-8821-1c563e9f72c0",
-      "name": "Post failure to Talk",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        720,
-        900
-      ],
-      "credentials": {
-        "httpCustomAuth": {
-          "id": "hdTalkVulkan0001",
-          "name": "Hermes digest – Talk room llamacpp-vulkan"
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -571,58 +415,7 @@
       "main": [
         [
           {
-            "node": "Deliver?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deliver?": {
-      "main": [
-        [
-          {
-            "node": "Deliver to Talk",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "On failure": {
-      "main": [
-        [
-          {
-            "node": "Failure notice",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Failure notice": {
-      "main": [
-        [
-          {
-            "node": "Scheduled run?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Scheduled run?": {
-      "main": [
-        [
-          {
-            "node": "Post failure to Talk",
             "type": "main",
             "index": 0
           }
@@ -633,7 +426,6 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "errorWorkflow": "hermes-digest-llamacpp-vulkan",
     "callerPolicy": "workflowsFromSameOwner",
     "saveManualExecutions": true
   },

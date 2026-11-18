@@ -1,5 +1,6 @@
-# Homelab alert rules (Grafana-managed), routed to Nextcloud Talk by
-# talk-contact-point.yml. Thresholds follow the Ryzen 1800X Tdie limit
+# Homelab alert rules (Grafana-managed). No notification channel is
+# provisioned (see n8n-drift-contact-point.yml); the alerts show in the Grafana
+# UI. Thresholds follow the Ryzen 1800X Tdie limit
 # (Tjmax 95 °C; Tctl reads 20 °C high, so temp2/Tdie is used), the hardware's
 # own node_hwmon_temp_crit_celsius for GPU and NVMe, and common node_exporter
 # alert practice (disk < 10/5 %, memory < 10/5 %, swap > 80 %, OOM kills), plus container
