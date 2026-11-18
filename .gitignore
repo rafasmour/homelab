@@ -60,7 +60,6 @@
 !openwebui/
 !pi-hole/
 !prometheus/
-!reactive-resume/
 !searxng/
 !self-heal/
 !speech/
@@ -129,8 +128,6 @@ open-telemetry/data/
 openwebui/data/
 pi-hole/etc-pihole/
 prometheus/data/
-reactive-resume/data/
-reactive-resume/postgres/
 searxng/config/
 searxng/data/
 searxng/valkey/

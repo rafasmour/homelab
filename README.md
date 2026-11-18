@@ -35,7 +35,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [OpenTelemetry Collector](open-telemetry/README.md) | Docker log collection and OTLP ingestion | Private only | Not listed |
 | [Pi-hole](pi-hole/README.md) | Network-wide DNS filtering | `pihole.${DOMAIN}` | Management |
 | [Prometheus](prometheus/README.md) | Metrics collection and querying | `prometheus.${DOMAIN}` | Monitoring |
-| [Reactive Resume](reactive-resume/README.md) | Resume builder | `resume.${DOMAIN}` | Productivity |
 | [SearXNG](searxng/README.md) | Privacy-respecting metasearch | `searxng.${DOMAIN}` | Search |
 | [Self-heal](self-heal/README.md) | Grafana alerts diagnosed by the read-only Hermes `devops-diagnose` profile (host, container, metric and log tools); container restarts only after approval in Talk (`fix`, optional TOTP) | Private only | Not listed |
 | [Speech](speech/README.md) | CPU speech-to-text (Parakeet, Greek Parakeet, automatic English/Greek) and GPU text-to-speech (audio.cpp: Supertonic, OmniVoice, Kokoro, Phonon) through an OpenAI-compatible gateway, plus a voice tester | `speech.${DOMAIN}` | AI |

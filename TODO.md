@@ -29,7 +29,6 @@ Use this checklist for a fresh installation. Complete the shared prerequisites b
 
 - [X] [Excalidraw](excalidraw/README.md): deploy the client and add upstream authentication if the route should be private.
 - [X] [Nextcloud](nextcloud/README.md): configure database credentials, complete the browser setup wizard, and configure backups.
-- [X] [Reactive Resume](reactive-resume/README.md): generate secrets, create the owner, and disable public signups.
 
 ## Development and automation
 
