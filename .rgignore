@@ -13,7 +13,6 @@
 immich/library/
 immich/model-cache/
 llama-cpp/models/*/
-llama-cpp-classifier/models/*/
 llama.cpp/
 nextcloud/html/
 nextcloud/mcp-data/

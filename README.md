@@ -21,7 +21,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
 | [llama.cpp](llama-cpp/README.md) | ROCm model router with an OpenAI-compatible API, plus a Hugging Face GGUF download UI | `ai.${DOMAIN}`, `models.${DOMAIN}` | AI |
-| [llama.cpp classifiers](llama-cpp-classifier/README.md) | CPU router for decision models | `classify.${DOMAIN}` | AI |
 | [Loki](loki/README.md) | Log aggregation | `loki.${DOMAIN}` | Monitoring |
 | [Maps](maps/README.md) | Greece-only Valhalla routing and lean Pelias search, no web page (backend for Cardinal / Murena Maps search and directions) | `maps.${DOMAIN}` | Home |
 | [Mealie](mealie/README.md) | Recipe and meal planning | `mealie.${DOMAIN}` | Food |

@@ -78,7 +78,7 @@ services:
       # these paths inside their sandbox (hermes-sandboxes), never in here.
       # cache/audio: where text_to_speech writes its clips (outside every other
       # root, so spoken replies were refused).
-      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/llama-cpp-classifier:/home/hermes/.hermes/cache/audio
+      HERMES_WRITE_SAFE_ROOT: /opt/data:/work:/homelab:/llama-cpp:/home/hermes/.hermes/cache/audio
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_PORT: "8642"

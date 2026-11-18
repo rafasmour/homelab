@@ -100,7 +100,7 @@ All profiles use `HERMES_MODEL`. Each profile gets only the tools its job needs:
 | default | nextcloud, wger, web_search, huggingface, n8n (not diagnose) | same, plus talk, clock | clock | Personal assistant and orchestrator for Open WebUI and Talk |
 | nextcloud | nextcloud (29 tools by explicit name: calendar and to-do read/create/update/delete, notes create/search/get/append/update, 8 WebDAV, 3 contacts) | nextcloud, clock | nextcloud, clock | Calendars, to-dos, notes, files; `morning-digest` |
 | ai-news | web_search | web_search, clock | web_search, clock | r/LocalLLaMA; `ai-news` |
-| hf-models | huggingface (`hub_repo_search`, `hub_repo_details`) | huggingface, terminal, file, clock | huggingface, clock | New Hugging Face text models; compares sizes with the served models in `/llama-cpp` (`sbx-hf-models`, read-write `llama-cpp` and `llama-cpp-classifier`); always passes an integer `limit` to `hub_repo_search`; `hf-models` |
+| hf-models | huggingface (`hub_repo_search`, `hub_repo_details`) | huggingface, terminal, file, clock | huggingface, clock | New Hugging Face text models; compares sizes with the served models in `/llama-cpp` (`sbx-hf-models`, read-write `llama-cpp`); always passes an integer `limit` to `hub_repo_search`; `hf-models` |
 | llamacpp-vulkan | web_search | web_search, clock | web_search, clock | llama.cpp Vulkan changes; `llamacpp-vulkan` |
 | llamacpp-rocm | web_search | web_search, terminal, file, clock | web_search, clock | llama.cpp ROCm/HIP changes (this server's backend) and llama.cpp code questions from a read-only clone (`sbx-llamacpp`, `/repo`); `llamacpp-rocm` |
 | selfhosted | web_search | web_search, clock | web_search, clock | r/selfhosted and r/homelab; `selfhosted` |
