@@ -87,8 +87,6 @@ services:
       WEB_SEARCH_MCP_TOKEN: "${WEB_SEARCH_MCP_TOKEN:?Set WEB_SEARCH_MCP_TOKEN in .env}"
       N8N_MCP_AUTH_TOKEN: "${N8N_MCP_AUTH_TOKEN:?Set N8N_MCP_AUTH_TOKEN in .env}"
       MCP_STATIC_TOKEN: "${MCP_STATIC_TOKEN:?Set MCP_STATIC_TOKEN in .env}"
-      # Optional: bearer token of benchmark-mcp (models profile). Empty: no benchmark tools.
-      BENCHMARK_MCP_TOKEN: "${BENCHMARK_MCP_TOKEN:-}"
       # Cron delivery (--deliver nextcloud_talk) and the talk_send tool post
       # through hermes-nextcloud-bridge.
       NEXTCLOUD_TALK_DELIVER_URL: "${NEXTCLOUD_TALK_DELIVER_URL:-http://hermes-nextcloud-bridge:8788/deliver}"

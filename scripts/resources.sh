@@ -3,7 +3,7 @@
 # loading models or recreating stacks. Read-only.
 #
 #   scripts/resources.sh              VRAM, RAM/swap, router state, top containers by memory,
-#                                     stopped/restarting containers, benchmark lock and leftovers
+#                                     stopped/restarting containers and leftovers
 #   scripts/resources.sh --short      VRAM, RAM/swap and loaded models only
 #
 # VRAM is read from /sys/class/drm/card*/device/mem_info_vram_* (the card with
@@ -31,7 +31,5 @@ echo; echo "Top containers by memory:"
 docker stats --no-stream --format '{{.MemUsage}}\t{{.Name}}' | sort -t/ -k1 -h -r | head -8 | awk -F'\t' '{ printf "  %-22s %s\n", $1, $2 }'
 echo; echo "Containers not running (exited, created, restarting, dead):"
 docker ps -a --filter status=exited --filter status=created --filter status=restarting --filter status=dead --format '  {{.Names}}\t{{.Status}}\t{{.Image}}' || true
-echo; echo "Benchmark:"
-[ -e "$ROOT/benchmark/reports/.running.lock" ] && echo "  lock present (benchmark/reports/.running.lock)" || echo "  no lock"
-docker exec benchmark sh -c 'ps -eo pid,etime,args | grep -E "[c]hrome|[s]andbox|[m]ain.js" | cut -c1-120' 2>/dev/null | sed 's/^/  proc: /' || true
+echo
 docker ps --filter name=sandbox --filter name=hermes-run --format '  leftover? {{.Names}} {{.Status}}' 2>/dev/null || true

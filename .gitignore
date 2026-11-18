@@ -7,7 +7,6 @@
 !README.md
 !TODO.md
 !ideas.md
-!after-benchmark.md
 !.rgignore
 !scripts/
 !scripts/update-domain.sh
@@ -17,10 +16,8 @@
 !scripts/clear-model-caches.sh
 !scripts/llama-router.sh
 !scripts/production-model.sh
-!scripts/bench.sh
 !scripts/install-cli.sh
 !bin/
-!bin/bench
 !bin/sandbox
 !bin/lab
 !scripts/hf-find.sh
@@ -31,7 +28,6 @@
 
 # Supported service folders. Add a matching `!service-name/` entry when a new
 # stack is created. Files inside remain ignored unless allowlisted separately.
-!benchmark/
 !docker-state-exporter/
 !databases/
 !excalidraw/
@@ -81,9 +77,6 @@ affine/config/
 affine/postgres/
 affine/redis/
 affine/storage/
-benchmark/data/
-benchmark/reports/
-benchmark/ui-credentials.txt
 grafana/data/
 hermes/data/
 hermes-nextcloud-bridge/data/
@@ -252,42 +245,6 @@ wger/static/
 !speech/tools/
 !speech/tools/fix_convinteger.py
 
-!benchmark/Dockerfile
-!benchmark/package.json
-!benchmark/api.js
-!benchmark/test/
-!benchmark/test/*.js
-!benchmark/mcp/
-!benchmark/mcp/Dockerfile
-!benchmark/mcp/requirements.txt
-!benchmark/mcp/server.py
-!benchmark/mcp/tests/
-!benchmark/mcp/tests/*.py
-!benchmark/main.js
-!benchmark/lib/
-!benchmark/lib/*.js
-!benchmark/lib/*.py
-!benchmark/benchmarks/
-!benchmark/benchmarks/hermes/
-!benchmark/benchmarks/hermes/*.js
-!benchmark/benchmarks/hermes/tasks/
-!benchmark/benchmarks/hermes/tasks/*.md
-!benchmark/benchmarks/stt/
-!benchmark/benchmarks/stt/*.js
-!benchmark/benchmarks/stt/models.json
-!benchmark/benchmarks/tts/
-!benchmark/benchmarks/tts/*.js
-!benchmark/benchmarks/tts/voices.json
-!benchmark/.dockerignore
-!benchmark/ui/
-!benchmark/ui/Dockerfile
-!benchmark/ui/.dockerignore
-!benchmark/ui/server.js
-!benchmark/ui/public/
-!benchmark/ui/public/index.html
-!benchmark/ui/public/app.js
-!benchmark/ui/public/style.css
-!benchmark/ui/public/favicon.svg
 
 # Existing tracked `.gitkeep` files remain tracked automatically. Their runtime
 # parent directories are deliberately not unignored so Git never scans data.

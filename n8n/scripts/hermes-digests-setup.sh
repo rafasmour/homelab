@@ -4,8 +4,8 @@
 # publishes them and restarts n8n so the schedules are registered.
 #
 # Secrets are read from the other stacks' ignored .env files and never
-# printed. The digests' LLM model is Hermes' production model, PRODUCTION_MODEL
-# in benchmark/.env (scripts/production-model.sh keeps it current and re-runs
+# printed. The digests' LLM model is Hermes' production model, HERMES_MODEL
+# in hermes/.env (scripts/production-model.sh keeps it current and re-runs
 # this script with --credentials-only after a switch). The credential JSON exists only in a mode-600 temporary file and
 # inside the container for the duration of the import.
 #
@@ -42,16 +42,16 @@ TALK_DELIVER_SECRET=$(env_value "$ROOT/hermes-nextcloud-bridge/.env" TALK_DELIVE
 NEXTCLOUD_TALK_PROFILE_ROOMS=$(env_value "$ROOT/hermes-nextcloud-bridge/.env" NEXTCLOUD_TALK_PROFILE_ROOMS)
 LLAMA_API_KEY=$(env_value "$ROOT/llama-cpp/.env" LLAMA_API_KEY)
 MCP_STATIC_TOKEN=$(env_value "$ROOT/wger/.env" MCP_STATIC_TOKEN)
-PRODUCTION_MODEL=$(env_value "$ROOT/benchmark/.env" PRODUCTION_MODEL)
+PRODUCTION_MODEL=$(env_value "$ROOT/hermes/.env" HERMES_MODEL)
 HERMES_SLOT_OTHERS=$(env_value "$ROOT/hermes/.env" HERMES_SLOT_OTHERS)
 require "hermes-nextcloud-bridge/.env TALK_DELIVER_SECRET" "$TALK_DELIVER_SECRET"
 require "hermes-nextcloud-bridge/.env NEXTCLOUD_TALK_PROFILE_ROOMS" "$NEXTCLOUD_TALK_PROFILE_ROOMS"
 require "llama-cpp/.env LLAMA_API_KEY" "$LLAMA_API_KEY"
 require "wger/.env MCP_STATIC_TOKEN" "$MCP_STATIC_TOKEN"
-require "benchmark/.env PRODUCTION_MODEL" "$PRODUCTION_MODEL"
+require "hermes/.env HERMES_MODEL" "$PRODUCTION_MODEL"
 export TALK_DELIVER_SECRET NEXTCLOUD_TALK_PROFILE_ROOMS LLAMA_API_KEY \
   MCP_STATIC_TOKEN PRODUCTION_MODEL HERMES_SLOT_OTHERS
-echo "digest LLM model: $PRODUCTION_MODEL (benchmark/.env PRODUCTION_MODEL)"
+echo "digest LLM model: $PRODUCTION_MODEL (hermes/.env HERMES_MODEL)"
 
 umask 077
 TMP=$(mktemp)

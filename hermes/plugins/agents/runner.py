@@ -56,13 +56,9 @@ def _log(root: Path, **fields) -> None:
         pass
 
 
-def _room(benchmark: bool) -> str:
-    return _env("HERMES_BENCHMARK_TALK_ROOM") if benchmark else _env("NEXTCLOUD_TALK_HOME_ROOM")
-
-
-def _deliver(message: str, benchmark: bool) -> str:
+def _deliver(message: str) -> str:
     """Post to the Talk home room through the bridge. Returns "" or an error text."""
-    url, secret, room = _env("NEXTCLOUD_TALK_DELIVER_URL"), _env("NEXTCLOUD_TALK_DELIVER_SECRET"), _room(benchmark)
+    url, secret, room = _env("NEXTCLOUD_TALK_DELIVER_URL"), _env("NEXTCLOUD_TALK_DELIVER_SECRET"), _env("NEXTCLOUD_TALK_HOME_ROOM")
     if not (url and secret and room):
         return "Talk delivery is not configured (NEXTCLOUD_TALK_* env)"
     request = urllib.request.Request(
@@ -98,7 +94,6 @@ def main() -> int:
     cfg = json.loads((job / "job.json").read_text(encoding="utf-8"))
     root = Path(cfg["root"])
     profile, caller = cfg["profile"], cfg["caller"]
-    benchmark = bool(cfg.get("benchmark"))
     hard_cap = int(cfg.get("hard_cap") or 1800)
 
     env = dict(os.environ)
@@ -118,8 +113,7 @@ def main() -> int:
     state = {"term": False}
 
     def stop(signum, frame):
-        # The waiter (benchmark timeout) asks the runner to stop; take the
-        # hermes process group down with it.
+        # Take the hermes process group down with the runner.
         state["term"] = True
         if child is not None:
             try:
@@ -169,7 +163,7 @@ def main() -> int:
             f"did not finish ({'hard time limit' if timed_out else 'exit ' + str(code)}). {stderr[-400:]}"
         )
         message = f"{profile} (asked by {caller}): {body}"
-        problem = _deliver(message, benchmark)
+        problem = _deliver(message)
         if problem:
             undelivered = root / "cache" / "ask_agent" / "undelivered"
             undelivered.mkdir(parents=True, exist_ok=True)

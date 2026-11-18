@@ -5,8 +5,7 @@ The consult runs as a separate `hermes chat` process of the target profile
 filters, SOUL and memory. The tool waits up to HERMES_ASK_AGENT_WAIT seconds
 (default 120). When the answer is not ready by then, the job is marked
 detached and the runner posts the answer to the Talk home room when it
-finishes (bridge POST /deliver, same env as talk_send). Benchmark runs
-(HERMES_BENCHMARK=1) kill the job instead and report a timeout.
+finishes (bridge POST /deliver, same env as talk_send).
 
 delegate and task_status give ai-assistant a slim way to queue work and read its result without Hermes' 14-tool
 `kanban` toolset: delegate creates one ready card (the dispatcher runs it as the assignee), task_status reads cards.
@@ -21,7 +20,6 @@ import fcntl
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
 import threading
@@ -39,7 +37,7 @@ JOBS = (
     ("planner", "weekly review, wedding, meal and week plans, priorities"),
     ("web-search", "researched answers with sources"),
     ("n8n", "n8n workflows"),
-    ("models", "llama.cpp models, presets, benchmarks"),
+    ("models", "llama.cpp models and presets"),
     ("hf-models", "new Hugging Face models"),
     ("ai-news", "r/LocalLLaMA"),
     ("selfhosted", "r/selfhosted and r/homelab"),
@@ -114,10 +112,6 @@ def _int_env(name: str, default: int) -> int:
         return int(_env(name) or default)
     except ValueError:
         return default
-
-
-def _benchmark() -> bool:
-    return _env("HERMES_BENCHMARK") not in ("", "0")
 
 
 def _caller_and_root() -> tuple[str, Path]:
@@ -299,7 +293,6 @@ def _ask(args: dict) -> str:
         "chain": chain,
         "model": _env("HERMES_ASK_AGENT_MODEL"),
         "hard_cap": _int_env("HERMES_ASK_AGENT_HARD_CAP", 1800),
-        "benchmark": _benchmark(),
         "root": str(root),
         "request": request[:200],
     }), encoding="utf-8")
@@ -326,14 +319,6 @@ def _ask(args: dict) -> str:
         if result.exists():
             return _finish(job, root, caller, profile, request, started)
         seconds = round(time.time() - started, 1)
-        if _benchmark():
-            try:
-                os.killpg(proc.pid, signal.SIGTERM)
-            except OSError:
-                pass
-            _log(root, caller=caller, profile=profile, status="timeout", seconds=seconds, exit=None, request=request[:200])
-            threading.Timer(5.0, shutil.rmtree, args=(job,), kwargs={"ignore_errors": True}).start()
-            return _fail(f"{profile} did not answer within {seconds:.0f} s", profile=profile, status="timeout")
         (job / "detached").write_text("1")
         _log(root, caller=caller, profile=profile, status="running", seconds=seconds, exit=None, request=request[:200])
     finally:

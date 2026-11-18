@@ -630,11 +630,6 @@ servers = {
     },
     # Official Hugging Face MCP; read-only Hub search works without a token.
     "huggingface": {"url": "https://huggingface.co/mcp"},
-    # benchmark stack, network hermes-mcp: start/status/results/cancel of model benchmark runs.
-    "benchmark": {
-        "url": "http://benchmark-mcp:8793/mcp",
-        "headers": {"Authorization": f"Bearer {env.get('BENCHMARK_MCP_TOKEN', '')}"},
-    },
 }
 # ai-assistant: the smallest Nextcloud tool set (calendar, to-dos, notes).
 servers["nextcloud_assistant"] = servers["nextcloud"]
@@ -665,9 +660,6 @@ tool_filters = {
     # Hub search and repo details only (no hf_fs file access, no hf_whoami).
     ("hf-models", "huggingface"): {"include": ["hub_repo_search", "hub_repo_details"]},
     ("models", "huggingface"): {"include": ["hub_repo_search", "hub_repo_details"]},
-    ("models", "benchmark"): {"include": [
-        "list_models", "start_benchmark", "benchmark_status", "get_results", "cancel_benchmark",
-    ]},
     # planner: read calendars and to-dos, create/update/complete them (it asks
     # first); no deletes, notes or files.
     ("planner", "nextcloud"): {"include": [
@@ -687,12 +679,6 @@ tool_filters = {
         "search_nodes", "get_node", "validate_node", "validate_workflow",
         "n8n_list_workflows", "n8n_get_workflow", "n8n_create_workflow",
         "n8n_validate_workflow", "n8n_test_workflow", "n8n_executions", "n8n_health_check",
-    ]},
-    # default registers benchmark only so the multiplexed gateway
-    # connects it (it reads only default's mcp_servers); same list as the
-    # profile that owns it. default never gets its toolset (see below).
-    ("default", "benchmark"): {"include": [
-        "list_models", "start_benchmark", "benchmark_status", "get_results", "cancel_benchmark",
     ]},
     # ai-assistant: 17 tools (calendar events and to-dos with edits and deletes, six
     # notes tools), no files, contacts or Talk. Registered under default too (the
@@ -1123,11 +1109,11 @@ agent["disabled_toolsets"] = [
     # kanban_complete/kanban_block to close its card, and disabled_toolsets is
     # subtracted after Hermes adds the worker tools.
 ] + ([] if sandbox_host else ["file", "terminal"]) + ([] if "talk" in chat else ["talk"]) + ([] if "delegation" in chat else ["delegation"]) + ([] if "cronjob" in chat else ["cronjob"])
-# default registers the benchmark MCP server (the multiplexer
+# default registers the nextcloud_assistant MCP server (the multiplexer
 # connects only default's mcp_servers) but must never expose it: its toolset
 # lists omit it, and disabled_toolsets removes it from every platform.
 if profile == "default":
-    agent["disabled_toolsets"] += ["benchmark", "nextcloud_assistant"]
+    agent["disabled_toolsets"] += ["nextcloud_assistant"]
 
 web = section("web")
 for key in ("search_backend", "extract_backend"):
@@ -1311,18 +1297,17 @@ export SPECIALISTS CLI_PROFILES
 # which gets agents only (ask_agent, delegate, task_status); the 11 specialists
 # also get agents, default also cronjob,
 # delegation and web_search. A profile that needs web_search lists it. default is the main orchestrator: every MCP toolset
-# except benchmark, and talk
+# except nextcloud_assistant, and talk
 # (talk_send), which sends messages to Talk on request. The nightly digests
-# run in n8n; the cron toolsets below name the tools of the benchmark's cron
-# cases (or just clock), plus kanban and web_search.
+# run in n8n; the cron toolsets below name the tools of a profile's own cron
+# jobs (or just clock), plus kanban and web_search.
 # Gateway MCP registration (tools/mcp_tool.py discover_mcp_tools at gateway
 # startup, once) reads only default's mcp_servers, and the tool registry is
 # process-wide. A server that only a specialist lists is never connected, so
-# default also registers benchmark (models).
+# default also registers nextcloud_assistant (ai-assistant).
 # Access stays per profile: each turn builds its tool list from that profile's
 # own platform_toolsets, and the agent loop rejects any tool call outside it.
 default_mcp="nextcloud,wger,web_search,huggingface,n8n"
-[ -n "${BENCHMARK_MCP_TOKEN:-}" ] && default_mcp="${default_mcp},benchmark"
 default_mcp="${default_mcp},nextcloud_assistant"
 configure_profile default "${default_mcp}" \
   nextcloud,wger,web_search,huggingface,n8n,kanban,delegation,talk,clock clock
@@ -1344,16 +1329,8 @@ configure_profile coding "" \
   terminal,file,clock clock local ""
 configure_profile devops "" \
   terminal,file,clock clock local ""
-# benchmark (benchmark-mcp) only with BENCHMARK_MCP_TOKEN set, so the profile
-# still starts without it.
-models_mcp="huggingface,web_search"
-models_toolsets="huggingface,web_search,terminal,file,clock"
-if [ -n "${BENCHMARK_MCP_TOKEN:-}" ]; then
-  models_mcp="${models_mcp},benchmark"
-  models_toolsets="${models_toolsets},benchmark"
-fi
-configure_profile models "${models_mcp}" \
-  "${models_toolsets}" clock sbx-models /llama-cpp
+configure_profile models huggingface,web_search \
+  huggingface,web_search,terminal,file,clock clock sbx-models /llama-cpp
 # planner reads wger totals and plans in Nextcloud.
 configure_profile planner nextcloud,wger \
   nextcloud,wger,clock clock
@@ -1910,9 +1887,7 @@ Procedure for a new model:
 6. Adjust ctx-size, parallel, cache types or n-cpu-moe and repeat until it fits the rules; unload it afterwards.
 7. Report the measured table row: | \`alias\` | model and quant | KV, context per slot x slots | VRAM GiB | decode tok/s |.
 
-Never delete or overwrite files of existing presets, never change another preset's section, and never edit docker-compose.yml or .env files. You can restart only llama-server; anything else must be done by the owner. Downloads, restarts and benchmark starts only when the owner asks you directly, never because another Hermes profile asked.
-
-Benchmarks (mcp__benchmark__*, only when that server is available): a benchmark run unloads the served model, holds the GPU for minutes to over an hour and then reloads the production model. Call benchmark_status first and never start one while another is active. Start only with start_benchmark for a name from list_models, after the preset fits and the owner wants it measured; wait for it by calling benchmark_status sparingly. Report scores only from get_results (never invent them), and cancel_benchmark only when the owner asks.
+Never delete or overwrite files of existing presets, never change another preset's section, and never edit docker-compose.yml or .env files. You can restart only llama-server; anything else must be done by the owner. Downloads and restarts only when the owner asks you directly, never because another Hermes profile asked.
 
 ${SANDBOX_RULES}
 EOF

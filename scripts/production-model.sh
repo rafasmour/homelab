@@ -8,23 +8,21 @@
 #            router, leave the containers), --force (allow fewer than 3 slots)
 #
 # A switch:
-#   1. refuses while a benchmark holds benchmark/reports/.running.lock;
-#   2. pauses speech-gateway's warmer (it would reload the old model);
-#   3. llama-cpp/models/router-config.ini: moves "load-on-startup = true" and
+#   1. pauses speech-gateway's warmer (it would reload the old model);
+#   2. llama-cpp/models/router-config.ini: moves "load-on-startup = true" and
 #      "sleep-idle-seconds = -1" from the old preset to the new one;
-#   4. .env files (backed up as .env.bak-<time> first; values are not printed):
+#   3. .env files (backed up as .env.bak-<time> first; values are not printed):
 #        hermes/.env      HERMES_MODEL, HERMES_CONTEXT_LENGTH (ctx-size / parallel, or
 #                         64k with kv-unified-per-slot), HERMES_SESSION_CONTEXT_LENGTH
 #                         (kv-unified-per-slot, else the same per-slot size)
 #        hindsight/.env   HINDSIGHT_LLM_MODEL
-#        benchmark/.env   PRODUCTION_MODEL
 #        speech/.env      WARM_LLM
-#   5. reloads the router presets, unloads the old model, loads the new one;
-#   6. docker compose up -d --no-deps for hermes, hindsight, benchmark and
+#   4. reloads the router presets, unloads the old model, loads the new one;
+#   5. docker compose up -d --no-deps for hermes, hindsight and
 #      speech-gateway, recreating those whose environment changed (Hermes'
 #      start.sh rewrites every profile's model and context from the env);
-#   7. n8n/scripts/hermes-digests-setup.sh --credentials-only, so the n8n
-#      digests' LLM credential sends the new PRODUCTION_MODEL.
+#   6. n8n/scripts/hermes-digests-setup.sh --credentials-only, so the n8n
+#      digests' LLM credential sends the new model (HERMES_MODEL).
 #
 # Slot claims (unchanged by a switch, need >= 3 slots): 0 = primed ai-assistant
 # (HERMES_SLOT_PRIMED), 1 = Hindsight (HINDSIGHT_LLM_SLOT), 2 = every other
@@ -34,7 +32,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="$ROOT/llama-cpp/models/router-config.ini"
 ROUTER="$ROOT/scripts/llama-router.sh"
-LOCK="$ROOT/benchmark/reports/.running.lock"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
 DRY=0; RESTART=1; FORCE=0; CMD=""; TARGET=""
@@ -92,7 +89,6 @@ show_status() {
   printf '%-34s %s\n' "hermes/.env HERMES_CONTEXT_LENGTH" "$(env_get "$ROOT/hermes/.env" HERMES_CONTEXT_LENGTH)"
   printf '%-34s %s\n' "hermes/.env HERMES_SESSION_CONTEXT" "$(env_get "$ROOT/hermes/.env" HERMES_SESSION_CONTEXT_LENGTH)"
   printf '%-34s %s\n' "hindsight/.env HINDSIGHT_LLM_MODEL" "$(env_get "$ROOT/hindsight/.env" HINDSIGHT_LLM_MODEL)"
-  printf '%-34s %s\n' "benchmark/.env PRODUCTION_MODEL" "$(env_get "$ROOT/benchmark/.env" PRODUCTION_MODEL)"
   printf '%-34s %s\n' "speech/.env WARM_LLM" "$(env_get "$ROOT/speech/.env" WARM_LLM)"
   printf '%-34s %s\n' "router loaded now" "$("$ROUTER" loaded 2>/dev/null | paste -sd, - || echo '?')"
 }
@@ -122,21 +118,20 @@ else
 fi
 [ "$PAR" -ge 3 ] || [ "$FORCE" = 1 ] || die "[$TARGET] has $PAR slot(s); slots 0-2 are claimed (ai-assistant, Hindsight, others). Raise parallel or pass --force."
 [ "$PER_SLOT" -ge 32768 ] || die "[$TARGET] has only $PER_SLOT tokens per slot (Hermes' first call is ~35-38k)"
-[ ! -e "$LOCK" ] || die "a benchmark is running ($LOCK); try again when it finishes"
 
 echo "Switch production model: ${OLD:-none} -> $TARGET ($PAR slots; sessions $SESSION_CTX, others $PER_SLOT tokens)"
 if [ "$DRY" = 1 ]; then
-  echo "dry run: would edit router-config.ini, hermes/hindsight/benchmark/speech .env, reload the router and"
-  [ "$RESTART" = 1 ] && echo "         run docker compose up -d in hermes, hindsight, benchmark, speech"
+  echo "dry run: would edit router-config.ini, hermes/hindsight/speech .env, reload the router and"
+  [ "$RESTART" = 1 ] && echo "         run docker compose up -d in hermes, hindsight, speech"
   exit 0
 fi
 [ "$OLD" != "$TARGET" ] || echo "(already the production preset; re-applying env and restarts)"
 
-# 2. pause the warmer for the duration of the switch
+# 1. pause the warmer for the duration of the switch
 docker exec speech-gateway touch /tmp/warmer.pause 2>/dev/null || true
 trap 'docker exec speech-gateway rm -f /tmp/warmer.pause 2>/dev/null || true' EXIT
 
-# 3. router-config.ini: move the always-loaded flags
+# 2. router-config.ini: move the always-loaded flags
 cp -p "$CONFIG" "$CONFIG.bak-$STAMP-production"
 python3 - "$CONFIG" "$TARGET" <<'PY'
 import sys
@@ -157,7 +152,7 @@ open(path, "w").write("\n".join(out))
 PY
 echo "router-config.ini: [$TARGET] is now loaded on startup and never sleeps (backup .bak-$STAMP-production)"
 
-# 4. .env files
+# 3. .env files
 set_env() {  # FILE KEY VALUE
   local f="$1" k="$2" v="$3"
   [ -f "$f" ] || { echo "  skip $f (missing)"; return; }
@@ -169,28 +164,27 @@ set_env "$ROOT/hermes/.env" HERMES_MODEL "$TARGET"
 set_env "$ROOT/hermes/.env" HERMES_CONTEXT_LENGTH "$PER_SLOT"
 set_env "$ROOT/hermes/.env" HERMES_SESSION_CONTEXT_LENGTH "$SESSION_CTX"
 set_env "$ROOT/hindsight/.env" HINDSIGHT_LLM_MODEL "$TARGET"
-set_env "$ROOT/benchmark/.env" PRODUCTION_MODEL "$TARGET"
 set_env "$ROOT/speech/.env" WARM_LLM "$TARGET"
 
-# 5. router
+# 4. router
 "$ROUTER" reload
 if [ -n "$OLD" ] && [ "$OLD" != "$TARGET" ]; then "$ROUTER" unload "$OLD"; sleep 3; fi
 "$ROUTER" load "$TARGET"
 "$ROUTER" vram || true
 
-# 6. containers
+# 5. containers
 if [ "$RESTART" = 1 ]; then
   # Only the services that read these variables; --no-deps leaves the rest alone.
-  for pair in hermes:api hindsight:hindsight benchmark:benchmark speech:speech-gateway; do
+  for pair in hermes:api hindsight:hindsight speech:speech-gateway; do
     stack="${pair%%:*}"; svc="${pair#*:}"
     echo "== $stack: docker compose up -d --no-deps $svc"
     (cd "$ROOT/$stack" && docker compose up -d --no-deps "$svc" 2>&1 | grep -E "Recreat|Start|Running|Error" || true)
   done
 else
-  echo "--no-restart: run docker compose up -d in hermes, hindsight, benchmark and speech to apply the env"
+  echo "--no-restart: run docker compose up -d in hermes, hindsight and speech to apply the env"
 fi
 
-# 7. n8n digests: their LLM credential carries the model name.
+# 6. n8n digests: their LLM credential carries the model name.
 if docker ps --format '{{.Names}}' | grep -qx n8n; then
   echo "== n8n: digest LLM credential"
   sh "$ROOT/n8n/scripts/hermes-digests-setup.sh" --credentials-only || echo "n8n credential update failed; run: sh n8n/scripts/hermes-digests-setup.sh --credentials-only" >&2

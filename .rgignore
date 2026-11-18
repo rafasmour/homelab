@@ -16,7 +16,6 @@ llama-cpp/models/*/
 llama.cpp/
 nextcloud/html/
 nextcloud/mcp-data/
-benchmark/reports/
 wger/media/
 wger/static/
 wger/celery-beat/

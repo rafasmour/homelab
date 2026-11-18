@@ -89,7 +89,6 @@ C WEBUI_SECRET_KEY      gen hex:32 ""
 C AUTH_SECRET           gen hex:32 ""
 C SEARXNG_SECRET        gen hex:32 ""
 C TALK_BOT_SECRET       gen hex:32 ""     # Talk requires 40-128 characters
-C BENCH_API_TOKEN       gen hex:32 ""
 C wger/SECRET_KEY       gen urlsafe:64 "" # 50+ URL-safe characters
 
 # Human logins.
@@ -97,8 +96,6 @@ C GF_SECURITY_ADMIN_USER user "" ""
 C GF_SECURITY_ADMIN_PASSWORD pass b64:24 ""
 C MODELS_UI_USERNAME    user "" ""
 C MODELS_UI_PASSWORD    pass b64:24 ""
-C BENCHMARK_UI_USERNAME user "" ""
-C BENCHMARK_UI_PASSWORD pass b64:24 ""
 C UPTIME_KUMA_USERNAME  user "" ""
 C UPTIME_KUMA_PASSWORD  pass b64:32 ""    # >= 6 characters, letters and numbers
 C ADMIN_EMAIL           user "" ""        # mealie
@@ -121,7 +118,6 @@ C JWT_PUBLIC_KEY        manual "" "wger: docker compose exec web ./manage.py gen
 C JWT_PRIVATE_KEY       manual "" "wger: docker compose exec web ./manage.py generate-jwt-keys (paste both lines)"
 
 # Optional or deliberately empty: leave alone.
-C BENCHMARK_TALK_ROOM   skip "" ""
 C HERMES_TRUSTED_PROXIES skip "" ""  # hermes: webgateway subnet for the Webapp, checked at compose time
 
 # --------------------------------------------------------------------------
@@ -134,12 +130,11 @@ GROUP_NAMES=()
 declare -A GFMT GMEM
 G() { GROUP_NAMES+=("$1"); GFMT[$1]=$2; GMEM[$1]=$3; }
 
-G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hermes-sandboxes:LLAMA_API_KEY hindsight:LLAMA_API_KEY benchmark:LLAMA_API_KEY speech:LLAMA_API_KEY"
+G llama-api-key        hex:32 "llama-cpp:LLAMA_API_KEY hermes:LLAMA_API_KEY hermes-sandboxes:LLAMA_API_KEY hindsight:LLAMA_API_KEY speech:LLAMA_API_KEY"
 G hermes-api-key       hex:32 "hermes:API_SERVER_KEY"
 G web-search-mcp       hex:32 "web-search:WEB_SEARCH_MCP_TOKEN hermes:WEB_SEARCH_MCP_TOKEN"
-G wger-mcp             hex:32 "wger:MCP_STATIC_TOKEN hermes:MCP_STATIC_TOKEN benchmark:MCP_STATIC_TOKEN"
+G wger-mcp             hex:32 "wger:MCP_STATIC_TOKEN hermes:MCP_STATIC_TOKEN"
 G n8n-mcp              hex:32 "n8n:N8N_MCP_AUTH_TOKEN hermes:N8N_MCP_AUTH_TOKEN8N_MCP_TOKEN"
-G benchmark-mcp        hex:32 "benchmark:BENCHMARK_MCP_TOKEN hermes:BENCHMARK_MCP_TOKEN"
 G talk-deliver         hex:32 "hermes-nextcloud-bridge:TALK_DELIVER_SECRET hermes:NEXTCLOUD_TALK_DELIVER_SECRET grafana:TALK_DELIVER_SECRET"
 G n8n-drift-webhook    hex:32 "grafana:N8N_DRIFT_WEBHOOK_SECRET n8n-drift-runner:N8N_DRIFT_WEBHOOK_SECRET"
 G talk-home-room       "value:Nextcloud Talk: token of the Hermes home room (last part of the room URL; see hermes-nextcloud-bridge/README.md)" "hermes:NEXTCLOUD_TALK_HOME_ROOM hermes-nextcloud-bridge:NEXTCLOUD_TALK_HOME_ROOM"

@@ -8,7 +8,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 
 | Service | Description | Public route | Homepage group |
 | --- | --- | --- | --- |
-| [Benchmark](benchmark/README.md) | Compares llama.cpp models as the brain of the Hermes profiles (runner with Docker socket and job API; MCP server for the Hermes `models` profile; SQLite results browser behind a login page) | `benchmark.${DOMAIN}` | AI |
 | [Databases](databases/README.md) | Shared Postgres 17 (immich, wger, n8n, hindsight) and MariaDB (Nextcloud); start before the apps | Private only | Not listed |
 | [Docker state exporter](docker-state-exporter/README.md) | Prometheus metrics for container state, health and restarts | Private only | Not listed |
 | [Excalidraw](excalidraw/README.md) | Local-first whiteboarding | `excalidraw.${DOMAIN}` | Knowledge |
@@ -113,13 +112,10 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   the container's own key.
 - `scripts/production-model.sh [status|switch MODEL] [--dry-run]` moves the
   production model (router preset flags, the model variables in the hermes,
-  hindsight, benchmark and speech `.env` files) and recreates the affected
+  hindsight and speech `.env` files) and recreates the affected
   containers.
-- `scripts/bench.sh llm|stt|tts|all|summary|status [--bg]` runs the benchmark
-  suites with the speech warmer paused, refuses while a run holds the lock,
-  logs to `benchmark/reports/` and prints scores from the database.
 - `scripts/install-cli.sh [--uninstall] [--dry-run]` symlinks every `bin/*`
-  command (`lab`, `bench`, `sandbox`) and agent-sandbox's own commands
+  command (`lab`, `sandbox`) and agent-sandbox's own commands
   (`agent-sandbox`, `pi-sandbox`, `hermes-sandbox`, from `AGENT_SANDBOX_DIR`,
   default `../agent-sandbox`) into `~/.local/bin`. Idempotent; never overwrites
   a regular file or a foreign link; `--uninstall` removes only links into these
@@ -130,11 +126,9 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   (`lab --help` lists them all):
   - `lab warmer [status|pause|resume|disable|enable]`: the speech warmer;
     `disable`/`enable` set `WARM_ENABLED` in `speech/.env` (backup first) and
-    recreate `speech-gateway`; benchmark runs pause it by themselves.
+    recreate `speech-gateway`.
   - `lab llm [status|loaded|presets|vram|reload|load M|unload M|production ...]`:
     `scripts/llama-router.sh` and `scripts/production-model.sh`.
-  - `lab bench ...`: `bin/bench`, plus `stop` (SIGTERM, clean abort), `plan`
-    (dry run), `list`, `rescore`, `import`.
   - `lab hermes profiles|prime|doctor|pair` and `lab hermes PROFILE ARGS...`
     (`hermes -p PROFILE ...` as user hermes); `prime` shows the prompt_prime
     slot, token count and templates.
@@ -143,16 +137,6 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
     `lab wger sync-ingredients`, `lab testbed ps|reset`, `lab logs C [opts]`,
     `lab sh C [USER]`.
   Secrets are never printed; values stay in the containers or the scripts it calls.
-- `bin/bench` is a whiptail menu over `scripts/bench.sh`: benchmark (hermes,
-  stt, tts), then version (only the checked-out version can run; older ones
-  open a results leaderboard), models, cases (hermes: all, by profile, single
-  cases, the opt-in `ai-assistant` group), repeats, foreground or background,
-  then the exact equivalent command before it starts. Non-interactive:
-  `bench run hermes --models a,b [--cases x,y|--profiles p] [--repeat N] [--bg]
-  [--dry-run] [--yes]`, `bench results [BENCH] [--version V]`,
-  `bench versions [BENCH]`, `bench status`. `scripts/bench.sh` also accepts
-  `--cases`, `--profiles`, `--repeat` and `--web`, and `--dry-run` works while
-  a run holds the lock.
 - `bin/sandbox` is a menu over agent-sandbox: start a session (harness,
   profile, folder, modules read from `agent-sandbox <harness> -h`, detach,
   prompt) or manage sessions (list, attach, logs, stop, build); it shows the
@@ -167,7 +151,7 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
 - `scripts/post-note.sh TITLE [--category C] [--file F]` posts a Markdown
   report to Nextcloud Notes via the hermes integration.
 - `scripts/resources.sh [--short]` shows VRAM, RAM/swap, loaded models, top
-  containers, stopped containers and benchmark leftovers.
+  containers and stopped containers.
 - `scripts/stack.sh check|up|rebuild STACK [SERVICE ...]` validates a stack's
   Compose file, rebuilds a local image and recreates single services.
 

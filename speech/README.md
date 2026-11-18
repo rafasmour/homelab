@@ -151,9 +151,7 @@ Measured 2026-11-03 through `assistant` with Ornith loaded (so English could not
 - **Warmer** (in `speech-gateway`, every 15 s): while no other llama.cpp model is loaded it keeps `WARM_LLM` (`ornith-1.5-9b-dflash`, Hermes' model) loaded in the router; the preset itself also has `load-on-startup = true` and `sleep-idle-seconds = -1` (`llama-cpp/models/router-config.ini`). After `WARM_TTS_IDLE` (600 s) without speech requests it loads `WARM_TTS` (`audio8-air`, since 2026-11-07; `jarvis` before) in audio.cpp. While another llama.cpp model is loaded it replaces Jarvis/VoxCPM2/OmniVoice and Cohere in audio.cpp with `PARK_TTS` (`phonon,kokoro`, one small model per audio.cpp slot) so that model has the card; Greek speech-to-text then uses the Greek Parakeet fallback. `WARM_STT` (`parakeet-ultra`, since 2026-11-07; `cohere` before) is loaded like `WARM_TTS`, right away, and again after parking. A load the guard refused is retried only after the router's state changes.
 - **Switching the warmer off** (`lab warmer status|pause|resume|disable|enable` does all of the following):
   - For good: `WARM_ENABLED=false` in `speech/.env`, then `docker compose up -d speech-gateway` (survives restarts; `true` turns it back on).
-  - Benchmark runs switch it off by themselves. The benchmark runner (`benchmark/main.js`, so every start path: `scripts/bench.sh`, the Hermes `models` profile through `benchmark-mcp`, `docker exec benchmark npm run benchmark`) writes `/tmp/warmer.pause` ("benchmark pid N") before the first model loads, re-asserts it before each model, and removes it after the production model is restored. It never removes a pause file it did not create.
   - By hand: `docker exec speech-gateway touch /tmp/warmer.pause` pauses it, `docker exec speech-gateway rm /tmp/warmer.pause` resumes it. A container restart also resumes it (the file lives in the container's `/tmp`; path configurable with `WARM_PAUSE_FILE`).
-  - A pause file written by the runner counts as stale after `WARM_PAUSE_MAX_AGE` (24 h), in case a run died without cleaning up; a hand-made one never expires.
   - The log says `warmer: paused: <reason>` and `warmer: running` whenever the state changes.
 - **Measured 2026-11-03:** Ornith loads in 5.7-7.9 s (router log) and a cold Hermes request then also re-reads its 5-6k-token prompt at 1,200-1,500 tokens/s (~4 s); warm, the prompt cache leaves only the new tokens. Jarvis loads in ~9 s, Supertonic in ~1.5 s. With Ornith DFlash (3 slots, 64k each) loaded, about 3.5 GiB of VRAM is free and Jarvis Q4_K (~2.9 GiB) fits with the 1 GiB guard, so `WARM_TTS` is `jarvis` and Jarvis stays resident beside Ornith. Another llama.cpp model still gets the card (the warmer parks audio.cpp on Phonon).
 
@@ -201,15 +199,15 @@ Measured 2026-10-30: `parakeet` 0.65 s per English command ("Home Lab backups at
 
 `parakeet-ultra-gguf/parakeet-ultra-q6_k.gguf` (STT, converted 2026-11-07, see the STT section) and `Audio8-TTS-Realistic-Air-GGUF` (TTS) are in `server.json`.
 
-## Benchmark candidates (not in `server.json`)
+## Extra TTS candidates (not in `server.json`)
 
-Three more multilingual (Greek + English) TTS models are downloaded as quantized GGUFs under `audiocpp/models/` for the
-[speech benchmarks](../benchmark/README.md#speech-benchmarks-stt-tts); they are not served by `audiocpp-tts` unless you add them
+Three more multilingual (Greek + English) TTS models are downloaded as quantized GGUFs under `audiocpp/models/` for
+comparison tests (the benchmark stack that ran them was removed); they are not served by `audiocpp-tts` unless you add them
 to `server.json`: `Chatterbox-GGUF/chatterbox-q6_k.gguf` (MIT, 1.6 GB), `MOSS-TTS-Nano-100M-GGUF/moss-tts-nano-100m-q6_k.gguf`
 (Apache-2.0, 0.15 GB) and `MOSS-TTS-Local-v1.5-GGUF/moss-tts-local-v1.5-q6_k.gguf` (Apache-2.0, about 5.8 GB). All three are
 clone models: they need a reference clip from `audiocpp/voices` (`--voice-ref`). Also there: `pocket-tts-greek/pocket-tts-greek-q6_k.gguf`
 (Q6_K conversion of the Greek Pocket TTS, 0.12 GB). The sources came from `audio-cpp/audio.cpp-gguf` (Q8_0) and were re-quantized with
-`audiocpp_gguf --type q6_k`; the benchmarks use only quantized GGUFs, never float variants.
+`audiocpp_gguf --type q6_k`; only quantized GGUFs, never float variants.
 
 ## Authentication and exposure
 

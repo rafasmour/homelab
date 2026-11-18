@@ -113,8 +113,8 @@ services:
       # audio.cpp after WARM_TTS_IDLE seconds without speech requests. While
       # another llama.cpp model is loaded it parks audio.cpp on PARK_TTS
       # (~0.2 GB) so that model has the card.
-      # On/off switch: WARM_ENABLED=false in .env turns the warmer off; it
-      # also pauses by itself during benchmark runs (README "Warmer").
+      # On/off switch: WARM_ENABLED=false in .env turns the warmer off
+      # (README "Warmer").
       WARM_ENABLED: "${WARM_ENABLED:-true}"
       LLAMA_URL: http://llama-server:8080
       LLAMA_API_KEY: "${LLAMA_API_KEY:?Set LLAMA_API_KEY in .env}"
