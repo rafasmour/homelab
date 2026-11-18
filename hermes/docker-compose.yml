@@ -40,12 +40,6 @@ services:
       HERMES_SLOT_OTHERS: "${HERMES_SLOT_OTHERS:-2}"
       # ai-assistant only: thinking budget in tokens (-1 = unlimited); every other profile is unlimited.
       HERMES_AI_ASSISTANT_THINK_BUDGET: "${HERMES_AI_ASSISTANT_THINK_BUDGET:-1024}"
-      # ask_agent (plugins/agents): seconds a consult is awaited before it is
-      # stopped, the hard time limit of one consult, and the answer length
-      # handed back to the asking profile.
-      HERMES_ASK_AGENT_WAIT: "${HERMES_ASK_AGENT_WAIT:-120}"
-      HERMES_ASK_AGENT_HARD_CAP: "${HERMES_ASK_AGENT_HARD_CAP:-1800}"
-      HERMES_ASK_AGENT_MAX_CHARS: "${HERMES_ASK_AGENT_MAX_CHARS:-8000}"
       # Sampling sent to llama.cpp for every profile except default (start.sh puts
       # it into each profile's custom_providers extra_body). Set empty to keep the
       # model preset's own value (hence "-", not ":-").

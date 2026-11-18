@@ -202,12 +202,10 @@ ensure_profile n8n \
 ensure_profile web-search \
   "Research assistant: searches the web, reads the best sources and answers with citations."
 ensure_profile ai-assistant \
-  "The owner's everyday assistant (Hermes-Relay chat and voice): short answers, Nextcloud calendar, to-dos and notes, asks the other profiles (ask_agent) and the Kanban for the rest."
+  "The owner's everyday assistant (Hermes-Relay chat and voice): short answers, Nextcloud calendar, to-dos and notes; it has no tools of the other profiles."
 
 # Install the Hermes plugins into every profile home (served and CLI-only):
 # - clock: clock_now / clock_to_utc.
-# - agents: ask_agent, a consult of another profile (plugins/agents); enabled
-#   on ai-assistant and the 11 specialists below (AGENT_PROFILES).
 # /opt/hermes is read-only for the hermes user, so these are user plugins and
 # are enabled through plugins.enabled in each profile config below.
 python - "${SHARE}/plugins" default ${SPECIALISTS} ${CLI_PROFILES} <<'PY'
@@ -221,15 +219,14 @@ profiles = sys.argv[2:]
 home = Path(os.environ["HERMES_HOME"])
 sources = {
     "clock": share / "clock",
-    "agents": share / "agents",
 }
 
 # Retired plugins: remove their copies (spoken_reply: removed 2026-11-09, its
 # reply cleaning broke sentences; sandbox_terminal: removed with the
 # hermes-sandboxes stack; talk_send, kanban_notify and nextcloud_talk: removed
-# with the Nextcloud Talk bridge; prompt_prime, local_only: removed with the
-# custom plugins).
-retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk", "prompt_prime", "local_only")
+# with the Nextcloud Talk bridge; prompt_prime, local_only, agents: removed with
+# the custom plugins).
+retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk", "prompt_prime", "local_only", "agents")
 for profile in profiles:
     phome = home if profile == "default" else home / "profiles" / profile
     for name in retired:
@@ -535,25 +532,19 @@ def add(items, extra):
 
 # Shared by every profile. default (the orchestrator)
 # keeps kanban, cronjob, delegation and web search. Every other profile gets
-# kanban (Hermes's own work queue) and, for the specialists in AGENT_PROFILES,
-# agents (ask_agent, see plugins/agents). ai-assistant gets agents only, with no
-# kanban toolset (its 14 schemas and guidance cost ~30k characters of prompt):
-# the agents plugin's delegate and task_status create and read cards. No cronjob, no
-# delegation, and web_search only where its call lists it. web-search-mcp is
-# still registered for every profile except CLI-only ones (sandbox "local"
-# cannot reach hermes-mcp). Cron runs get kanban and web search, but no
-# cronjob or delegation.
-AGENT_PROFILES = (
-    "calories", "nextcloud", "planner", "web-search", "n8n", "models",
-    "hf-models", "ai-news", "selfhosted", "llamacpp-vulkan", "llamacpp-rocm",
-)
+# kanban (Hermes's own work queue), except ai-assistant, which gets no kanban
+# toolset (its 14 schemas and guidance cost ~30k characters of prompt). No
+# cronjob, no delegation, and web_search only where its call lists it.
+# web-search-mcp is still registered for every profile except CLI-only ones
+# (sandbox "local" cannot reach hermes-mcp). Cron runs get kanban and web
+# search, but no cronjob or delegation.
 mcp_list, chat_list, cron_list = split(mcp_csv), split(chat_csv), split(cron_csv)
 search = [] if sandbox_host == "local" else ["web_search"]
 if profile == "default":
     extra_chat = search + ["kanban", "cronjob", "delegation"]
 else:
     # Removing kanban only hides the tools from chats and consults: a dispatcher-spawned worker still gets them.
-    extra_chat = ["agents"] if profile == "ai-assistant" else ["kanban"] + (["agents"] if profile in AGENT_PROFILES else [])
+    extra_chat = [] if profile == "ai-assistant" else ["kanban"]
 mcp_list = add(mcp_list, search)
 chat_list = add(chat_list, extra_chat)
 cron_list = add(cron_list, search + ["kanban"])
@@ -1014,7 +1005,7 @@ for key in ("search_backend", "extract_backend"):
 plugins = section("plugins")
 # User plugins are keyed by their manifest name.
 wanted_plugins = ("clock",)
-retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify", "prompt_prime", "local_only")
+retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify", "prompt_prime", "local_only", "agents", "spoken_reply")
 enabled = [n for n in (plugins.get("enabled") or []) if n not in retired_plugins]
 for name in wanted_plugins:
     if name not in enabled:
@@ -1025,14 +1016,6 @@ if relay_plugin and "hermes-relay" not in enabled:
     enabled.append("hermes-relay")
 if not relay_plugin and "hermes-relay" in enabled:
     enabled.remove("hermes-relay")
-# agents (ask_agent): ai-assistant and the specialists in AGENT_PROFILES.
-# spoken_reply is retired: listed with no profiles so it is disabled everywhere.
-for plugin_name, plugin_profiles in (("agents", ("ai-assistant",) + AGENT_PROFILES),
-                                     ("spoken_reply", ())):
-    if profile in plugin_profiles and plugin_name not in enabled:
-        enabled.append(plugin_name)
-    if profile not in plugin_profiles and plugin_name in enabled:
-        enabled.remove(plugin_name)
 plugins["enabled"] = enabled
 # Hermes >= 0.23 abandons a plugin that takes longer than these to import/register
 # (default 10 s) or to answer pre_tool_call (default 30 s, fail closed). The
@@ -1173,8 +1156,7 @@ export SPECIALISTS CLI_PROFILES
 # Each profile gets only the tools its job needs. No clarify (follow-up
 # questions go in the reply). Every profile also gets
 # kanban (added inside configure_profile, not listed below) except ai-assistant,
-# which gets agents only (ask_agent, delegate, task_status); the 11 specialists
-# also get agents, default also cronjob,
+# which gets no kanban toolset either; default also gets cronjob,
 # delegation and web_search. A profile that needs web_search lists it. default is the main orchestrator: every MCP toolset
 # except nextcloud_assistant. The nightly digests
 # run in n8n; the cron toolsets below name the tools of a profile's own cron
@@ -1221,9 +1203,8 @@ configure_profile calories wger,web_search \
   wger,web_search,clock wger,clock
 # ai-assistant (Hermes-Relay chat and voice): a small toolset. Nextcloud
 # calendar, to-dos and notes (nextcloud_assistant, 17 tools), web_search and
-# fetch_url (owner's request 2026-11-04), ask_agent, delegate and task_status
-# (toolset agents, added by configure_profile; no kanban toolset), memory
-# (added below), clock. No delegate_task,
+# fetch_url (owner's request 2026-11-04), memory
+# (added below), clock. No kanban, no delegate_task,
 # cron, terminal, files, code or browser tools.
 configure_profile ai-assistant nextcloud_assistant \
   nextcloud_assistant,web_search,clock clock
@@ -1303,9 +1284,7 @@ body = os.environ["SOUL_BODY"].strip()
 #   min      CORE_MIN + TASKS_MIN
 #   dates    CORE_MIN + DATES_MIN + TASKS_MIN (profiles that write datetimes)
 #   nocore   neither core nor tasks (profiles with their own complete rules)
-# TASKS_MIN gets the ask_agent line only for profiles that have the agents plugin.
 mode = sys.argv[2] if len(sys.argv) > 2 else ""
-agent_profiles = os.environ["SOUL_AGENT_PROFILES"].split()
 if mode == "nocore":
     core, tasks = "", ""
 elif mode in ("min", "dates"):
@@ -1313,8 +1292,6 @@ elif mode in ("min", "dates"):
     if mode == "dates":
         core += "\n\n" + os.environ["SOUL_DATES_MIN"].strip()
     tasks = os.environ["SOUL_TASKS_MIN"].strip()
-    if profile in agent_profiles:
-        tasks += "\n" + os.environ["SOUL_TASKS_ASK"].strip()
 else:
     core = os.environ["SOUL_CORE"].strip()
     tasks = os.environ["SOUL_TASKS"].strip()
@@ -1396,13 +1373,6 @@ EOF
 )
 export SOUL_TASKS_MIN
 
-SOUL_TASKS_ASK=$(cat <<'EOF'
-- ask_agent(profile, request) asks another profile and waits up to two minutes for its answer; use it when this reply needs another profile's tools. Write the request in full: dates, amounts, names.
-EOF
-)
-export SOUL_TASKS_ASK
-# Profiles that have the agents plugin (keep in sync with AGENT_PROFILES in configure_profile).
-export SOUL_AGENT_PROFILES="ai-assistant calories nextcloud planner web-search n8n models hf-models ai-news selfhosted llamacpp-vulkan llamacpp-rocm"
 
 CALENDAR_MAP=$(cat <<'EOF'
 Nextcloud calendars. Tools take the CalDAV URI (`calendar_name`), never the display name. No URI contains a space.
@@ -1628,14 +1598,13 @@ He lives in Europe/Athens. You have no clock: call clock_now before resolving "n
 
 ## Facts from the web
 
-For a quick fact (opening hours, weather, news, a definition), call web_search first and fetch_url when the snippets do not answer it; answer from what you read and name the site. If nothing clear comes back, say you could not verify it. Anything that needs several sources or a comparison: ask_agent with web-search.
+For a quick fact (opening hours, weather, news, a definition), call web_search first and fetch_url when the snippets do not answer it; answer from what you read and name the site. If nothing clear comes back, say you could not verify it. Anything that needs several sources or a comparison belongs to the web-search profile; say so.
 
 ## Other agents
 
 You have no food, money, file, contact, n8n or model tools; the other Hermes profiles do.
-- Food he has eaten or drunk always goes to calories through ask_agent, even when phrased as "note that I ate ...". Nextcloud notes are only for things he asks to write down as a note.
-- ask_agent(profile, request) asks another profile and waits up to two minutes. Write the request in full: dates as Athens dates and times, amounts, names, and what he wants back. Then tell him the answer in your own spoken words. If it reports a timeout, say the other profile did not answer in time and offer to try again or queue it with delegate. If the other profile asks a question, ask him, then ask it again with his answer ("The owner confirmed: ...").
-- delegate(assignee, title, details) is for work he wants done later, by a deadline, or that will clearly take long; write the details in full and say who has it. When he asks how it went, use task_status.
+- Food he has eaten or drunk belongs to the calories profile, which you cannot reach: say so, even when phrased as "note that I ate ...". Nextcloud notes are only for things he asks to write down as a note.
+- For anything that needs another profile's tools, say you cannot do it here and name the profile that handles it; do not try to do it yourself.
 - Nextcloud to-dos are his tasks; the Kanban is Hermes's own work queue. Never put one in the other.
 
 ## Memory
