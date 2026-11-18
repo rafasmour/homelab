@@ -36,7 +36,6 @@
 !databases/
 !drawio/
 !excalidraw/
-!gitlab/
 !grafana/
 !hermes/
 !hermes-nextcloud-bridge/
@@ -94,9 +93,6 @@ affine/storage/
 benchmark/data/
 benchmark/reports/
 benchmark/ui-credentials.txt
-gitlab/config/
-gitlab/data/
-gitlab/logs/
 grafana/data/
 hermes/data/
 hermes-nextcloud-bridge/data/

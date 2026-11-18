@@ -14,7 +14,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [draw.io](drawio/README.md) | Browser-based diagram and flowchart editor with Hermes MCP tools | `drawio.${DOMAIN}` | Knowledge |
 | [Excalidraw](excalidraw/README.md) | Local-first whiteboarding | `excalidraw.${DOMAIN}` | Knowledge |
 | [Web search MCP](web-search/README.md) | SearXNG-backed crawl-to-markdown MCP for Hermes | Private only | Not listed |
-| [GitLab CE](gitlab/README.md) | Git hosting and CI/CD | `gitlab.${DOMAIN}` | Development |
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
 | [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles (`hermes.${DOMAIN}/v1`), the browser-hosted Hermes Desktop at the hostname root, the web dashboard, and the relay for the Hermes-Relay Android app | `hermes.${DOMAIN}`, `hermes-api.${DOMAIN}`, `hermes-dash.${DOMAIN}`, `hermes-relay.${DOMAIN}` | AI |
 | [Hermes Nextcloud Talk bridge](hermes-nextcloud-bridge/README.md) | Nextcloud Talk bot and delivery endpoint for Hermes | Private only | Not listed |

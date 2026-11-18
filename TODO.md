@@ -34,7 +34,6 @@ Use this checklist for a fresh installation. Complete the shared prerequisites b
 
 ## Development and automation
 
-- [ ] [GitLab CE](gitlab/README.md): set the root password and SSH port, allow time for startup, and test Git and web access.
 - [X] [n8n](n8n/README.md): set a permanent encryption key, create the owner account, and test database backups.
 
 ## Media, food, and finance

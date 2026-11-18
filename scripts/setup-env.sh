@@ -100,7 +100,6 @@ C wger/SECRET_KEY       gen urlsafe:64 "" # 50+ URL-safe characters
 # Human logins.
 C GF_SECURITY_ADMIN_USER user "" ""
 C GF_SECURITY_ADMIN_PASSWORD pass b64:24 ""
-C GITLAB_ROOT_PASSWORD  pass b64:24 ""    # no single quotes (base64 has none)
 C MODELS_UI_USERNAME    user "" ""
 C MODELS_UI_PASSWORD    pass b64:24 ""
 C BENCHMARK_UI_USERNAME user "" ""
