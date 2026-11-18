@@ -27,7 +27,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Loki](loki/README.md) | Log aggregation | `loki.${DOMAIN}` | Monitoring |
 | [Maps](maps/README.md) | Greece-only Valhalla routing and lean Pelias search, no web page (backend for Cardinal / Murena Maps search and directions) | `maps.${DOMAIN}` | Home |
 | [Mealie](mealie/README.md) | Recipe and meal planning | `mealie.${DOMAIN}` | Food |
-| [Memos](memos/README.md) | Lightweight notes and knowledge capture | `memos.${DOMAIN}` | Knowledge |
 | [n8n](n8n/README.md) | Workflow automation; runs the scheduled Hermes Talk digests | `n8n.${DOMAIN}` | Automation |
 | [n8n drift runner](n8n-drift-runner/README.md) | Webhook runner that Grafana triggers to check n8n workflows against git (no cron, no Docker socket) | Private only (internal `n8n-drift` network) | Not listed |
 | [Nextcloud](nextcloud/README.md) | File sync and collaboration | `nextcloud.${DOMAIN}` | Cloud |
@@ -72,9 +71,9 @@ For an end-to-end fresh-install sequence, work through [TODO.md](TODO.md).
 From the repository root, copy the service's environment template, replace all required placeholders, validate the rendered configuration, and start it. For example:
 
 ```sh
-cp memos/.env.example memos/.env
-docker compose --env-file memos/.env -f memos/docker-compose.yml config --quiet
-docker compose --env-file memos/.env -f memos/docker-compose.yml up -d
+cp excalidraw/.env.example excalidraw/.env
+docker compose --env-file excalidraw/.env -f excalidraw/docker-compose.yml config --quiet
+docker compose --env-file excalidraw/.env -f excalidraw/docker-compose.yml up -d
 ```
 
 Read the linked service README before starting a stack. It documents first-run account creation, dependencies, security limitations, and backup paths.
