@@ -1,28 +1,4 @@
 services:
-  database:
-    container_name: n8n-database
-    labels:
-      kuma.n8n-database.docker.name: "n8n-database"
-      kuma.n8n-database.docker.docker_host_name: local-docker-host
-      kuma.n8n-database.docker.docker_container: n8n-database
-    image: postgres:${POSTGRES_VERSION:-16-alpine}
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: "${POSTGRES_DB:-n8n}"
-      POSTGRES_USER: "${POSTGRES_USER:-n8n}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
-    volumes:
-      - ./postgres:/var/lib/postgresql/data
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - "pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}"
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - backend
-
   n8n:
     container_name: n8n
     build:
@@ -32,12 +8,9 @@ services:
         N8N_VERSION: ${N8N_VERSION:-latest}
     image: n8n-homelab:${N8N_VERSION:-latest}
     restart: unless-stopped
-    depends_on:
-      database:
-        condition: service_healthy
     environment:
       DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: database
+      DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: "5432"
       DB_POSTGRESDB_DATABASE: "${POSTGRES_DB:-n8n}"
       DB_POSTGRESDB_USER: "${POSTGRES_USER:-n8n}"
@@ -51,11 +24,6 @@ services:
       N8N_ENCRYPTION_KEY: "${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env}"
       GENERIC_TIMEZONE: "${TZ:-Europe/Athens}"
       TZ: "${TZ:-Europe/Athens}"
-      PIRAEUS_ZIP_PASSWORD: "${PIRAEUS_ZIP_PASSWORD:-}"
-      AUTO_IMPORT_SECRET: "${AUTO_IMPORT_SECRET:-}"
-      FIREFLY_IMPORT_DEFAULT_ACCOUNT_ID: "${FIREFLY_IMPORT_DEFAULT_ACCOUNT_ID:-}"
-      FIREFLY_IMPORT_DIR: /firefly-import
-      FIREFLY_IMPORT_ARCHIVE: /firefly-import-archive
       NODES_EXCLUDE: '["n8n-nodes-base.localFileTrigger"]'
       N8N_RESTRICT_FILE_ACCESS_TO: /tmp;~/.n8n-files
       # Privacy: no usage telemetry, onboarding survey or cloud AI (version checks and templates stay on).
@@ -64,13 +32,11 @@ services:
       N8N_AI_ENABLED: "false"
     volumes:
       - ./data:/home/node/.n8n
-      - ./scripts/piraeus-import.cjs:/scripts/piraeus-import.cjs:ro
-      - ../firefly-iii/imports:/firefly-import
-      - ../firefly-iii/import-archive:/firefly-import-archive
     networks:
       - backend
       - hermes-mcp
       - webgateway
+      - databases
     labels:
       kuma.n8n.docker.name: "n8n"
       kuma.n8n.docker.docker_host_name: local-docker-host
@@ -129,6 +95,9 @@ services:
       start_period: 20s
 
 networks:
+  databases:
+    external: true
+    name: databases
   backend:
     internal: true
   hermes-mcp:

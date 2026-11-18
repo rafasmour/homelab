@@ -24,36 +24,13 @@ docker compose --env-file hermes/.env -f hermes/docker-compose.yml up -d
 
 The MCP server can create, update, execute, and delete workflows. Back up production workflows and review changes before running them.
 
-## Piraeus monthly statement
-
-`workflows/piraeus-monthly-import.json` is imported into the running n8n container and left inactive. Connect a Gmail OAuth credential on its trigger, set `PIRAEUS_ZIP_PASSWORD`, and set the same `AUTO_IMPORT_SECRET` in this `.env` and `firefly-iii/.env`. Import one normalized CSV through the Firefly data importer UI and save that mapping as `imports/_fallback.json`. The workflow runs `piraeus-import.cjs`, which extracts the password-protected zip with `adm-zip` (BusyBox `unzip` does not support zip passwords), decodes the bank CSV from Windows-1253 to UTF-8 (override with `PIRAEUS_CSV_ENCODING`), writes `imports/piraeus-current.csv`, and asks the importer to load it. Rebuild the `n8n` image after changing `scripts/package.json` (`docker compose --env-file .env build n8n`). A successful import moves that CSV into `firefly-iii/import-archive`. The workflow saves the zip at `/tmp/piraeus-statement.zip`, so Compose sets `N8N_RESTRICT_FILE_ACCESS_TO` to allow `/tmp` alongside `~/.n8n-files`.
-
-## Firefly subscriptions calendar
-
-`workflows/firefly-subscriptions-to-nextcloud.json` runs at 00:30 Europe/Athens and does not use a model. It lists Firefly III bills (`GET /api/v1/bills?start=<today>&end=<today + 366 days>`) and upserts one all-day event per active subscription on the Nextcloud calendar `http://nextcloud/remote.php/dav/calendars/pi.hole/Payments/`. Each event includes the amount, the next date, and the Firefly id. The event is written with `PUT` to the fixed URL `firefly-bill-<id>.ics` with UID `firefly-bill-<id>@homelab`, so every run overwrites the previous event instead of adding one. Bills that are deactivated or deleted in Firefly keep their last event; delete it by hand.
-
-The calendar URL is fixed in the workflow's `Payments calendar` node. There is no CalDAV discovery, because the HTTP Request node in n8n 2.35.7 sends a raw body only with `GET`, `POST`, `PUT` and `PATCH` (`HttpRequestV3.node.js`), never with `PROPFIND` or `REPORT`. A `Check Payments calendar` node sends a body-less `PROPFIND` (Depth 0) and stops the run when the calendar is missing. Create the calendar once with `docker exec -u www-data nextcloud php occ dav:create-calendar pi.hole Payments` (URI and display name `Payments`). If you change the user or calendar URI, edit that node.
-
-Credentials (none are stored in the workflow file):
-
-- `List Firefly bills` uses `Hermes digest – Firefly III token` (`hdFireflyToken01`), created by `scripts/hermes-digests-setup.sh`.
-- The CalDAV nodes use `Nextcloud CalDAV – Payments` (`ncCalDavBasic001`, Basic Auth). `scripts/firefly-subscriptions-setup.sh` creates it from `NEXTCLOUD_MCP_USERNAME` and `NEXTCLOUD_MCP_APP_PASSWORD` in `nextcloud/.env`, checks that this user owns the calendar URL, and imports the workflow inactive. Add `--publish` to activate it and restart n8n so the schedule is registered, or `--credentials-only` to update only the credential.
-
-```bash
-sh n8n/scripts/firefly-subscriptions-setup.sh             # credential + workflow (inactive)
-sh n8n/scripts/firefly-subscriptions-setup.sh --publish   # ... and activate it
-```
-
-Until October 2026 the workflow never worked: no credential was attached to any node, so a manual run failed at the first CalDAV request with `NodeOperationError: Credentials not found`, and it was never activated. Its `PROPFIND` discovery (principal, calendar home, calendar list) would then have failed because the request bodies were dropped. The bills request also had no `start` and `end`, and Firefly III 6.6 only calculates `pay_dates` and `next_expected_match` for a date range, so every bill would have been skipped. No Nextcloud calendar named Payments existed either. Unpaid bills are reported separately by the `Hermes digest – payments-unpaid` workflow, which reads Firefly directly.
-
 ## Hermes digests
 
-Nine workflows replace the former Hermes cron jobs. They are deterministic: HTTP Request nodes fetch, Code nodes filter, compute dates and format, and at most one LLM call (no tools) writes one-line summaries. Each posts Markdown to the Talk room of its Hermes profile through `POST http://hermes-nextcloud-bridge:8788/deliver`, and posts nothing when there is nothing to report. The files `workflows/hermes-digest-<job>.json` are the source of truth; the workflow id equals the file name.
+Seven workflows replace the former Hermes cron jobs. They are deterministic: HTTP Request nodes fetch, Code nodes filter, compute dates and format, and at most one LLM call (no tools) writes one-line summaries. Each posts Markdown to the Talk room of its Hermes profile through `POST http://hermes-nextcloud-bridge:8788/deliver`, and posts nothing when there is nothing to report. The files `workflows/hermes-digest-<job>.json` are the source of truth; the workflow id equals the file name.
 
 | Workflow | Athens time | Talk room (profile) | Source | LLM |
 | --- | --- | --- | --- | --- |
 | Hermes digest – morning-digest | 08:00 | nextcloud | Nextcloud MCP `http://nextcloud-mcp:8000/mcp`: `nc_calendar_list_events` (`personal`, today) and `nc_calendar_search_todos` (all live task lists) | no |
-| Hermes digest – payments-unpaid | 08:00 | finance | Firefly III `GET /api/v1/bills?start=<1st of month>&end=<today>`: active bills with more pay dates up to today than `paid_dates` | no |
 | Hermes digest – ai-news | 08:02 | ai-news | Reddit Atom feed `r/LocalLLaMA/top/.rss?t=day`, last 24 h, up to 10 posts | one call: "why it matters" per post |
 | Hermes digest – selfhosted | 08:06 | selfhosted | Reddit Atom feed `r/selfhosted+homelab/top/.rss?t=day`, last 24 h, up to 5 per subreddit | one call: one line per post |
 | Hermes digest – hf-models | 08:10 | hf-models | Hugging Face API, top 50 trending `text-generation` and `gguf`; created today/yesterday and GGUF or >100 downloads; no image/audio/video | no |
@@ -63,7 +40,9 @@ Nine workflows replace the former Hermes cron jobs. They are deterministic: HTTP
 
 Reddit, GitHub, and Hugging Face get a descriptive User-Agent.
 
-The LLM jobs are staggered so only one model call runs at a time. The call goes to `http://llama-server:8080/v1/chat/completions` with model `qwen-3.6-35b-a3b` (a thinking model), temperature 0.2, bounded `max_tokens`, and no tools. Only `choices[0].message.content` is used; the reply is reduced to `<n>. <text>` lines for known item numbers (links, Markdown, and reasoning-looking lines are dropped). If the call fails or fewer than half of the items get a usable line, the message is built from the template alone (Reddit falls back to the post's first sentence).
+The LLM jobs are staggered so only one model call runs at a time. The call goes to `http://llama-server:8080/v1/chat/completions` with Hermes' production model (a thinking model), temperature 0.2, bounded `max_tokens`, and no tools. Only `choices[0].message.content` is used; the reply is reduced to `<n>. <text>` lines for known item numbers (links, Markdown, and reasoning-looking lines are dropped). If the call fails or fewer than half of the items get a usable line, the message is built from the template alone (Reddit falls back to the post's first sentence).
+
+The workflows name no model. Their `LLM request` node uses the Custom Auth credential `Hermes digest – llama.cpp production model`, which adds the bearer header and merges `model` and `id_slot` into the JSON body (credential values win over the node's body). `model` is `PRODUCTION_MODEL` from `benchmark/.env`; `id_slot` is the first slot of `HERMES_SLOT_OTHERS` from `hermes/.env` (default 2), the slot every Hermes profile other than ai-assistant (0) and Hindsight (1) uses, so the digests neither load a second model nor evict the assistant's warm prompt. `scripts/production-model.sh` re-runs `hermes-digests-setup.sh --credentials-only` after a switch. Until 2026-11-11 the four LLM digests asked for `qwen-3.6-35b-a3b`, so every morning at 08:02-08:18 the router unloaded the production model to load Qwen 3.6.
 
 
 Entry points of every digest:
@@ -80,13 +59,13 @@ No secret is stored in the workflow files or passed to n8n as an environment var
 
 | Credential | Type | Source |
 | --- | --- | --- |
-| Hermes digest – Talk room `<profile>` (9) | Custom Auth: `Authorization: Bearer <TALK_DELIVER_SECRET>` plus `room_token` merged into the JSON body | `hermes-nextcloud-bridge/.env` (`TALK_DELIVER_SECRET`, `NEXTCLOUD_TALK_PROFILE_ROOMS`) |
-| Hermes digest – llama.cpp API key | Header Auth | `llama-cpp/.env` `LLAMA_API_KEY` |
+| Hermes digest – Talk room `<profile>` (7) | Custom Auth: `Authorization: Bearer <TALK_DELIVER_SECRET>` plus `room_token` merged into the JSON body | `hermes-nextcloud-bridge/.env` (`TALK_DELIVER_SECRET`, `NEXTCLOUD_TALK_PROFILE_ROOMS`) |
+| Hermes digest – llama.cpp API key | Header Auth | `llama-cpp/.env` `LLAMA_API_KEY` (no longer used by the digests; kept for hand-built workflows) |
+| Hermes digest – llama.cpp production model | Custom Auth: `Authorization: Bearer <LLAMA_API_KEY>` plus `model` and `id_slot` merged into the JSON body | `llama-cpp/.env` `LLAMA_API_KEY`, `benchmark/.env` `PRODUCTION_MODEL`, `hermes/.env` `HERMES_SLOT_OTHERS` |
 | llama.cpp (local, OpenAI-compatible) | OpenAI | `llama-cpp/.env` `LLAMA_API_KEY`, base URL `http://llama-server:8080/v1`; use it in the OpenAI Chat Model and AI Agent nodes with any router model name (for example `qwen-3.6-35b-a3b`) |
-| Hermes digest – Firefly III token | Header Auth | `firefly-iii/.env` `FIREFLY_III_ACCESS_TOKEN` |
 | Hermes digest – wger MCP token | Header Auth | `wger/.env` `MCP_STATIC_TOKEN` |
 
-Run it after changing a workflow file or one of those secrets (re-imports the credentials and the nine workflows, publishes them, and restarts n8n):
+Run it after changing a workflow file or one of those secrets (re-imports the credentials and the seven workflows, publishes them, and restarts n8n):
 
 ```bash
 sh n8n/scripts/hermes-digests-setup.sh               # credentials + workflows + publish + restart
@@ -95,7 +74,7 @@ sh n8n/scripts/hermes-digests-setup.sh --credentials-only
 
 The script uses the n8n CLI (`import:credentials`, `import:workflow`, `publish:workflow`), not the public API. Changing a room in `NEXTCLOUD_TALK_PROFILE_ROOMS` only needs `--credentials-only`.
 
-The n8n container joins `hermes-mcp` to reach `nextcloud-mcp` and `wger-mcp`; the bridge, llama-server, and Firefly are reached on `webgateway`.
+The n8n container joins `hermes-mcp` to reach `nextcloud-mcp` and `wger-mcp`; the bridge and llama-server are reached on `webgateway`.
 
 ## Workflow drift check
 
@@ -130,3 +109,7 @@ To fix a drift, either restore the git versions with `sh n8n/scripts/hermes-dige
 ## Backup and important notes
 
 Back up `.env`, `data`, and a consistent copy or dump of `postgres`.
+
+## Database (since 2026-11-13)
+
+The database runs in the shared [databases](../databases/README.md) stack: PostgreSQL (`postgres`, database `n8n`) on the `databases` network. Start that stack first. The old `postgres` folder is the pre-move copy, kept for rollback; older notes in this README that mention the stack's own database container refer to the setup before the move.

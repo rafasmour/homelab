@@ -4,7 +4,9 @@
 # publishes them and restarts n8n so the schedules are registered.
 #
 # Secrets are read from the other stacks' ignored .env files and never
-# printed. The credential JSON exists only in a mode-600 temporary file and
+# printed. The digests' LLM model is Hermes' production model, PRODUCTION_MODEL
+# in benchmark/.env (scripts/production-model.sh keeps it current and re-runs
+# this script with --credentials-only after a switch). The credential JSON exists only in a mode-600 temporary file and
 # inside the container for the duration of the import.
 #
 # Usage (from the repository root): sh n8n/scripts/hermes-digests-setup.sh
@@ -39,15 +41,17 @@ require() {
 TALK_DELIVER_SECRET=$(env_value "$ROOT/hermes-nextcloud-bridge/.env" TALK_DELIVER_SECRET)
 NEXTCLOUD_TALK_PROFILE_ROOMS=$(env_value "$ROOT/hermes-nextcloud-bridge/.env" NEXTCLOUD_TALK_PROFILE_ROOMS)
 LLAMA_API_KEY=$(env_value "$ROOT/llama-cpp/.env" LLAMA_API_KEY)
-FIREFLY_III_ACCESS_TOKEN=$(env_value "$ROOT/firefly-iii/.env" FIREFLY_III_ACCESS_TOKEN)
 MCP_STATIC_TOKEN=$(env_value "$ROOT/wger/.env" MCP_STATIC_TOKEN)
+PRODUCTION_MODEL=$(env_value "$ROOT/benchmark/.env" PRODUCTION_MODEL)
+HERMES_SLOT_OTHERS=$(env_value "$ROOT/hermes/.env" HERMES_SLOT_OTHERS)
 require "hermes-nextcloud-bridge/.env TALK_DELIVER_SECRET" "$TALK_DELIVER_SECRET"
 require "hermes-nextcloud-bridge/.env NEXTCLOUD_TALK_PROFILE_ROOMS" "$NEXTCLOUD_TALK_PROFILE_ROOMS"
 require "llama-cpp/.env LLAMA_API_KEY" "$LLAMA_API_KEY"
-require "firefly-iii/.env FIREFLY_III_ACCESS_TOKEN" "$FIREFLY_III_ACCESS_TOKEN"
 require "wger/.env MCP_STATIC_TOKEN" "$MCP_STATIC_TOKEN"
-export TALK_DELIVER_SECRET NEXTCLOUD_TALK_PROFILE_ROOMS LLAMA_API_KEY FIREFLY_III_ACCESS_TOKEN \
-  MCP_STATIC_TOKEN
+require "benchmark/.env PRODUCTION_MODEL" "$PRODUCTION_MODEL"
+export TALK_DELIVER_SECRET NEXTCLOUD_TALK_PROFILE_ROOMS LLAMA_API_KEY \
+  MCP_STATIC_TOKEN PRODUCTION_MODEL HERMES_SLOT_OTHERS
+echo "digest LLM model: $PRODUCTION_MODEL (benchmark/.env PRODUCTION_MODEL)"
 
 umask 077
 TMP=$(mktemp)
@@ -72,13 +76,22 @@ room_ids = {
     "llamacpp-vulkan": "hdTalkVulkan0001",
     "llamacpp-rocm": "hdTalkRocm000001",
     "selfhosted": "hdTalkSelfhost01",
-    "finance": "hdTalkFinance001",
     "nextcloud": "hdTalkNextcloud1",
     "calories": "hdTalkCalories01",
 }
 missing = sorted(set(room_ids) - set(rooms))
 if missing:
     sys.exit(f"NEXTCLOUD_TALK_PROFILE_ROOMS has no room for: {', '.join(missing)}")
+
+
+# The digests share the slot of the other Hermes profiles (hermes/.env
+# HERMES_SLOT_OTHERS, default 2; 0 = primed ai-assistant, 1 = Hindsight), so
+# they never evict the assistant's warm prompt. For a range ("2-4") the first
+# slot is used; -1 sends no id_slot.
+slot_others = (env.get("HERMES_SLOT_OTHERS") or "2").strip()
+llm_body = {"model": env["PRODUCTION_MODEL"]}
+if slot_others != "-1" and slot_others.split("-")[0].isdigit():
+    llm_body["id_slot"] = int(slot_others.split("-")[0])
 
 
 def bearer(value):
@@ -88,8 +101,13 @@ def bearer(value):
 creds = [
     {"id": "hdLlamaApiKey001", "name": "Hermes digest – llama.cpp API key", "type": "httpHeaderAuth",
      "data": bearer(env["LLAMA_API_KEY"])},
-    {"id": "hdFireflyToken01", "name": "Hermes digest – Firefly III token", "type": "httpHeaderAuth",
-     "data": bearer(env["FIREFLY_III_ACCESS_TOKEN"])},
+    # The digests' "LLM request" nodes: bearer header plus "model" and "id_slot"
+    # merged into the JSON body (credential values win over the node's body).
+    {"id": "hdLlamaProdMdl01", "name": "Hermes digest – llama.cpp production model", "type": "httpCustomAuth",
+     "data": {"json": json.dumps({
+         "headers": {"Authorization": f"Bearer {env['LLAMA_API_KEY']}"},
+         "body": llm_body,
+     })}},
     {"id": "hdWgerMcpToken01", "name": "Hermes digest – wger MCP token", "type": "httpHeaderAuth",
      "data": bearer(env["MCP_STATIC_TOKEN"])},
     # For n8n's AI nodes (OpenAI Chat Model, AI Agent, ...): the local llama.cpp
