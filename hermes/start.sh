@@ -208,7 +208,6 @@ ensure_profile ai-assistant \
 # - clock: clock_now / clock_to_utc.
 # - agents: ask_agent, a consult of another profile (plugins/agents); enabled
 #   on ai-assistant and the 11 specialists below (AGENT_PROFILES).
-# - local_only: keeps auxiliary LLM calls on the local llama.cpp router.
 # /opt/hermes is read-only for the hermes user, so these are user plugins and
 # are enabled through plugins.enabled in each profile config below.
 python - "${SHARE}/plugins" default ${SPECIALISTS} ${CLI_PROFILES} <<'PY'
@@ -222,16 +221,15 @@ profiles = sys.argv[2:]
 home = Path(os.environ["HERMES_HOME"])
 sources = {
     "clock": share / "clock",
-    "local_only": share / "local_only",
     "agents": share / "agents",
 }
 
 # Retired plugins: remove their copies (spoken_reply: removed 2026-11-09, its
 # reply cleaning broke sentences; sandbox_terminal: removed with the
 # hermes-sandboxes stack; talk_send, kanban_notify and nextcloud_talk: removed
-# with the Nextcloud Talk bridge; prompt_prime: removed with the custom
-# plugins).
-retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk", "prompt_prime")
+# with the Nextcloud Talk bridge; prompt_prime, local_only: removed with the
+# custom plugins).
+retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk", "prompt_prime", "local_only")
 for profile in profiles:
     phome = home if profile == "default" else home / "profiles" / profile
     for name in retired:
@@ -960,8 +958,8 @@ auxiliary.setdefault("title_generation", {})["enabled"] = False
 # vision is pinned to the profile model too, not to a vision preset: loading
 # gemma-4-31b-it-vision would evict the served model (--models-max 1), and the
 # vision toolset is disabled anyway; an image call to a text-only model fails
-# loudly. plugins/local_only additionally stubs every cloud step and rejects
-# any non-custom provider, so a key added later is never used.
+# loudly. With no provider key configured in Hermes, nothing cloud-side is
+# reachable; do not add one.
 AUX_TASKS = (
     "vision", "compression", "skills_hub", "approval", "review", "mcp",
     "title_generation", "memory_query_rewrite", "tts_audio_tags",
@@ -1015,8 +1013,8 @@ for key in ("search_backend", "extract_backend"):
 
 plugins = section("plugins")
 # User plugins are keyed by their manifest name.
-wanted_plugins = ("clock", "local_only")
-retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify", "prompt_prime")
+wanted_plugins = ("clock",)
+retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify", "prompt_prime", "local_only")
 enabled = [n for n in (plugins.get("enabled") or []) if n not in retired_plugins]
 for name in wanted_plugins:
     if name not in enabled:

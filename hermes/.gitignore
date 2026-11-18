@@ -18,6 +18,3 @@
 !plugins/spoken_reply/__init__.py
 !tests/
 !tests/test_ornith_fixes.py
-!plugins/local_only/
-!plugins/local_only/plugin.yaml
-!plugins/local_only/__init__.py
