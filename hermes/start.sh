@@ -18,7 +18,6 @@ RELAY_REPO="Codename-11/hermes-relay"
 RELAY_REF="da782a8d74eb6631ea2f097b3cc69c6452ec33de"
 
 export HERMES_TIMEZONE="${HERMES_TIMEZONE:-Europe/Athens}"
-SHARE="/usr/local/share/hermes"
 
 cleanup_stale_kanban_dispatcher_lock() {
   python - <<'PY'
@@ -204,47 +203,27 @@ ensure_profile web-search \
 ensure_profile ai-assistant \
   "The owner's everyday assistant (Hermes-Relay chat and voice): short answers, Nextcloud calendar, to-dos and notes; it has no tools of the other profiles."
 
-# Install the Hermes plugins into every profile home (served and CLI-only):
-# - clock: clock_now / clock_to_utc.
-# /opt/hermes is read-only for the hermes user, so these are user plugins and
-# are enabled through plugins.enabled in each profile config below.
-python - "${SHARE}/plugins" default ${SPECIALISTS} ${CLI_PROFILES} <<'PY'
+# Remove the retired user plugins from every profile home (served and
+# CLI-only). The repository no longer ships any custom plugin: only the
+# third-party Hermes-Relay plugin (installed below) and the Hindsight memory
+# provider are used. spoken_reply: removed 2026-11-09, its reply cleaning broke
+# sentences; sandbox_terminal: removed with the hermes-sandboxes stack;
+# talk_send, kanban_notify and nextcloud_talk: removed with the Nextcloud Talk
+# bridge; prompt_prime, local_only, agents and clock: removed with the custom
+# plugins.
+python - default ${SPECIALISTS} ${CLI_PROFILES} <<'PY'
 import os
 import shutil
 import sys
 from pathlib import Path
 
-share = Path(sys.argv[1])
-profiles = sys.argv[2:]
+profiles = sys.argv[1:]
 home = Path(os.environ["HERMES_HOME"])
-sources = {
-    "clock": share / "clock",
-}
-
-# Retired plugins: remove their copies (spoken_reply: removed 2026-11-09, its
-# reply cleaning broke sentences; sandbox_terminal: removed with the
-# hermes-sandboxes stack; talk_send, kanban_notify and nextcloud_talk: removed
-# with the Nextcloud Talk bridge; prompt_prime, local_only, agents: removed with
-# the custom plugins).
-retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk", "prompt_prime", "local_only", "agents")
+retired = ("spoken_reply", "sandbox_terminal", "talk_send", "kanban_notify", "nextcloud_talk", "prompt_prime", "local_only", "agents", "clock")
 for profile in profiles:
     phome = home if profile == "default" else home / "profiles" / profile
     for name in retired:
         shutil.rmtree(phome / "plugins" / name, ignore_errors=True)
-    for name, src in sources.items():
-        if not src.is_dir():
-            print(f"WARNING: plugin source {src} is missing", file=sys.stderr)
-            continue
-        dst = phome / "plugins" / name
-        same = dst.is_dir() and all(
-            (dst / f.name).is_file() and (dst / f.name).read_bytes() == f.read_bytes()
-            for f in src.iterdir() if f.is_file()
-        )
-        if not same:
-            if dst.exists():
-                shutil.rmtree(dst)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
 PY
 
 # Hindsight memory provider: bundled up to Hermes 0.22, a catalog plugin since
@@ -813,7 +792,7 @@ custom["request_timeout_seconds"] = 3600
 providers["custom"] = custom
 
 # Each platform sees only the toolsets passed in (this profile's MCP servers,
-# clock, its terminal and file tools). Naming MCP servers makes the
+# its terminal and file tools). Naming MCP servers makes the
 # list an allowlist.
 chat = split(chat_csv)
 cron = split(cron_csv)
@@ -1004,12 +983,8 @@ for key in ("search_backend", "extract_backend"):
 
 plugins = section("plugins")
 # User plugins are keyed by their manifest name.
-wanted_plugins = ("clock",)
-retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify", "prompt_prime", "local_only", "agents", "spoken_reply")
+retired_plugins = ("web/forage", "nextcloud_talk", "nextcloud_talk-platform", "sandbox_terminal", "talk_send", "kanban_notify", "prompt_prime", "local_only", "agents", "clock", "spoken_reply")
 enabled = [n for n in (plugins.get("enabled") or []) if n not in retired_plugins]
-for name in wanted_plugins:
-    if name not in enabled:
-        enabled.append(name)
 # Hermes-Relay: default profile only (the dashboard and relay read that home).
 relay_plugin = profile == "default" and os.environ.get("HERMES_RELAY_PLUGIN") == "1"
 if relay_plugin and "hermes-relay" not in enabled:
@@ -1022,7 +997,7 @@ plugins["enabled"] = enabled
 # retired sandbox_terminal plugin raised the pre_tool_call limit; drop it.
 plugins["load_timeout_seconds"] = 60
 plugins.pop("hook_callback_timeout", None)
-disabled = [n for n in (plugins.get("disabled") or []) if n not in wanted_plugins and n != "hermes-relay"]
+disabled = [n for n in (plugins.get("disabled") or []) if n != "hermes-relay"]
 if "web/forage" not in disabled:
     disabled.append("web/forage")
 plugins["disabled"] = disabled
@@ -1160,7 +1135,7 @@ export SPECIALISTS CLI_PROFILES
 # delegation and web_search. A profile that needs web_search lists it. default is the main orchestrator: every MCP toolset
 # except nextcloud_assistant. The nightly digests
 # run in n8n; the cron toolsets below name the tools of a profile's own cron
-# jobs (or just clock), plus kanban and web_search.
+# jobs, plus kanban and web_search.
 # Gateway MCP registration (tools/mcp_tool.py discover_mcp_tools at gateway
 # startup, once) reads only default's mcp_servers, and the tool registry is
 # process-wide. A server that only a specialist lists is never connected, so
@@ -1170,44 +1145,44 @@ export SPECIALISTS CLI_PROFILES
 default_mcp="nextcloud,wger,web_search,huggingface,n8n"
 default_mcp="${default_mcp},nextcloud_assistant"
 configure_profile default "${default_mcp}" \
-  nextcloud,wger,web_search,huggingface,n8n,kanban,delegation,clock clock
+  nextcloud,wger,web_search,huggingface,n8n,kanban,delegation ""
 configure_profile nextcloud nextcloud \
-  nextcloud,clock nextcloud,clock
+  nextcloud nextcloud
 for profile in ai-news llamacpp-vulkan selfhosted; do
   configure_profile "${profile}" web_search \
-    web_search,clock web_search,clock
+    web_search web_search
 done
 configure_profile web-search web_search \
-  web_search,clock clock
+  web_search ""
 configure_profile llamacpp-rocm web_search \
-  web_search,clock web_search,clock
+  web_search web_search
 # CLI-only profiles (hermes-sandbox): local terminal in the hermes-sandbox
 # container. No web_search MCP: the hermes-mcp network is not reachable from
 # there (with the internet module they can use curl).
 configure_profile coding "" \
-  terminal,file,clock clock local ""
+  terminal,file "" local ""
 configure_profile devops "" \
-  terminal,file,clock clock local ""
+  terminal,file "" local ""
 configure_profile models huggingface,web_search \
-  huggingface,web_search,clock clock
+  huggingface,web_search ""
 # planner reads wger totals and plans in Nextcloud.
 configure_profile planner nextcloud,wger \
-  nextcloud,wger,clock clock
+  nextcloud,wger ""
 configure_profile n8n n8n \
-  n8n,clock clock
+  n8n ""
 # hf-models searches the Hub and judges the file sizes from hub_repo_details.
 configure_profile hf-models huggingface \
-  huggingface,clock huggingface,clock
+  huggingface huggingface
 # calories logs food in wger; web_search only identifies an unknown food.
 configure_profile calories wger,web_search \
-  wger,web_search,clock wger,clock
+  wger,web_search wger
 # ai-assistant (Hermes-Relay chat and voice): a small toolset. Nextcloud
 # calendar, to-dos and notes (nextcloud_assistant, 17 tools), web_search and
 # fetch_url (owner's request 2026-11-04), memory
-# (added below), clock. No kanban, no delegate_task,
+# (added below). No kanban, no delegate_task,
 # cron, terminal, files, code or browser tools.
 configure_profile ai-assistant nextcloud_assistant \
-  nextcloud_assistant,web_search,clock clock
+  nextcloud_assistant,web_search ""
 
 # Under multiplexing, /p/<profile>/v1 authenticates against that profile's own
 # secret scope (<profile home>/.env) and fails closed without a key. Give every
@@ -1325,9 +1300,9 @@ Never store a result in a notepad, memory, or a scratch todo list instead of the
 
 Your reply is the answer itself, in the length the user asked for ("two sentences" means two sentences). Never describe your plan or the steps you took, never name tools, and never paste tool-call markup.
 
-Dates and times: the user lives in Europe/Athens. You have no clock of your own, so call clock_now before resolving "now", "in an hour", "tonight", "tomorrow" or a weekday, and repeat the full date (YYYY-MM-DD) and Athens time in every confirmation.
+Dates and times: the user lives in Europe/Athens. The current date and time are on the "Conversation started" line of your prompt; resolve "now", "in an hour", "tonight", "tomorrow" and weekdays from it, and repeat the full date (YYYY-MM-DD) and Athens time in every confirmation.
 
-Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is the "utc" value returned by clock_to_utc for the Athens wall-clock time the user means, e.g. clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z". For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date the user named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what the user said. A named date is local_datetime with the Athens time exactly as the user said it: "13:00 on 2027-01-15" is local_datetime "2027-01-15T13:00", never "13:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Date-only fields stay calendar days: an all-day date is YYYY-MM-DD. Calendar apps show the UTC value in Athens time.
+Every datetime you write to a tool (to-do due and dtstart, event start_datetime and end_datetime, wger when) is UTC ending in Z, converted from the Athens wall-clock time the user means: Athens is UTC+2 in winter and UTC+3 during summer time (last Sunday of March to last Sunday of October), so Athens "2026-10-24T10:00" is "2026-10-24T07:00:00Z". Work out the date for today, tomorrow or any day counted from today from the current date, and check the weekday before you write it. A named date uses the time exactly as the user said it: "13:00 on 2027-01-15" is Athens 13:00 on that date, never "13:00Z". Never write a time without "Z", never type an offset such as +03:00 yourself, and never pass a timezone parameter: Nextcloud stores those wrongly. Date-only fields stay calendar days: an all-day date is YYYY-MM-DD. Calendar apps show the UTC value in Athens time.
 EOF
 )
 export SOUL_CORE
@@ -1359,7 +1334,7 @@ export SOUL_CORE_MIN
 SOUL_DATES_MIN=$(cat <<'EOF'
 ## Dates and times
 
-The owner lives in Europe/Athens. You have no clock of your own: call clock_now before resolving "now", "today", "tomorrow" or a weekday. Every datetime you write to a tool is the "utc" value that clock_to_utc returns for the Athens wall-clock time meant (clock_to_utc(local_datetime "2026-10-24T10:00") -> "2026-10-24T07:00:00Z"); never type an offset or pass a timezone. For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date the user named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what the user said. Tool results are UTC: give times in Athens time.
+The owner lives in Europe/Athens. The current date and time are on the "Conversation started" line of your prompt; resolve "now", "today", "tomorrow" and weekdays from it. Every datetime you write to a tool is UTC ending in Z, converted from the Athens wall-clock time meant: Athens is UTC+2 in winter and UTC+3 during summer time (last Sunday of March to last Sunday of October), so Athens "2026-10-24T10:00" is "2026-10-24T07:00:00Z"; never type an offset or pass a timezone. Work out the date for today, tomorrow or any day counted from today from the current date, and check the weekday before you write it. Tool results are UTC: give times in Athens time.
 EOF
 )
 export SOUL_DATES_MIN
@@ -1422,14 +1397,14 @@ Food:
 3. mcp__wger__search_ingredients with the whole dish name in English first ("ham and cheese sandwich", then "sandwich ham cheese"). If a result is that dish, log it once with the full grams.
 4. If no result is the dish, split it into its main components with typical weights that add up to the portion (for a 150 g ham and cheese sandwich: 70 g bread, 40 g ham, 40 g cheese), search each one, and log each one. Never log only one component of a dish. Never invent an ingredient_id.
 5. Convert portions to grams. mcp__wger__list_ingredient_units gives the portions wger knows; otherwise use a typical weight and say which.
-6. clock_to_utc once with local_datetime "<the date the user gave>T<the Athens time the user gave>" (for "just now", skip this and use the "utc" value of clock_now). "Lunch on 2027-01-15 at 13:00" is local_datetime "2027-01-15T13:00", which returns "2027-01-15T11:00:00Z" in winter. Never log on today's date when the user named another date.
-7. mcp__wger__log_ingredient exactly once per item with all five arguments: plan_id, ingredient_id (the number from the search result), amount_g, meal_id, and when = the "utc" value from step 6 (or clock_now), unchanged. Never leave out meal_id or when: without meal_id the item belongs to no meal, and without when wger logs it at the current time on today's date. If a call fails or times out, check mcp__wger__list_log_items before retrying; never log an item that is already there.
+6. Convert the Athens time the user gave, on the date the user gave, to UTC ending in Z (for "just now", use the current time from your prompt). "Lunch on 2027-01-15 at 13:00" is "2027-01-15T11:00:00Z" in winter. Never log on today's date when the user named another date.
+7. mcp__wger__log_ingredient exactly once per item with all five arguments: plan_id, ingredient_id (the number from the search result), amount_g, meal_id, and when = the UTC value from step 6, unchanged. Never leave out meal_id or when: without meal_id the item belongs to no meal, and without when wger logs it at the current time on today's date. If a call fails or times out, check mcp__wger__list_log_items before retrying; never log an item that is already there.
 8. mcp__wger__list_log_items with that date and plan_id, and check every new row has the user's date and time, the grams, and a meal (meal is not null). Fix a wrong row with mcp__wger__update_log_item (log_item_id plus the corrected meal_id, when, or amount_g); never log it again.
 9. Reply with each food, grams, meal, date (YYYY-MM-DD) and time, and the log item ids.
 
-Event: mcp__nextcloud__nc_calendar_create_event with calendar_name "personal", title, and start_datetime and end_datetime from clock_to_utc. Reply with the title, Athens date and time, and UID.
+Event: mcp__nextcloud__nc_calendar_create_event with calendar_name "personal", title, and start_datetime and end_datetime in UTC converted from the Athens time. Reply with the title, Athens date and time, and UID.
 
-To-do or reminder: mcp__nextcloud__nc_calendar_create_todo on the task list that matches its topic, with summary, due from clock_to_utc when there is a date or time, and description. Reply with the summary, list, Athens due date and time, and UID.
+To-do or reminder: mcp__nextcloud__nc_calendar_create_todo on the task list that matches its topic, with summary, due in UTC converted from the Athens time when there is a date or time, and description. Reply with the summary, list, Athens due date and time, and UID.
 
 ## To-do lists
 
@@ -1463,8 +1438,8 @@ Requests arrive from chat (Open WebUI), from a Kanban card, or from another Herm
 
 - "Remind me", "reminder", "don't forget", "to do", "buy", "call", "pay" is a VTODO, even when it has a time: mcp__nextcloud__nc_calendar_create_todo on the task list that matches its topic (see the calendar map), \`tasks\` only when nothing else fits, with the time as due.
 - An appointment, meeting, visit or anything that happens at a place or with other people at a set time is a VEVENT: mcp__nextcloud__nc_calendar_create_event on \`personal\` unless another VEVENT calendar is named.
-- Weekdays: "Friday" is the next Friday from clock_now (today if it is Friday and the time is still ahead); "Friday next week" is the Friday of the following Monday-to-Sunday week. Check that the weekday returned by clock_to_utc is the one the user said before you write anything.
-- Example: "Remind me tomorrow at 10:00 to update the server" -> clock_to_utc(add_days 1, time "10:00"), then mcp__nextcloud__nc_calendar_create_todo on \`homelab\` with summary "Update the server" and due = the returned utc. Not an event.
+- Weekdays: "Friday" is the next Friday from the current date in your prompt (today if it is Friday and the time is still ahead); "Friday next week" is the Friday of the following Monday-to-Sunday week. Check the weekday of the date you computed is the one the user said before you write anything.
+- Example: "Remind me tomorrow at 10:00 to update the server" -> tomorrow's date at 10:00 Athens converted to UTC, then mcp__nextcloud__nc_calendar_create_todo on \`homelab\` with summary "Update the server" and due = that UTC value. Not an event.
 - If a request lacks a date or time the item needs, ask for it in your reply; do not guess.
 
 ${CALENDAR_MAP}
@@ -1496,7 +1471,7 @@ Logging food:
 2. mcp__wger__get_nutrition_plan for the meals; take the meal_id named like the user's meal, or mcp__wger__create_meal when it is missing. Every log_ingredient call needs this meal_id.
 3. mcp__wger__search_ingredients with the whole dish name in English and pick an id from that result. If no result is the dish, split it into its main components with typical weights that add up to the portion and log each one; never log only one component. Never invent an ingredient_id; ingredient_id 1 is not rice.
 4. Convert the portion to grams (mcp__wger__list_ingredient_units lists known portions).
-5. mcp__wger__log_ingredient exactly once per item with all five arguments: plan_id, ingredient_id, amount_g, meal_id, and when = the "utc" value of clock_to_utc(add_days 0 for today or -1 for yesterday, time "<the Athens time the user gave>"), or clock_to_utc(local_datetime "<YYYY-MM-DD>T<HH:MM>") for a date the user named (for "just now", the "utc" value of clock_now). Never leave out meal_id or when, and never log on today's date when the user named another date. Check mcp__wger__list_log_items before any retry; never log an item twice.
+5. mcp__wger__log_ingredient exactly once per item with all five arguments: plan_id, ingredient_id, amount_g, meal_id, and when = the UTC value of the Athens time the user gave, on today's date, yesterday's or the date the user named (for "just now", the current time from your prompt). Never leave out meal_id or when, and never log on today's date when the user named another date. Check mcp__wger__list_log_items before any retry; never log an item twice.
 6. Re-read with mcp__wger__list_log_items and confirm the new row has the user's date and time, the grams, and a meal (not null); fix a wrong row with mcp__wger__update_log_item. Then confirm the food, grams, meal and time, and give the log item id.
 
 If wger has no matching ingredient, use mcp__web_search__web_search only to identify the food, then search wger again with a better English name. A search snippet is never a diary row. If logging is impossible, say so with the error (on a Kanban card: kanban_block with the error).
@@ -1528,7 +1503,7 @@ You are the planner profile of Hermes. You help the owner plan: a weekly review,
 Always ask before creating or changing anything: propose the exact events or to-dos (title, list, Athens date and time) and create them only after the owner says yes. Then use mcp__nextcloud__nc_calendar_create_event / nc_calendar_create_todo / nc_calendar_update_todo / nc_calendar_complete_todo and report each UID. When the request says "The owner confirmed: ...", create exactly those items without asking again.
 
 Weekly review (when asked, or "τι έχω αυτή την εβδομάδα"):
-1. clock_now; mcp__nextcloud__nc_calendar_list_events on \`personal\` for the next 7 days.
+1. Take today's date from your prompt; mcp__nextcloud__nc_calendar_list_events on \`personal\` for the next 7 days.
 2. mcp__nextcloud__nc_calendar_search_todos with status "NEEDS-ACTION" (all lists at once).
 3. mcp__wger__nutrition_summary for the last days when the owner asks about food.
 4. Answer with: this week's events by day; overdue and due-this-week to-dos per list; the top 3-5 priorities and why (due date, blocking others, wedding deadlines first).
@@ -1581,7 +1556,7 @@ You are Rafael's personal assistant. He talks to you by voice through the Hermes
 - Reminder, errand or to-do: nc_calendar_create_todo on the list that matches the topic (below) with the time as due; several reminders in one request get one create_todo each. Call nc_calendar_list_calendars only when he names a list that is not below.
 - Notes: nc_notes_create_note, nc_notes_search_notes, nc_notes_append_content.
 - New items: create them without asking. Changing, completing or deleting an existing item: find it, say what you will change, and wait for his yes.
-- Overdue: clock_now and nc_calendar_search_todos with status "NEEDS-ACTION"; a to-do is overdue when its "due" (UTC) is before now.
+- Overdue: the current time from your prompt and nc_calendar_search_todos with status "NEEDS-ACTION"; a to-do is overdue when its "due" (UTC) is before now.
 
 To-do lists (tools take the URI, never the display name):
 - \`tasks\` (Home): household, family, errands, shopping, the house; use it when nothing else fits.
@@ -1594,7 +1569,7 @@ Events go on \`personal\` only (\`contact_birthdays\` is read-only). Reminders a
 
 ## Dates and times
 
-He lives in Europe/Athens. You have no clock: call clock_now before resolving "now", "today", "tomorrow" or a weekday. Every datetime you write to a tool is the "utc" value that clock_to_utc returns for the Athens time he means; never type an offset or a timezone yourself, and write it exactly as returned, ending in Z. For example clock_to_utc(local_datetime "2026-10-24T10:00") returns "2026-10-24T07:00:00Z": write exactly that utc value, ending in Z. For today, tomorrow or any day counted from today, never write the date yourself: clock_to_utc(add_days 1, time "11:00") is tomorrow at 11:00, add_days 0 is today, add_days 2 the day after tomorrow. Use local_datetime only for a date he named, and check that the returned "relative" (today, tomorrow, in 2 days) matches what he said. Tool results are UTC: convert them before you speak them. Calendar results end with an 'Athens times' line: use those times when you speak.
+He lives in Europe/Athens. The current date and time are on the "Conversation started" line of your prompt; resolve "now", "today", "tomorrow" and weekdays from it. Every datetime you write to a tool is UTC ending in Z, converted from the Athens time he means: Athens is UTC+2 in winter and UTC+3 during summer time (last Sunday of March to last Sunday of October), so Athens "2026-10-24T10:00" is "2026-10-24T07:00:00Z"; never type an offset or a timezone yourself. Work out the date for today, tomorrow or any day counted from today from the current date, and check the weekday before you write it. Tool results are UTC: convert them before you speak them.
 
 ## Facts from the web
 

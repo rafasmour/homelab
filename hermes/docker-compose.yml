@@ -14,7 +14,6 @@ services:
       # never commit.
       - ./data:/home/hermes/.hermes
       - ./start.sh:/usr/local/bin/start.sh:ro
-      - ./plugins:/usr/local/share/hermes/plugins:ro
     environment:
       HERMES_HOME: /home/hermes/.hermes
       HERMES_UID: "${HERMES_UID:-1000}"
