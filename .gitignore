@@ -18,6 +18,11 @@
 !scripts/llama-router.sh
 !scripts/production-model.sh
 !scripts/bench.sh
+!scripts/install-cli.sh
+!bin/
+!bin/bench
+!bin/sandbox
+!bin/lab
 !scripts/hf-find.sh
 !scripts/add-preset.sh
 !scripts/post-note.sh
@@ -29,9 +34,9 @@
 !benchmark/
 !chartdb/
 !docker-state-exporter/
+!databases/
 !drawio/
 !excalidraw/
-!firefly-iii/
 !gitlab/
 !grafana/
 !hermes/
@@ -90,14 +95,6 @@ affine/storage/
 benchmark/data/
 benchmark/reports/
 benchmark/ui-credentials.txt
-firefly-iii/database/
-firefly-iii/imports/
-!firefly-iii/imports/
-!firefly-iii/imports/_fallback.json.example
-!firefly-iii/mcp/
-!firefly-iii/mcp/Dockerfile
-firefly-iii/import-archive/
-firefly-iii/uploads/
 gitlab/config/
 gitlab/data/
 gitlab/logs/
@@ -264,22 +261,17 @@ wger/static/
 !n8n/Dockerfile
 !n8n/.dockerignore
 !n8n/scripts/
-!n8n/scripts/piraeus-import.cjs
 !n8n/scripts/package.json
 !n8n/scripts/package-lock.json
 !n8n/scripts/hermes-digests-setup.sh
 !n8n/scripts/check-workflow-drift.sh
 !n8n/docker-compose.n8n-drift.yml
-!n8n/scripts/firefly-subscriptions-setup.sh
 !n8n/workflows/
-!n8n/workflows/piraeus-monthly-import.json
-!n8n/workflows/firefly-subscriptions-to-nextcloud.json
 !n8n/workflows/hermes-digest-ai-news.json
 !n8n/workflows/hermes-digest-hf-models.json
 !n8n/workflows/hermes-digest-llamacpp-vulkan.json
 !n8n/workflows/hermes-digest-llamacpp-rocm.json
 !n8n/workflows/hermes-digest-selfhosted.json
-!n8n/workflows/hermes-digest-payments-unpaid.json
 !n8n/workflows/hermes-digest-morning-digest.json
 !n8n/workflows/hermes-digest-calories-report.json
 !wger/config/
@@ -296,6 +288,10 @@ wger/static/
 !speech/audiocpp/Dockerfile
 !speech/audiocpp/server.json
 !speech/audiocpp/discover.py
+!speech/audiocpp/supertonic-spec.json
+!speech/audiocpp/voices-supertonic/
+!speech/audiocpp/voices-supertonic/voice_styles/
+!speech/audiocpp/voices-supertonic/voice_styles/jarvis-st-4.json
 !speech/tools/
 !speech/tools/fix_convinteger.py
 
@@ -369,3 +365,7 @@ wger/static/
 !maps/pelias/
 !maps/pelias/pelias.json
 !maps/nginx.conf
+
+# Shared databases stack data
+databases/postgres/
+databases/mariadb/

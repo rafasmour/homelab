@@ -20,8 +20,6 @@ nextcloud/html/
 nextcloud/mcp-data/
 gitlab/logs/
 benchmark/reports/
-firefly-iii/uploads/
-firefly-iii/import-archive/
 tandoor-recipes/mediafiles/
 tandoor-recipes/staticfiles/
 wger/media/

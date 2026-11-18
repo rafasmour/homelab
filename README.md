@@ -10,21 +10,21 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | --- | --- | --- | --- |
 | [Benchmark](benchmark/README.md) | Compares llama.cpp models as the brain of the Hermes profiles (runner with Docker socket and job API; MCP server for the Hermes `models` profile; SQLite results browser behind a login page) | `benchmark.${DOMAIN}` | AI |
 | [ChartDB](chartdb/README.md) | Browser-based database diagramming | `chartdb.${DOMAIN}` | Development |
+| [Databases](databases/README.md) | Shared Postgres 17 (immich, wger, n8n, hindsight) and MariaDB (Nextcloud); start before the apps | Private only | Not listed |
 | [Docker state exporter](docker-state-exporter/README.md) | Prometheus metrics for container state, health and restarts | Private only | Not listed |
 | [draw.io](drawio/README.md) | Browser-based diagram and flowchart editor with Hermes MCP tools | `drawio.${DOMAIN}` | Knowledge |
 | [Excalidraw](excalidraw/README.md) | Local-first whiteboarding | `excalidraw.${DOMAIN}` | Knowledge |
-| [Firefly III](firefly-iii/README.md) | Personal finance management and data importing | `firefly.${DOMAIN}`, `firefly-importer.${DOMAIN}` | Finance |
-| [Web search MCP](web-search/README.md) | SearXNG-backed crawl-to-markdown MCP for Hermes and Open WebUI | Private only | Not listed |
+| [Web search MCP](web-search/README.md) | SearXNG-backed crawl-to-markdown MCP for Hermes | Private only | Not listed |
 | [GitLab CE](gitlab/README.md) | Git hosting and CI/CD | `gitlab.${DOMAIN}` | Development |
 | [Grafana](grafana/README.md) | Dashboards for metrics and logs | `grafana.${DOMAIN}` | Monitoring |
-| [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles, plus the web dashboard and relay for the Hermes-Relay Android app | `hermes.${DOMAIN}`, `hermes-dash.${DOMAIN}`, `hermes-relay.${DOMAIN}` | AI |
+| [Hermes](hermes/README.md) | OpenAI-compatible API for the Hermes agent profiles (`hermes.${DOMAIN}/v1`), the browser-hosted Hermes Desktop at the hostname root, the web dashboard, and the relay for the Hermes-Relay Android app | `hermes.${DOMAIN}`, `hermes-api.${DOMAIN}`, `hermes-dash.${DOMAIN}`, `hermes-relay.${DOMAIN}` | AI |
 | [Hermes Nextcloud Talk bridge](hermes-nextcloud-bridge/README.md) | Nextcloud Talk bot and delivery endpoint for Hermes | Private only | Not listed |
 | [Hermes sandboxes](hermes-sandboxes/README.md) | Per-profile SSH sandboxes for the API profiles' terminal/file tools, a restart-only Docker proxy and a Docker-in-Docker agent testbed | Private only | Not listed |
 | [Hindsight](hindsight/README.md) | Shared long-term agent memory for the Hermes profiles (internal API only, no internet; embeddings on llama-classifier, retain/reflect on llama-server) | Private only | Not listed |
 | [Homepage](homepage/README.md) | Homelab service dashboard | `${DOMAIN}` | Monitoring |
 | [Image Generation](image-generation/README.md) | Vulkan Stable Diffusion WebUI and API | `stable-diffusion.${DOMAIN}` | Not configured |
 | [Immich](immich/README.md) | Photo and video backup | `immich.${DOMAIN}` | Photos |
-| [llama.cpp](llama-cpp/README.md) | Vulkan model router with an OpenAI-compatible API, plus a Hugging Face GGUF download UI | `ai.${DOMAIN}`, `models.${DOMAIN}` | AI |
+| [llama.cpp](llama-cpp/README.md) | ROCm model router with an OpenAI-compatible API, plus a Hugging Face GGUF download UI | `ai.${DOMAIN}`, `models.${DOMAIN}` | AI |
 | [llama.cpp classifiers](llama-cpp-classifier/README.md) | CPU router for decision models | `classify.${DOMAIN}` | AI |
 | [Loki](loki/README.md) | Log aggregation | `loki.${DOMAIN}` | Monitoring |
 | [Maps](maps/README.md) | Greece-only Valhalla routing and lean Pelias search, no web page (backend for Cardinal / Murena Maps search and directions) | `maps.${DOMAIN}` | Home |
@@ -36,7 +36,6 @@ Browser-facing services normally use Traefik through the external `webgateway` n
 | [Paperless-ngx](paperless/README.md) | Document management (Greek+English OCR, tags, full-text search) fed from Nextcloud `Scans/`, with paperless-gpt LLM suggestions (no login; VPN only) | `paperless.${DOMAIN}`, `paperless-gpt.${DOMAIN}` | Cloud |
 | [Node Exporter](node-exporter/README.md) | Host metrics for Prometheus | Private only | Not listed |
 | [OpenTelemetry Collector](open-telemetry/README.md) | Docker log collection and OTLP ingestion | Private only | Not listed |
-| [Open WebUI](openwebui/README.md) | Browser interface for the llama.cpp API | `webui.${DOMAIN}` | AI |
 | [Pi-hole](pi-hole/README.md) | Network-wide DNS filtering | `pihole.${DOMAIN}` | Management |
 | [Prometheus](prometheus/README.md) | Metrics collection and querying | `prometheus.${DOMAIN}` | Monitoring |
 | [Reactive Resume](reactive-resume/README.md) | Resume builder | `resume.${DOMAIN}` | Productivity |
@@ -117,7 +116,7 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
   new random hex values in every stack `.env` that holds them, without printing
   any value, then prints (or with `--restart` runs) the stack recreates and the
   n8n credential re-import. Keys issued by other services (`HF_TOKEN`,
-  `N8N_API_KEY`, Firefly and wger tokens, the Nextcloud app password, the Talk
+  `N8N_API_KEY`, the wger token, the Nextcloud app password, the Talk
   bot secret) and stateful secrets (database passwords, encryption keys) are
   rotated by hand.
 - `scripts/llama-router.sh status|reload|load M|unload M|loaded|presets|vram`
@@ -130,12 +129,54 @@ Real `.env` files, downloaded models, databases, uploads, logs, caches, and othe
 - `scripts/bench.sh llm|stt|tts|all|summary|status [--bg]` runs the benchmark
   suites with the speech warmer paused, refuses while a run holds the lock,
   logs to `benchmark/reports/` and prints scores from the database.
+- `scripts/install-cli.sh [--uninstall] [--dry-run]` symlinks every `bin/*`
+  command (`lab`, `bench`, `sandbox`) and agent-sandbox's own commands
+  (`agent-sandbox`, `pi-sandbox`, `hermes-sandbox`, from `AGENT_SANDBOX_DIR`,
+  default `../agent-sandbox`) into `~/.local/bin`. Idempotent; never overwrites
+  a regular file or a foreign link; `--uninstall` removes only links into these
+  repos; warns when `~/.local/bin` is not on `PATH`. agent-sandbox is a separate
+  local repo without a remote: copy it next to this checkout on a new machine
+  before running the installer.
+- `bin/lab` is one command for the chores that otherwise need `docker exec`
+  (`lab --help` lists them all):
+  - `lab warmer [status|pause|resume|disable|enable]`: the speech warmer;
+    `disable`/`enable` set `WARM_ENABLED` in `speech/.env` (backup first) and
+    recreate `speech-gateway`; benchmark runs pause it by themselves.
+  - `lab llm [status|loaded|presets|vram|reload|load M|unload M|production ...]`:
+    `scripts/llama-router.sh` and `scripts/production-model.sh`.
+  - `lab bench ...`: `bin/bench`, plus `stop` (SIGTERM, clean abort), `plan`
+    (dry run), `list`, `rescore`, `import`.
+  - `lab hermes profiles|prime|doctor|pair` and `lab hermes PROFILE ARGS...`
+    (`hermes -p PROFILE ...` as user hermes); `prime` shows the prompt_prime
+    slot, token count and templates.
+  - `lab n8n digests|drift|run ID|password`, `lab nextcloud occ ARGS...|scan-scans`,
+    `lab db dump hindsight|paperless [FILE]` (mode 600, never overwrites),
+    `lab wger sync-ingredients`, `lab testbed ps|reset`, `lab logs C [opts]`,
+    `lab sh C [USER]`.
+  Secrets are never printed; values stay in the containers or the scripts it calls.
+- `bin/bench` is a whiptail menu over `scripts/bench.sh`: benchmark (hermes,
+  stt, tts), then version (only the checked-out version can run; older ones
+  open a results leaderboard), models, cases (hermes: all, by profile, single
+  cases, the opt-in `ai-assistant` group), repeats, foreground or background,
+  then the exact equivalent command before it starts. Non-interactive:
+  `bench run hermes --models a,b [--cases x,y|--profiles p] [--repeat N] [--bg]
+  [--dry-run] [--yes]`, `bench results [BENCH] [--version V]`,
+  `bench versions [BENCH]`, `bench status`. `scripts/bench.sh` also accepts
+  `--cases`, `--profiles`, `--repeat` and `--web`, and `--dry-run` works while
+  a run holds the lock.
+- `bin/sandbox` is a menu over agent-sandbox: start a session (harness,
+  profile, folder, modules read from `agent-sandbox <harness> -h`, detach,
+  prompt) or manage sessions (list, attach, logs, stop, build); it shows the
+  equivalent command first. Scriptable: `sandbox start pi devops -m
+  internet,websearch -C DIR [-d] [-p TEXT] [--dry-run] [--yes]`; `sandbox
+  ls|attach|logs|stop|build` pass through. Nothing inside agent-sandbox is
+  tracked by this repository.
 - `scripts/hf-find.sh search|files|card|dl|drafters` finds quantized GGUFs and
   drafters on Hugging Face; full-precision files are flagged SKIP and refused.
 - `scripts/add-preset.sh NAME --model FILE [...]` appends a preset to
   `llama-cpp/models/router-config.ini` (with backup) and can reload the router.
 - `scripts/post-note.sh TITLE [--category C] [--file F]` posts a Markdown
-  report to Nextcloud Notes via the hermes-api integration.
+  report to Nextcloud Notes via the hermes integration.
 - `scripts/resources.sh [--short]` shows VRAM, RAM/swap, loaded models, top
   containers, stopped containers and benchmark leftovers.
 - `scripts/stack.sh check|up|rebuild STACK [SERVICE ...]` validates a stack's

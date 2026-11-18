@@ -1,7 +1,7 @@
 # After the benchmarks
 
 Everything that is built (or decided) but waits until the llama.cpp model
-benchmarks are finished. The benchmark run holds the GPU, `hermes-api` and
+benchmarks are finished. The benchmark run holds the GPU, `hermes` and
 the WireGuard uplink, and the host has a marginal 600 W PSU, so these steps
 run one at a time afterwards. The main session works through this list with
 subagents; tick items off here as they land.
@@ -77,7 +77,7 @@ text in [`home-assistant/README.md`](home-assistant/README.md).
 
 - [ ] You: install HACS, add the Wyoming integrations (whisper 10300,
   kokoro 10300, piper 10200), install Extended OpenAI Conversation
-  (base URL `http://hermes-api:8642/p/voice/v1`, model `voice`, key
+  (base URL `http://hermes:8642/p/voice/v1`, model `voice`, key
   `HERMES_VOICE_KEY` from `hermes/.env`, functions `[]`).
 - [ ] You: create the "Hermes" Assist pipeline (English, faster-whisper,
   Kokoro `af_heart`), set it preferred.
@@ -116,13 +116,6 @@ Owner: n8n agent (done: drift check, Firefly fix).
 - [x] Re-import the Hermes digests (git is ahead of n8n, and four now use
   the new model): `sh n8n/scripts/hermes-digests-setup.sh` (restarts n8n).
   Done 2026-10-27; drift now only Piraeus.
-- [ ] Piraeus workflow drift: compare `--diff 7f3a9c2e-…`, keep live or git.
-  Note: Live draft has an extra Gmail "Get a message" node after the trigger (credential attached) and different trigger filters; git lacks it. Decision still yours.
-- [ ] Firefly → Payments calendar: credential + test run
-  (`sh n8n/scripts/firefly-subscriptions-setup.sh`, then
-  `docker exec -e N8N_RUNNERS_BROKER_PORT=5699 n8n n8n execute --id=6c2e9b14-8d57-4a31-b0f6-3e8a1d5c7b92`
-  twice), then `--publish`.
-  Note: Credential + workflow imported (inactive). `n8n execute` fails: "Missing node to start execution" (schedule trigger only), so no test run; needs a manual trigger or a publish first.
 
 ## 6. llama.cpp follow-ups
 
